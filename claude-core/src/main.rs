@@ -68,6 +68,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let is_daemon = args.iter().any(|a| a == "--daemon");
 
+    // CRITICAL: Ignore SIGPIPE so we don't die when CLI disconnects stdout/stderr
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+
     // Parse --cwd flag or use current directory
     let cwd_str = args.iter().position(|a| a == "--cwd")
         .and_then(|i| args.get(i + 1))
@@ -85,6 +91,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("SOCKET:{}", socket_path.display());
     use std::io::Write;
     std::io::stdout().flush()?;
+
+    // In daemon mode, close stdout/stderr after emitting socket path
+    // so broken pipes from the launching CLI can't affect us
+    if is_daemon {
+        // Redirect stdout and stderr to a log file or /dev/null
+        let log_path = socket_path.with_extension("log");
+        let log_file = std::fs::OpenOptions::new()
+            .create(true).append(true).open(&log_path).ok();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            // Redirect stderr to log file (or /dev/null)
+            if let Some(ref f) = log_file {
+                unsafe {
+                    libc::dup2(f.as_raw_fd(), 2); // stderr → log
+                }
+            } else {
+                let devnull = std::fs::File::open("/dev/null").unwrap();
+                unsafe {
+                    libc::dup2(devnull.as_raw_fd(), 2);
+                }
+            }
+            // Redirect stdout to /dev/null (we already sent SOCKET: line)
+            let devnull = std::fs::File::open("/dev/null").unwrap();
+            unsafe {
+                libc::dup2(devnull.as_raw_fd(), 1); // stdout → /dev/null
+            }
+        }
+
+        eprintln!("baoclaw-core daemon started (pid={}, cwd={})", std::process::id(), cwd_str);
+    }
 
     // Get API key and config from environment
     let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
@@ -115,10 +153,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         total_cost_usd: 0.0,
     });
 
-    // If daemon mode, detach from terminal signals
+    // If daemon mode, ignore SIGHUP so we survive terminal close
     if is_daemon {
-        eprintln!("baoclaw-core daemon started (pid={}, session={})", std::process::id(), session_id);
-        // Ignore SIGHUP so we survive terminal close
         #[cfg(unix)]
         unsafe {
             libc::signal(libc::SIGHUP, libc::SIG_IGN);
