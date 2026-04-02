@@ -134,6 +134,7 @@ dependencies = [
  "futures",
  "glob",
  "jsonwebtoken",
+ "libc",
  "proptest",
  "rand 0.8.5",
  "regex",

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::path::PathBuf;
 
 mod api;
 mod bridge;
@@ -20,72 +21,79 @@ use ipc::server::{IpcError, IpcServer};
 use state::manager::{CoreState, StateManager};
 use tools::builtins::{BashTool, FileEditTool, FileReadTool, FileWriteTool};
 
+/// Socket directory for all BaoClaw daemon instances
+fn socket_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join("baoclaw-sockets");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Generate a socket path with session info embedded in the filename
+fn make_socket_path(cwd: &str) -> PathBuf {
+    let pid = std::process::id();
+    // Use a hash of cwd for the filename so we can identify which dir it serves
+    let cwd_hash = &format!("{:x}", md5_simple(cwd))[..8];
+    socket_dir().join(format!("baoclaw-{}-{}.sock", cwd_hash, pid))
+}
+
+/// Write a metadata JSON file next to the socket for discovery
+fn write_meta(socket_path: &std::path::Path, cwd: &str, session_id: &str) {
+    let meta_path = socket_path.with_extension("json");
+    let meta = serde_json::json!({
+        "pid": std::process::id(),
+        "cwd": cwd,
+        "session_id": session_id,
+        "socket": socket_path.to_string_lossy(),
+        "started_at": chrono::Utc::now().to_rfc3339(),
+    });
+    let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
+}
+
+fn cleanup_meta(socket_path: &std::path::Path) {
+    let _ = std::fs::remove_file(socket_path.with_extension("json"));
+}
+
+/// Simple hash for cwd → short hex string
+fn md5_simple(input: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in input.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Create socket path in temp directory using process ID for uniqueness
-    let socket_path = std::env::temp_dir()
-        .join(format!("claude-core-{}.sock", std::process::id()));
+    let args: Vec<String> = std::env::args().collect();
+    let is_daemon = args.iter().any(|a| a == "--daemon");
 
-    // 2. Bind IPC server to the Unix Domain Socket
+    // Parse --cwd flag or use current directory
+    let cwd_str = args.iter().position(|a| a == "--cwd")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string());
+    let cwd = PathBuf::from(&cwd_str);
+
+    // Create socket in the shared socket directory
+    let socket_path = make_socket_path(&cwd_str);
+
+    // Bind IPC server
     let server = IpcServer::bind(&socket_path).await?;
 
-    // 3. Output socket path for the TypeScript process to read
+    // Output socket path for clients to find
     println!("SOCKET:{}", socket_path.display());
-
-    // Flush stdout to ensure TS process reads it immediately
     use std::io::Write;
     std::io::stdout().flush()?;
 
-    // 4. Wait for a client connection
-    let mut conn = server.accept().await?;
-
-    // 5. Wait for the initialize request
-    let init_msg = conn.recv_message().await?;
-    let (init_id, init_config) = match init_msg {
-        JsonRpcMessage::Request(req) => {
-            let id = req.id.clone();
-            match parse_client_method(&req) {
-                Ok(method) => match method {
-                    ClientMethod::Initialize { cwd, model, settings: _ } => {
-                        (id, (cwd, model))
-                    }
-                    _ => {
-                        conn.send_error(
-                            Some(req.id),
-                            -32600,
-                            "Expected 'initialize' as first request".into(),
-                        ).await?;
-                        return Ok(());
-                    }
-                },
-                Err(e) => {
-                    conn.send_error(
-                        Some(req.id),
-                        -32600,
-                        format!("Invalid initialize request: {}", e),
-                    ).await?;
-                    return Ok(());
-                }
-            }
-        }
-        _ => {
-            return Err("Expected JSON-RPC request for initialization".into());
-        }
-    };
-
-    let (cwd, model_opt) = init_config;
-    let model = model_opt.unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
-
-    // Get API key from environment
+    // Get API key and config from environment
     let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-
     let api_client = Arc::new(AnthropicClient::new(ApiClientConfig {
         api_key,
         base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
         max_retries: None,
     }));
 
-    // Assemble tool pool with built-in tools
     let engine_tools: Vec<Arc<dyn tools::Tool>> = vec![
         Arc::new(BashTool::new()),
         Arc::new(FileReadTool::new(vec![])),
@@ -93,193 +101,240 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(FileEditTool::new(vec![])),
     ];
 
-    // Create the QueryEngine with built-in tools
-    let mut engine = QueryEngine::new(QueryEngineConfig {
-        cwd: cwd.clone(),
-        tools: engine_tools.clone(),
-        api_client,
-        model: model.clone(),
-        thinking_config: ThinkingConfig::Disabled,
-        max_turns: None,
-        max_budget_usd: None,
-        verbose: false,
-        custom_system_prompt: None,
-        append_system_prompt: None,
-    });
+    let session_id = uuid::Uuid::new_v4().to_string();
 
-    // Create state manager
+    // Write metadata file for discovery by CLI
+    write_meta(&socket_path, &cwd_str, &session_id);
+
     let state_manager = StateManager::new(CoreState {
-        session_id: uuid::Uuid::new_v4().to_string(),
-        model: model.clone(),
+        session_id: session_id.clone(),
+        model: "claude-sonnet-4-20250514".to_string(),
         verbose: false,
         tasks: std::collections::HashMap::new(),
         usage: EMPTY_USAGE,
         total_cost_usd: 0.0,
     });
 
-    // Send initialize response with capabilities
-    conn.send_response(
-        init_id,
-        serde_json::json!({
-            "capabilities": {
-                "tools": true,
-                "streaming": true,
-                "permissions": true,
-            },
-            "session_id": state_manager.get().session_id,
-        }),
-    ).await?;
-
-    // Spawn a task to forward state patches over IPC
-    // We use a separate channel to forward patches from the broadcast receiver
-    // to the main loop, since the IPC connection isn't Send-safe for direct use in spawned tasks.
-    let (patch_tx, mut patch_rx) = tokio::sync::mpsc::channel::<Vec<state::manager::StatePatch>>(256);
-    {
-        let mut state_rx = state_manager.subscribe();
-        tokio::spawn(async move {
-            loop {
-                match state_rx.recv().await {
-                    Ok(patches) => {
-                        if patch_tx.send(patches).await.is_err() {
-                            // Main loop dropped the receiver, exit
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        eprintln!("State patch subscriber lagged by {} messages", n);
-                        // Continue receiving
-                    }
-                }
-            }
-        });
+    // If daemon mode, detach from terminal signals
+    if is_daemon {
+        eprintln!("baoclaw-core daemon started (pid={}, session={})", std::process::id(), session_id);
+        // Ignore SIGHUP so we survive terminal close
+        #[cfg(unix)]
+        unsafe {
+            libc::signal(libc::SIGHUP, libc::SIG_IGN);
+        }
     }
 
-    // 6. Main RPC loop
-    loop {
-        // Use select to handle both IPC messages and state patches
-        tokio::select! {
-            // Forward state patches to the client
-            Some(patches) = patch_rx.recv() => {
-                if let Err(e) = send_state_patches(&mut conn, &patches).await {
-                    eprintln!("Failed to send state patches: {}", e);
-                }
+    // ══════════════════════════════════════════════════════════
+    // Main accept loop — keeps running, accepts new clients
+    // When a client disconnects, we wait for the next one
+    // Only `shutdown` RPC terminates the daemon
+    // ══════════════════════════════════════════════════════════
+    let mut should_exit = false;
+
+    // We need to create the engine outside the loop so conversation persists
+    let mut engine: Option<QueryEngine> = None;
+
+    while !should_exit {
+        eprintln!("Waiting for client connection...");
+        let mut conn = match server.accept().await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Accept error: {}", e);
+                continue;
             }
-            // Handle incoming IPC messages
-            msg_result = conn.recv_message() => {
-                let msg = match msg_result {
-                    Ok(msg) => msg,
-                    Err(IpcError::ConnectionClosed) => {
-                        eprintln!("Client disconnected");
-                        break;
+        };
+        eprintln!("Client connected");
+
+        // Wait for initialize (or re-initialize) request
+        let init_msg = match conn.recv_message().await {
+            Ok(msg) => msg,
+            Err(IpcError::ConnectionClosed) => {
+                eprintln!("Client disconnected before initialize");
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Error reading init: {}", e);
+                continue;
+            }
+        };
+
+        let (init_id, init_cwd, init_model) = match init_msg {
+            JsonRpcMessage::Request(req) => {
+                let id = req.id.clone();
+                match parse_client_method(&req) {
+                    Ok(ClientMethod::Initialize { cwd: c, model: m, .. }) => {
+                        (id, c, m)
+                    }
+                    Ok(_) => {
+                        let _ = conn.send_error(Some(req.id), -32600,
+                            "Expected 'initialize' as first request".into()).await;
+                        continue;
                     }
                     Err(e) => {
-                        eprintln!("IPC error: {}", e);
-                        break;
+                        let _ = conn.send_error(Some(req.id), -32600,
+                            format!("Invalid init: {}", e)).await;
+                        continue;
                     }
-                };
+                }
+            }
+            _ => { continue; }
+        };
 
-                match msg {
-                    JsonRpcMessage::Request(req) => {
-                        let id = req.id.clone();
-                        match parse_client_method(&req) {
-                            Ok(method) => match method {
-                                ClientMethod::SubmitMessage { prompt, .. } => {
-                                    let prompt_str = match prompt.as_str() {
-                                        Some(s) => s.to_string(),
-                                        None => serde_json::to_string(&prompt).unwrap_or_default(),
-                                    };
+        let model = init_model.unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+        let work_cwd = init_cwd;
 
-                                    let mut rx = engine.submit_message(prompt_str).await;
+        // Create engine if first client, or reuse existing
+        if engine.is_none() {
+            engine = Some(QueryEngine::new(QueryEngineConfig {
+                cwd: work_cwd.clone(),
+                tools: engine_tools.clone(),
+                api_client: Arc::clone(&api_client),
+                model: model.clone(),
+                thinking_config: ThinkingConfig::Disabled,
+                max_turns: None,
+                max_budget_usd: None,
+                verbose: false,
+                custom_system_prompt: None,
+                append_system_prompt: None,
+            }));
+        }
 
-                                    // Stream events to client
-                                    while let Some(event) = rx.recv().await {
-                                        if let Err(e) = send_engine_event(&mut conn, &event).await {
-                                            eprintln!("Failed to send event: {}", e);
-                                            break;
+        let eng = engine.as_mut().unwrap();
+        let msg_count = eng.get_messages().len();
+
+        // Send init response — include whether this is a reconnection
+        let _ = conn.send_response(init_id, serde_json::json!({
+            "capabilities": { "tools": true, "streaming": true, "permissions": true },
+            "session_id": &session_id,
+            "reconnected": msg_count > 0,
+            "message_count": msg_count,
+        })).await;
+
+        // State patch forwarding
+        let (patch_tx, mut patch_rx) =
+            tokio::sync::mpsc::channel::<Vec<state::manager::StatePatch>>(256);
+        {
+            let mut state_rx = state_manager.subscribe();
+            let ptx = patch_tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    match state_rx.recv().await {
+                        Ok(patches) => { if ptx.send(patches).await.is_err() { break; } }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    }
+                }
+            });
+        }
+
+        // ── Client RPC loop ──
+        let mut client_disconnected = false;
+        while !client_disconnected && !should_exit {
+            tokio::select! {
+                Some(patches) = patch_rx.recv() => {
+                    if let Err(_) = send_state_patches(&mut conn, &patches).await {
+                        client_disconnected = true;
+                    }
+                }
+                msg_result = conn.recv_message() => {
+                    let msg = match msg_result {
+                        Ok(msg) => msg,
+                        Err(IpcError::ConnectionClosed) => {
+                            eprintln!("Client disconnected");
+                            client_disconnected = true;
+                            continue;
+                        }
+                        Err(e) => {
+                            eprintln!("IPC error: {}", e);
+                            client_disconnected = true;
+                            continue;
+                        }
+                    };
+
+                    match msg {
+                        JsonRpcMessage::Request(req) => {
+                            let id = req.id.clone();
+                            match parse_client_method(&req) {
+                                Ok(method) => {
+                                    let eng = engine.as_mut().unwrap();
+                                    match method {
+                                        ClientMethod::SubmitMessage { prompt, .. } => {
+                                            let prompt_str = match prompt.as_str() {
+                                                Some(s) => s.to_string(),
+                                                None => serde_json::to_string(&prompt).unwrap_or_default(),
+                                            };
+                                            let mut rx = eng.submit_message(prompt_str).await;
+                                            while let Some(event) = rx.recv().await {
+                                                if send_engine_event(&mut conn, &event).await.is_err() {
+                                                    client_disconnected = true;
+                                                    break;
+                                                }
+                                                if matches!(event, EngineEvent::Result(_) | EngineEvent::Error(_)) {
+                                                    break;
+                                                }
+                                            }
+                                            if !client_disconnected {
+                                                let _ = conn.send_response(id, serde_json::json!({"status": "complete"})).await;
+                                            }
                                         }
-                                        // If this is a terminal event, stop streaming
-                                        if matches!(event, EngineEvent::Result(_) | EngineEvent::Error(_)) {
-                                            break;
+                                        ClientMethod::Abort => {
+                                            eng.abort();
+                                            let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                                        }
+                                        ClientMethod::Shutdown => {
+                                            let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                                            should_exit = true;
+                                        }
+                                        // /disconnect — client leaves, daemon stays
+                                        ClientMethod::UpdateSettings { .. } => {
+                                            let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                                        }
+                                        ClientMethod::PermissionResponse { .. } => {
+                                            let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                                        }
+                                        ClientMethod::Initialize { .. } => {
+                                            let _ = conn.send_error(Some(id), -32600, "Already initialized".into()).await;
+                                        }
+                                        ClientMethod::ListTools => {
+                                            let tl: Vec<serde_json::Value> = engine_tools.iter().map(|t| {
+                                                serde_json::json!({"name": t.name(), "description": t.prompt(), "type": "builtin"})
+                                            }).collect();
+                                            let _ = conn.send_response(id, serde_json::json!({"tools": tl, "count": tl.len()})).await;
+                                        }
+                                        ClientMethod::ListMcpServers => {
+                                            let s = discovery::mcp_config::discover_mcp_servers(&work_cwd).await;
+                                            let _ = conn.send_response(id, serde_json::json!({"servers": s, "count": s.len()})).await;
+                                        }
+                                        ClientMethod::ListSkills => {
+                                            let s = discovery::skills::discover_skills(&work_cwd).await;
+                                            let _ = conn.send_response(id, serde_json::json!({"skills": s, "count": s.len()})).await;
+                                        }
+                                        ClientMethod::ListPlugins => {
+                                            let p = discovery::plugins::discover_plugins(&work_cwd).await;
+                                            let _ = conn.send_response(id, serde_json::json!({"plugins": p, "count": p.len()})).await;
                                         }
                                     }
-
-                                    conn.send_response(id, serde_json::json!({"status": "complete"})).await?;
                                 }
-                                ClientMethod::Abort => {
-                                    engine.abort();
-                                    conn.send_response(id, serde_json::json!("ok")).await?;
+                                Err(e) => {
+                                    let _ = conn.send_error(Some(id), -32601, format!("{}", e)).await;
                                 }
-                                ClientMethod::UpdateSettings { settings: _ } => {
-                                    // TODO: apply settings updates
-                                    conn.send_response(id, serde_json::json!("ok")).await?;
-                                }
-                                ClientMethod::PermissionResponse { .. } => {
-                                    // TODO: route permission response to waiting tool
-                                    conn.send_response(id, serde_json::json!("ok")).await?;
-                                }
-                                ClientMethod::Shutdown => {
-                                    conn.send_response(id, serde_json::json!("ok")).await?;
-                                    break;
-                                }
-                                ClientMethod::Initialize { .. } => {
-                                    conn.send_error(
-                                        Some(id),
-                                        -32600,
-                                        "Already initialized".into(),
-                                    ).await?;
-                                }
-                                ClientMethod::ListTools => {
-                                    let tool_list: Vec<serde_json::Value> = engine_tools.iter().map(|t| {
-                                        serde_json::json!({
-                                            "name": t.name(),
-                                            "description": t.prompt(),
-                                            "type": "builtin",
-                                        })
-                                    }).collect();
-                                    conn.send_response(id, serde_json::json!({
-                                        "tools": tool_list,
-                                        "count": tool_list.len(),
-                                    })).await?;
-                                }
-                                ClientMethod::ListMcpServers => {
-                                    let servers = discovery::mcp_config::discover_mcp_servers(&cwd).await;
-                                    conn.send_response(id, serde_json::json!({
-                                        "servers": servers,
-                                        "count": servers.len(),
-                                    })).await?;
-                                }
-                                ClientMethod::ListSkills => {
-                                    let skills = discovery::skills::discover_skills(&cwd).await;
-                                    conn.send_response(id, serde_json::json!({
-                                        "skills": skills,
-                                        "count": skills.len(),
-                                    })).await?;
-                                }
-                                ClientMethod::ListPlugins => {
-                                    let plugins = discovery::plugins::discover_plugins(&cwd).await;
-                                    conn.send_response(id, serde_json::json!({
-                                        "plugins": plugins,
-                                        "count": plugins.len(),
-                                    })).await?;
-                                }
-                            },
-                            Err(e) => {
-                                conn.send_error(Some(id), -32601, format!("{}", e)).await?;
                             }
                         }
-                    }
-                    _ => {
-                        // Ignore non-request messages (notifications, responses)
+                        _ => {}
                     }
                 }
             }
         }
+
+        if !should_exit {
+            eprintln!("Client session ended, waiting for next client...");
+        }
     }
 
-    // 7. Cleanup - IpcServer's Drop impl removes the socket file
+    // Cleanup
+    cleanup_meta(&socket_path);
     drop(server);
-    eprintln!("claude-core shutdown complete");
-
+    eprintln!("baoclaw-core shutdown complete");
     Ok(())
 }

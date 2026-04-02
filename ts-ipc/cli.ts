@@ -109,7 +109,8 @@ function printWelcome(sessionId: string) {
   console.log(`${DIM}        /skills   — list skills${RESET}`);
   console.log(`${DIM}        /plugins  — list plugins${RESET}`);
   console.log(`${DIM}        /help     — all commands${RESET}`);
-  console.log(`${DIM}        /quit     — exit BaoClaw${RESET}`);
+  console.log(`${DIM}        /quit     — disconnect (daemon stays running)${RESET}`);
+  console.log(`${DIM}        /shutdown — stop daemon${RESET}`);
   console.log();
 }
 
@@ -252,6 +253,126 @@ class IpcClient {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Daemon discovery
+// ═══════════════════════════════════════════════════════════════
+import * as fs from 'fs';
+import * as os from 'os';
+
+interface DaemonInfo {
+  pid: number;
+  cwd: string;
+  session_id: string;
+  socket: string;
+  started_at: string;
+}
+
+function getSocketDir(): string {
+  return path.join(os.tmpdir(), 'baoclaw-sockets');
+}
+
+/** Scan for running BaoClaw daemon instances */
+function discoverDaemons(): DaemonInfo[] {
+  const dir = getSocketDir();
+  if (!fs.existsSync(dir)) return [];
+
+  const daemons: DaemonInfo[] = [];
+  for (const file of fs.readdirSync(dir)) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      const meta: DaemonInfo = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8'));
+      // Check if the process is still alive
+      try { process.kill(meta.pid, 0); } catch { continue; } // dead process
+      // Check if socket file exists
+      if (!fs.existsSync(meta.socket)) continue;
+      daemons.push(meta);
+    } catch { /* skip invalid files */ }
+  }
+  return daemons;
+}
+
+/** Prompt user to select a daemon or start new */
+async function selectDaemon(daemons: DaemonInfo[]): Promise<DaemonInfo | null> {
+  return new Promise((resolve) => {
+    console.log(`\n${FG_ORANGE}${BOLD}Running BaoClaw instances:${RESET}\n`);
+    console.log(`  ${FG_WHITE}${BOLD}0${RESET}  ${FG_GREEN}Start new instance${RESET}`);
+    for (let i = 0; i < daemons.length; i++) {
+      const d = daemons[i];
+      const age = timeSince(d.started_at);
+      console.log(`  ${FG_WHITE}${BOLD}${i + 1}${RESET}  ${DIM}pid=${d.pid}${RESET} ${FG_WHITE}${d.cwd}${RESET} ${DIM}(${age}, session: ${d.session_id.slice(0, 8)}...)${RESET}`);
+    }
+    console.log();
+
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`${FG_ORANGE}Select [0-${daemons.length}]:${RESET} `, (answer) => {
+      rl.close();
+      const idx = parseInt(answer.trim(), 10);
+      if (isNaN(idx) || idx === 0 || idx > daemons.length) {
+        resolve(null); // start new
+      } else {
+        resolve(daemons[idx - 1]);
+      }
+    });
+  });
+}
+
+function timeSince(isoDate: string): string {
+  const ms = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Daemon launcher
+// ═══════════════════════════════════════════════════════════════
+async function startNewDaemon(binaryPath: string): Promise<string> {
+  startSpinner('Starting BaoClaw engine...');
+
+  // Start as daemon: detached, with --daemon flag
+  const child = spawn(binaryPath, ['--daemon', '--cwd', process.cwd()], {
+    cwd: process.cwd(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: process.env,
+    detached: true,  // Survives parent exit
+  });
+
+  // Don't let the child keep the parent alive
+  child.unref();
+
+  let stderr = '';
+  child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+  const socketPath = await new Promise<string>((resolve, reject) => {
+    let buf = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`Timeout waiting for engine startup.\n${stderr}`));
+    }, 10000);
+
+    child.stdout?.on('data', (data: Buffer) => {
+      buf += data.toString();
+      for (const line of buf.split('\n')) {
+        if (line.startsWith('SOCKET:')) {
+          clearTimeout(timer);
+          // Detach stdout after getting socket path
+          child.stdout?.removeAllListeners();
+          child.stderr?.removeAllListeners();
+          resolve(line.slice('SOCKET:'.length).trim());
+          return;
+        }
+      }
+    });
+    child.on('error', (e) => { clearTimeout(timer); reject(e); });
+  });
+
+  stopSpinner();
+  return socketPath;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════
 async function main() {
@@ -269,51 +390,42 @@ async function main() {
   process.stdout.write(`${ESC}2J${ESC}H`);
   printLogo();
 
-  startSpinner('Starting BaoClaw engine...');
+  // ── Discover existing daemons ──
+  const daemons = discoverDaemons();
+  let socketPath: string;
+  let child: ChildProcess | null = null;
+  let isReconnect = false;
 
-  // Spawn Rust process
-  const child: ChildProcess = spawn(binaryPath, [], {
-    cwd: process.cwd(),
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: process.env,
-  });
-
-  let stderr = '';
-  child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
-
-  // Wait for SOCKET: line
-  const socketPath = await new Promise<string>((resolve, reject) => {
-    let buf = '';
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Timeout waiting for engine startup.\n${stderr}`));
-    }, 10000);
-
-    child.stdout?.on('data', (data: Buffer) => {
-      buf += data.toString();
-      for (const line of buf.split('\n')) {
-        if (line.startsWith('SOCKET:')) {
-          clearTimeout(timer);
-          resolve(line.slice('SOCKET:'.length).trim());
-          return;
-        }
-      }
-    });
-    child.on('error', (e) => { clearTimeout(timer); reject(e); });
-    child.on('close', (code) => { clearTimeout(timer); reject(new Error(`Engine exited (code ${code})\n${stderr}`)); });
-  });
+  if (daemons.length > 0) {
+    const selected = await selectDaemon(daemons);
+    if (selected) {
+      // Connect to existing daemon
+      socketPath = selected.socket;
+      isReconnect = true;
+      console.log(`${DIM}Reconnecting to pid=${selected.pid}...${RESET}`);
+    } else {
+      // Start new daemon
+      socketPath = await startNewDaemon(binaryPath);
+    }
+  } else {
+    socketPath = await startNewDaemon(binaryPath);
+  }
 
   // Connect IPC
   const client = new IpcClient();
   await client.connect(socketPath);
 
   // Initialize
-  const initResult = await client.request<{ capabilities: Record<string, unknown>; session_id: string }>(
+  const initResult = await client.request<{ capabilities: Record<string, unknown>; session_id: string; reconnected?: boolean; message_count?: number }>(
     'initialize',
     { cwd: process.cwd(), settings: {} }
   );
 
   stopSpinner();
+
+  if (initResult.reconnected) {
+    console.log(`\n${FG_GREEN}${BOLD}Reconnected${RESET} ${DIM}to session ${initResult.session_id} (${initResult.message_count} messages in history)${RESET}\n`);
+  }
   printWelcome(initResult.session_id);
 
   // ── Stream event handling ──
@@ -394,10 +506,15 @@ async function main() {
     if (!input) { rl.prompt(); return; }
 
     if (input === '/quit' || input === '/exit' || input === '/q') {
-      console.log(`\n${DIM}Shutting down...${RESET}`);
+      console.log(`\n${DIM}Disconnecting (daemon stays running)...${RESET}`);
+      await client.disconnect();
+      process.exit(0);
+    }
+
+    if (input === '/shutdown') {
+      console.log(`\n${DIM}Shutting down daemon...${RESET}`);
       try { await client.request('shutdown'); } catch {}
       await client.disconnect();
-      child.kill();
       process.exit(0);
     }
 
@@ -520,13 +637,14 @@ async function main() {
 
     if (input === '/help') {
       console.log(`\n${FG_ORANGE}${BOLD}Commands${RESET}\n`);
-      console.log(`  ${FG_WHITE}/tools${RESET}     ${DIM}List registered tools${RESET}`);
-      console.log(`  ${FG_WHITE}/mcp${RESET}       ${DIM}List MCP server configurations${RESET}`);
-      console.log(`  ${FG_WHITE}/skills${RESET}    ${DIM}List discovered skills${RESET}`);
-      console.log(`  ${FG_WHITE}/plugins${RESET}   ${DIM}List discovered plugins${RESET}`);
-      console.log(`  ${FG_WHITE}/abort${RESET}     ${DIM}Cancel current request${RESET}`);
-      console.log(`  ${FG_WHITE}/clear${RESET}     ${DIM}Clear screen${RESET}`);
-      console.log(`  ${FG_WHITE}/quit${RESET}      ${DIM}Exit BaoClaw${RESET}`);
+      console.log(`  ${FG_WHITE}/tools${RESET}      ${DIM}List registered tools${RESET}`);
+      console.log(`  ${FG_WHITE}/mcp${RESET}        ${DIM}List MCP server configurations${RESET}`);
+      console.log(`  ${FG_WHITE}/skills${RESET}     ${DIM}List discovered skills${RESET}`);
+      console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
+      console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
+      console.log(`  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`);
+      console.log(`  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`);
+      console.log(`  ${FG_WHITE}/shutdown${RESET}   ${DIM}Stop the daemon process${RESET}`);
       console.log();
       rl.prompt();
       return;
@@ -555,22 +673,11 @@ async function main() {
 
   rl.on('close', async () => {
     stopSpinner();
-    console.log(`\n${DIM}Goodbye!${RESET}`);
-    try { await client.request('shutdown'); } catch {}
+    console.log(`\n${DIM}Disconnected (daemon stays running).${RESET}`);
     await client.disconnect();
-    child.kill();
     process.exit(0);
   });
 
-  // Handle Rust process crash
-  child.on('close', (code) => {
-    stopSpinner();
-    if (code !== 0 && code !== null) {
-      console.error(`\n${FG_RED}${BOLD}Engine crashed${RESET}${FG_RED} (exit code ${code})${RESET}`);
-      if (stderr) console.error(`${DIM}${stderr.trim()}${RESET}`);
-    }
-    process.exit(code ?? 0);
-  });
 }
 
 main().catch((err) => {
