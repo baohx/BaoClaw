@@ -1,5 +1,7 @@
 // Built-in tool implementations
 
+pub mod agent_tool;
+pub mod backup;
 pub mod bash_tool;
 pub mod file_edit_tool;
 pub mod file_read_tool;
@@ -13,6 +15,7 @@ pub mod tool_search_tool;
 pub mod web_fetch_tool;
 pub mod web_search_tool;
 
+pub use agent_tool::AgentTool;
 pub use bash_tool::BashTool;
 pub use file_edit_tool::FileEditTool;
 pub use file_read_tool::FileReadTool;

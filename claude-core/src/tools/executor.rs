@@ -8,6 +8,30 @@ use crate::engine::query_engine::EngineEvent;
 use crate::permissions::gate::{PermissionDecision, PermissionGate};
 use crate::permissions::manager::{PermissionManager, PermissionResult};
 
+/// A ProgressSender that forwards progress events through an mpsc channel as EngineEvents.
+pub struct ChannelProgressSender {
+    tx: tokio::sync::mpsc::Sender<EngineEvent>,
+}
+
+impl ChannelProgressSender {
+    pub fn new(tx: tokio::sync::mpsc::Sender<EngineEvent>) -> Self {
+        Self { tx }
+    }
+}
+
+#[async_trait::async_trait]
+impl ProgressSender for ChannelProgressSender {
+    async fn send_progress(&self, tool_use_id: &str, data: Value) {
+        let _ = self
+            .tx
+            .send(EngineEvent::Progress {
+                tool_use_id: tool_use_id.to_string(),
+                data,
+            })
+            .await;
+    }
+}
+
 /// Result of a single tool execution
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolExecutionResult {

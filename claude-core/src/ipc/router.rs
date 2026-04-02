@@ -60,6 +60,28 @@ pub enum ClientMethod {
     GitCommit { message: String },
     #[serde(rename = "gitStatus")]
     GitStatus,
+    #[serde(rename = "listMcpResources")]
+    ListMcpResources,
+    #[serde(rename = "readMcpResource")]
+    ReadMcpResource {
+        server_name: String,
+        uri: String,
+    },
+    #[serde(rename = "taskCreate")]
+    TaskCreate {
+        description: String,
+        prompt: String,
+    },
+    #[serde(rename = "taskList")]
+    TaskList,
+    #[serde(rename = "taskStatus")]
+    TaskStatus {
+        task_id: String,
+    },
+    #[serde(rename = "taskStop")]
+    TaskStop {
+        task_id: String,
+    },
 }
 
 /// Parse a JSON-RPC request into a ClientMethod
@@ -391,5 +413,67 @@ mod tests {
         let req = make_request("gitStatus", json!(null));
         let method = parse_client_method(&req).unwrap();
         assert_eq!(method, ClientMethod::GitStatus);
+    }
+
+    // --- Task management RPC tests ---
+
+    #[test]
+    fn test_parse_task_create() {
+        let req = make_request(
+            "taskCreate",
+            json!({ "description": "Refactor auth module", "prompt": "Refactor the auth module" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TaskCreate { description, prompt } => {
+                assert_eq!(description, "Refactor auth module");
+                assert_eq!(prompt, "Refactor the auth module");
+            }
+            _ => panic!("Expected TaskCreate, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_create_missing_fields() {
+        let req = make_request("taskCreate", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        assert!(matches!(err, RouterError::InvalidParams(_)));
+    }
+
+    #[test]
+    fn test_parse_task_list() {
+        let req = make_request("taskList", json!(null));
+        let method = parse_client_method(&req).unwrap();
+        assert_eq!(method, ClientMethod::TaskList);
+    }
+
+    #[test]
+    fn test_parse_task_status() {
+        let req = make_request(
+            "taskStatus",
+            json!({ "task_id": "abc12345" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TaskStatus { task_id } => {
+                assert_eq!(task_id, "abc12345");
+            }
+            _ => panic!("Expected TaskStatus, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_task_stop() {
+        let req = make_request(
+            "taskStop",
+            json!({ "task_id": "abc12345" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TaskStop { task_id } => {
+                assert_eq!(task_id, "abc12345");
+            }
+            _ => panic!("Expected TaskStop, got {:?}", method),
+        }
     }
 }

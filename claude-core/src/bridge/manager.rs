@@ -4,6 +4,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+// NOTE: BridgeManager is ready for WebSocket integration but not yet wired
+// to a real remote API. The existing register/poll/spawn foundation is
+// sufficient for future Bridge Remote Mode implementation. WebSocket
+// transport and JWT authentication will be added in a future iteration.
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BridgeConfig {
     pub dir: PathBuf,

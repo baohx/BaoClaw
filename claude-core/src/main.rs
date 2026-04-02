@@ -10,10 +10,13 @@ mod mcp;
 mod models;
 mod permissions;
 mod state;
+mod telemetry;
 mod tools;
+mod updater;
 
 use api::client::{AnthropicClient, ApiClientConfig};
 use engine::query_engine::{EngineEvent, QueryEngine, QueryEngineConfig, ThinkingConfig, EMPTY_USAGE};
+use engine::task_manager::TaskManager;
 use engine::transcript::{TranscriptWriter, rebuild_messages_from_transcript};
 use ipc::events::{send_engine_event, send_state_patches};
 use ipc::protocol::JsonRpcMessage;
@@ -21,7 +24,8 @@ use ipc::router::{parse_client_method, ClientMethod};
 use ipc::server::{IpcError, IpcServer};
 use permissions::gate::{PermissionDecision, PermissionGate};
 use state::manager::{CoreState, StateManager};
-use tools::builtins::{BashTool, FileEditTool, FileReadTool, FileWriteTool, NotebookEditTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
+use tools::builtins::{AgentTool, BashTool, FileEditTool, FileReadTool, FileWriteTool, GlobTool, GrepTool, NotebookEditTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
+use mcp::tool_wrapper::McpToolWrapper;
 
 /// Socket directory for all BaoClaw daemon instances
 fn socket_dir() -> PathBuf {
@@ -150,6 +154,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_retries: None,
     }));
 
+    // Read-only tool subset for sub-agent use
+    let read_only_tools: Vec<Arc<dyn tools::Tool>> = vec![
+        Arc::new(FileReadTool::new(vec![])),
+        Arc::new(GrepTool::new()),
+        Arc::new(GlobTool::new()),
+        Arc::new(WebFetchTool::new()),
+    ];
+
     let engine_tools: Vec<Arc<dyn tools::Tool>> = vec![
         Arc::new(BashTool::new()),
         Arc::new(FileReadTool::new(vec![])),
@@ -159,11 +171,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(WebSearchTool::new()),
         Arc::new(NotebookEditTool::new()),
         Arc::new(TodoWriteTool::new()),
+        Arc::new(AgentTool::new(Arc::clone(&api_client), read_only_tools)),
     ];
 
     // ToolSearchTool needs the full tool list, so register it last
     let engine_tools: Vec<Arc<dyn tools::Tool>> = {
         let mut all = engine_tools;
+
+        // MCP integration: discover and connect to MCP servers
+        let mcp_servers = discovery::mcp_config::discover_mcp_servers(std::path::Path::new(&cwd_str)).await;
+        for server_info in &mcp_servers {
+            if server_info.disabled {
+                continue;
+            }
+            if let Some(ref command) = server_info.command {
+                let config = mcp::McpServerConfig {
+                    name: server_info.name.clone(),
+                    command: command.clone(),
+                    args: server_info.args.clone(),
+                    env: std::collections::HashMap::new(),
+                    transport: mcp::McpTransportType::Stdio,
+                };
+                let mut client = mcp::McpClient::new(config);
+                match client.connect_stdio().await {
+                    Ok(()) => {
+                        let client = Arc::new(client);
+                        if let Ok(tools) = client.list_tools().await {
+                            for tool_def in tools {
+                                let wrapper = McpToolWrapper::new(
+                                    Arc::clone(&client),
+                                    tool_def,
+                                    server_info.name.clone(),
+                                );
+                                all.push(Arc::new(wrapper));
+                            }
+                        }
+                        eprintln!("MCP server '{}' connected", server_info.name);
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: MCP server '{}' failed to connect: {}", server_info.name, e);
+                    }
+                }
+            }
+        }
+
         all.push(Arc::new(ToolSearchTool::new(all.clone())));
         all
     };
@@ -202,6 +253,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create PermissionGate for the permission interactive flow
     let permission_gate = PermissionGate::new();
+
+    // Create TaskManager for background task execution
+    let task_manager = Arc::new(TaskManager::new(
+        Arc::clone(&api_client),
+        engine_tools.clone(),
+    ));
 
     while !should_exit {
         eprintln!("Waiting for client connection...");
@@ -542,6 +599,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     let _ = conn.send_error(Some(id), -32000, "Not a git repository".to_string()).await;
                                                 }
                                             }
+                                        }
+                                        ClientMethod::ListMcpResources => {
+                                            // Stub: MCP resource listing requires connected clients
+                                            let _ = conn.send_response(id, serde_json::json!({"resources": [], "count": 0})).await;
+                                        }
+                                        ClientMethod::ReadMcpResource { server_name, uri } => {
+                                            let _ = conn.send_error(Some(id), -32000,
+                                                format!("MCP resource read not yet wired: {}:{}", server_name, uri)).await;
+                                        }
+                                        ClientMethod::TaskCreate { description, prompt } => {
+                                            let task_id = task_manager.create_task(
+                                                description,
+                                                prompt,
+                                                std::path::PathBuf::from(&work_cwd),
+                                                state_manager.get().model,
+                                            ).await;
+                                            let _ = conn.send_response(id, serde_json::json!({"task_id": task_id})).await;
+                                        }
+                                        ClientMethod::TaskList => {
+                                            let tasks = task_manager.list_tasks().await;
+                                            let _ = conn.send_response(id, serde_json::json!({"tasks": tasks, "count": tasks.len()})).await;
+                                        }
+                                        ClientMethod::TaskStatus { task_id } => {
+                                            match task_manager.get_task_status(&task_id).await {
+                                                Some(task) => {
+                                                    let _ = conn.send_response(id, serde_json::json!(task)).await;
+                                                }
+                                                None => {
+                                                    let _ = conn.send_error(Some(id), -32000,
+                                                        format!("Task not found: {}", task_id)).await;
+                                                }
+                                            }
+                                        }
+                                        ClientMethod::TaskStop { task_id } => {
+                                            let stopped = task_manager.stop_task(&task_id).await;
+                                            let _ = conn.send_response(id, serde_json::json!({"stopped": stopped})).await;
                                         }
                                     }
                                 }

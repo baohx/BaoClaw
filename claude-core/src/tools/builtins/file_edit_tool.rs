@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::tools::trait_def::*;
 
+use super::backup::backup_file_before_write;
 use super::path_utils::resolve_and_validate_path;
 
 /// FileEditTool - finds and replaces a unique string in a file
@@ -121,6 +122,11 @@ impl Tool for FileEditTool {
 
         let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
             .map_err(|e| ToolError::ExecutionFailed(e))?;
+
+        // Backup existing file before editing
+        if let Err(e) = backup_file_before_write(&resolved, &context.cwd).await {
+            eprintln!("Warning: failed to backup file: {}", e);
+        }
 
         let content = tokio::fs::read_to_string(&resolved)
             .await

@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use super::transport::StdioTransport;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct McpServerConfig {
     pub name: String,
@@ -59,6 +61,7 @@ pub struct McpClient {
     config: McpServerConfig,
     status: Arc<RwLock<McpConnectionStatus>>,
     tools: Arc<RwLock<Vec<McpToolDef>>>,
+    transport: Option<Arc<RwLock<StdioTransport>>>,
 }
 
 impl McpClient {
@@ -67,19 +70,47 @@ impl McpClient {
             config,
             status: Arc::new(RwLock::new(McpConnectionStatus::Disconnected)),
             tools: Arc::new(RwLock::new(Vec::new())),
+            transport: None,
         }
     }
 
-    /// Connect to the MCP server.
-    /// Stub: sets status to Connected. Actual transport will be implemented later.
+    /// Connect to the MCP server (stub — sets status without transport).
     pub async fn connect(&self) -> Result<(), McpError> {
         let mut status = self.status.write().await;
         *status = McpConnectionStatus::Connected;
         Ok(())
     }
 
+    /// Connect via stdio transport: spawn child process, handshake, refresh tools.
+    pub async fn connect_stdio(&mut self) -> Result<(), McpError> {
+        let transport = StdioTransport::spawn(
+            &self.config.command,
+            &self.config.args,
+            &self.config.env,
+        )
+        .await?;
+
+        self.transport = Some(Arc::new(RwLock::new(transport)));
+        *self.status.write().await = McpConnectionStatus::Connected;
+
+        self.refresh_tools().await?;
+        Ok(())
+    }
+
+    /// Refresh the cached tool list from the MCP server.
+    pub async fn refresh_tools(&self) -> Result<(), McpError> {
+        let transport = self.transport.as_ref().ok_or(McpError::NotConnected)?;
+        let mut t = transport.write().await;
+
+        let result = t.request("tools/list", None).await?;
+        let tool_defs: Vec<McpToolDef> =
+            serde_json::from_value(result["tools"].clone()).unwrap_or_default();
+
+        *self.tools.write().await = tool_defs;
+        Ok(())
+    }
+
     /// Get the list of tools provided by this server.
-    /// Returns the cached tools list; requires Connected status.
     pub async fn list_tools(&self) -> Result<Vec<McpToolDef>, McpError> {
         let status = self.status.read().await;
         if *status != McpConnectionStatus::Connected {
@@ -90,8 +121,7 @@ impl McpClient {
     }
 
     /// Call a tool on the MCP server.
-    /// Checks status is Connected and tool exists in the cached list.
-    /// Stub: returns empty object. Actual transport call will be wired up later.
+    /// Uses transport when available, otherwise falls back to stub.
     pub async fn call_tool(&self, name: &str, args: Value) -> Result<Value, McpError> {
         let status = self.status.read().await;
         if *status != McpConnectionStatus::Connected {
@@ -103,10 +133,54 @@ impl McpClient {
         if !tool_exists {
             return Err(McpError::ToolNotFound(name.to_string()));
         }
+        drop(tools);
 
-        // Stub: actual tool call via transport will be implemented during integration.
-        let _ = args;
+        // Use transport if available
+        if let Some(ref transport) = self.transport {
+            let mut t = transport.write().await;
+            let result = t
+                .request(
+                    "tools/call",
+                    Some(serde_json::json!({
+                        "name": name,
+                        "arguments": args,
+                    })),
+                )
+                .await?;
+            return Ok(result);
+        }
+
+        // Stub fallback for testing
         Ok(Value::Object(serde_json::Map::new()))
+    }
+
+    /// List resources provided by the MCP server.
+    pub async fn list_resources(&self) -> Result<Vec<McpResource>, McpError> {
+        let transport = self.transport.as_ref().ok_or(McpError::NotConnected)?;
+        let mut t = transport.write().await;
+
+        let result = t.request("resources/list", None).await?;
+        let resources: Vec<McpResource> =
+            serde_json::from_value(result["resources"].clone()).unwrap_or_default();
+
+        Ok(resources)
+    }
+
+    /// Read a specific resource by URI.
+    pub async fn read_resource(&self, uri: &str) -> Result<Value, McpError> {
+        let transport = self.transport.as_ref().ok_or(McpError::NotConnected)?;
+        let mut t = transport.write().await;
+
+        let result = t
+            .request(
+                "resources/read",
+                Some(serde_json::json!({
+                    "uri": uri,
+                })),
+            )
+            .await?;
+
+        Ok(result)
     }
 
     /// Get the current connection status.

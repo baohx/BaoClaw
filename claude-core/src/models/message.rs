@@ -87,6 +87,16 @@ pub enum ContentBlock {
     },
     #[serde(rename = "thinking")]
     Thinking { thinking: String },
+    #[serde(rename = "image")]
+    Image { source: ImageSource },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImageSource {
+    #[serde(rename = "type")]
+    pub source_type: String, // "base64"
+    pub media_type: String,  // "image/png", "image/jpeg", etc.
+    pub data: String,        // base64 encoded
 }
 
 // --- Supporting types ---
@@ -335,5 +345,63 @@ mod tests {
         };
         let json = serde_json::to_string(&thinking).unwrap();
         assert!(json.contains("\"type\":\"thinking\""));
+    }
+
+    #[test]
+    fn test_image_source_serialization() {
+        let source = ImageSource {
+            source_type: "base64".to_string(),
+            media_type: "image/png".to_string(),
+            data: "iVBORw0KGgo=".to_string(),
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(json.contains("\"type\":\"base64\""));
+        assert!(json.contains("\"media_type\":\"image/png\""));
+        assert!(json.contains("\"data\":\"iVBORw0KGgo=\""));
+
+        // Roundtrip
+        let deserialized: ImageSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.source_type, "base64");
+        assert_eq!(deserialized.media_type, "image/png");
+        assert_eq!(deserialized.data, "iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn test_image_content_block_serialization() {
+        let block = ContentBlock::Image {
+            source: ImageSource {
+                source_type: "base64".to_string(),
+                media_type: "image/jpeg".to_string(),
+                data: "dGVzdA==".to_string(),
+            },
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        assert!(json.contains("\"type\":\"image\""));
+        assert!(json.contains("\"media_type\":\"image/jpeg\""));
+
+        // Roundtrip
+        let deserialized: ContentBlock = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ContentBlock::Image { source } => {
+                assert_eq!(source.source_type, "base64");
+                assert_eq!(source.media_type, "image/jpeg");
+                assert_eq!(source.data, "dGVzdA==");
+            }
+            _ => panic!("Expected Image variant"),
+        }
+    }
+
+    #[test]
+    fn test_image_source_media_types() {
+        for media_type in &["image/png", "image/jpeg", "image/gif", "image/webp"] {
+            let source = ImageSource {
+                source_type: "base64".to_string(),
+                media_type: media_type.to_string(),
+                data: "abc123".to_string(),
+            };
+            let json = serde_json::to_string(&source).unwrap();
+            let rt: ImageSource = serde_json::from_str(&json).unwrap();
+            assert_eq!(rt.media_type, *media_type);
+        }
     }
 }

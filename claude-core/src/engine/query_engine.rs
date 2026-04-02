@@ -980,6 +980,7 @@ pub fn estimate_tokens(messages: &[Message]) -> u64 {
                                 serde_json::to_string(input).unwrap_or_default().len()
                             }
                             ContentBlock::Thinking { thinking } => thinking.len(),
+                            ContentBlock::Image { source } => source.data.len(),
                         })
                         .sum()
                 }

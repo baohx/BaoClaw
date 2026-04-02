@@ -7,6 +7,9 @@ import * as net from 'net';
 import * as readline from 'readline';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
+import { renderMarkdown } from './markdownRenderer';
+import * as fs from 'fs';
+import * as os from 'os';
 
 // ═══════════════════════════════════════════════════════════════
 // ANSI helpers
@@ -111,6 +114,7 @@ function printWelcome(sessionId: string) {
   console.log(`${DIM}        /compact  — compress conversation context${RESET}`);
   console.log(`${DIM}        /think    — toggle extended thinking${RESET}`);
   console.log(`${DIM}        /help     — all commands${RESET}`);
+  console.log(`${DIM}        /voice    — voice input (whisper.cpp)${RESET}`);
   console.log(`${DIM}        /quit     — disconnect (daemon stays running)${RESET}`);
   console.log(`${DIM}        /shutdown — stop daemon${RESET}`);
   console.log();
@@ -257,8 +261,6 @@ class IpcClient {
 // ═══════════════════════════════════════════════════════════════
 // Daemon discovery
 // ═══════════════════════════════════════════════════════════════
-import * as fs from 'fs';
-import * as os from 'os';
 
 interface DaemonInfo {
   pid: number;
@@ -375,6 +377,64 @@ async function startNewDaemon(binaryPath: string): Promise<string> {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Autocomplete
+// ═══════════════════════════════════════════════════════════════
+const COMMANDS = [
+  '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
+  '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
+  '/clear', '/abort', '/task', '/voice', '/telemetry',
+];
+
+/**
+ * Get file path completions for the given partial path.
+ */
+function getFileCompletions(partial: string): string[] {
+  try {
+    const dir = partial.includes('/')
+      ? path.dirname(partial)
+      : '.';
+    const prefix = partial.includes('/')
+      ? path.basename(partial)
+      : partial;
+
+    const dirPath = path.resolve(process.cwd(), dir);
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    const matches: string[] = [];
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(prefix)) {
+        const full = dir === '.' ? entry.name : path.join(dir, entry.name);
+        matches.push(entry.isDirectory() ? full + '/' : full);
+      }
+    }
+    return matches;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Readline completer: handles command and file path completion.
+ */
+function completer(line: string): [string[], string] {
+  // Command completion
+  if (line.startsWith('/')) {
+    const matches = COMMANDS.filter(c => c.startsWith(line));
+    return [matches, line];
+  }
+
+  // File path completion on the last whitespace-separated token
+  const tokens = line.split(/\s+/);
+  const last = tokens[tokens.length - 1] || '';
+  if (last.includes('/') || last.includes('.')) {
+    const matches = getFileCompletions(last);
+    return [matches.length > 0 ? matches : [last], last];
+  }
+
+  return [[], line];
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Main
 // ═══════════════════════════════════════════════════════════════
 async function main() {
@@ -385,6 +445,7 @@ async function main() {
   const args = process.argv.slice(2);
   let thinkingEnabled = false;
   let thinkingBudget = 10240;
+  const vimMode = args.includes('--vim') || process.env.BAOCLAW_VIM === '1';
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--think') {
       thinkingEnabled = true;
@@ -469,10 +530,8 @@ async function main() {
         stopSpinner();
         const content = (event as { content: string }).content;
         if (!isStreaming) {
-          process.stdout.write(`\n${FG_ORANGE}${BOLD}BaoClaw${RESET} `);
           isStreaming = true;
         }
-        process.stdout.write(content);
         currentText += content;
         break;
       }
@@ -502,6 +561,15 @@ async function main() {
         stopSpinner();
         const tr = event as { tool_use_id: string; output: unknown; is_error: boolean };
         console.log(formatToolResult(tr.output, tr.is_error));
+        break;
+      }
+
+      case 'progress': {
+        const pg = event as { tool_use_id: string; data: Record<string, unknown> };
+        const info = pg.data?.sub_agent_tool || pg.data?.percent || pg.data?.message || '';
+        if (spinnerInterval) {
+          spinnerMessage = `${info}`;
+        }
         break;
       }
 
@@ -542,7 +610,13 @@ async function main() {
 
       case 'result': {
         stopSpinner();
-        if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+        if (isStreaming) {
+          // Render accumulated assistant text through Markdown renderer
+          process.stdout.write(`\n${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
+          process.stdout.write(renderMarkdown(currentText));
+          process.stdout.write('\n');
+          isStreaming = false;
+        }
         const result = event as { status: string; num_turns: number; duration_ms: number; usage?: { input_tokens: number; output_tokens: number } };
         const elapsed = Date.now() - queryStartTime;
         const tokens = result.usage
@@ -565,10 +639,16 @@ async function main() {
   });
 
   // ── REPL ──
+  if (vimMode) {
+    // Node 22+ supports vi mode via this env var
+    process.env.NODE_READLINE_VI_MODE = '1';
+  }
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: `${FG_ORANGE}❯${RESET} `,
+    completer,
+    terminal: true,
   });
 
   rl.prompt();
@@ -826,6 +906,135 @@ async function main() {
       return;
     }
 
+    // ── /task commands ──
+    if (input.startsWith('/task')) {
+      const taskArgs = input.slice('/task'.length).trim();
+      const parts = taskArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'run') {
+        const desc = taskArgs.slice('run'.length).trim().replace(/^["']|["']$/g, '');
+        if (!desc) {
+          console.log(`\n${FG_YELLOW}Usage: /task run "description"${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        startSpinner('Creating background task...');
+        try {
+          const result = await client.request<{ task_id: string }>('taskCreate', {
+            description: desc,
+            prompt: desc,
+          });
+          stopSpinner();
+          console.log(`\n${FG_GREEN}${BOLD}Task created${RESET} ${DIM}id=${result.task_id}${RESET}\n`);
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}Failed to create task: ${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'list' || subCmd === '') {
+        try {
+          const result = await client.request<{ tasks: Array<{ id: string; description: string; status: string | { Failed: string }; created_at: string; completed_at: string | null; result: string | null }>; count: number }>('taskList');
+          if (result.count === 0) {
+            console.log(`\n${DIM}No background tasks.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Background Tasks${RESET} ${DIM}(${result.count})${RESET}\n`);
+            for (const t of result.tasks) {
+              const statusStr = typeof t.status === 'string' ? t.status
+                : t.status && typeof t.status === 'object' && 'Failed' in t.status ? `Failed: ${t.status.Failed}` : JSON.stringify(t.status);
+              const statusColor = statusStr === 'Running' ? FG_YELLOW
+                : statusStr === 'Completed' ? FG_GREEN
+                : statusStr === 'Aborted' ? FG_GRAY
+                : FG_RED;
+              console.log(`  ${FG_WHITE}${BOLD}${t.id}${RESET}  ${statusColor}${statusStr}${RESET}  ${DIM}${t.description}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          console.error(`${FG_RED}Failed to list tasks: ${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'status') {
+        const taskId = parts[1] || '';
+        if (!taskId) {
+          console.log(`\n${FG_YELLOW}Usage: /task status <id>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const t = await client.request<{ id: string; description: string; status: string | { Failed: string }; created_at: string; completed_at: string | null; result: string | null }>('taskStatus', { task_id: taskId });
+          const statusStr = typeof t.status === 'string' ? t.status
+            : t.status && typeof t.status === 'object' && 'Failed' in t.status ? `Failed: ${t.status.Failed}` : JSON.stringify(t.status);
+          console.log(`\n${FG_ORANGE}${BOLD}Task ${t.id}${RESET}`);
+          console.log(`  Status:      ${statusStr}`);
+          console.log(`  Description: ${t.description}`);
+          console.log(`  Created:     ${t.created_at}`);
+          if (t.completed_at) console.log(`  Completed:   ${t.completed_at}`);
+          if (t.result) {
+            const preview = t.result.length > 200 ? t.result.slice(0, 200) + '...' : t.result;
+            console.log(`  Result:      ${DIM}${preview}${RESET}`);
+          }
+          console.log();
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'stop') {
+        const taskId = parts[1] || '';
+        if (!taskId) {
+          console.log(`\n${FG_YELLOW}Usage: /task stop <id>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ stopped: boolean }>('taskStop', { task_id: taskId });
+          if (result.stopped) {
+            console.log(`\n${FG_GREEN}Task ${taskId} stopped.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_YELLOW}Task ${taskId} was not running or not found.${RESET}\n`);
+          }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      // Unknown /task subcommand
+      console.log(`\n${FG_YELLOW}Usage: /task run "desc" | /task list | /task status <id> | /task stop <id>${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+
+    if (input === '/voice') {
+      console.log(`${FG_YELLOW}Voice input requires whisper.cpp integration.${RESET}`);
+      console.log(`${DIM}This feature is planned for a future release.${RESET}`);
+      rl.prompt();
+      return;
+    }
+
+    if (input.startsWith('/telemetry')) {
+      const arg = input.slice('/telemetry'.length).trim().toLowerCase();
+      if (arg === 'on') {
+        console.log(`\n${FG_GREEN}${BOLD}Telemetry enabled${RESET} ${DIM}(events stored locally in ~/.baoclaw/telemetry/)${RESET}\n`);
+      } else if (arg === 'off') {
+        console.log(`\n${FG_YELLOW}Telemetry disabled${RESET}\n`);
+      } else {
+        console.log(`\n${FG_YELLOW}Usage: /telemetry on|off${RESET}\n`);
+      }
+      rl.prompt();
+      return;
+    }
+
     if (input === '/help') {
       console.log(`\n${FG_ORANGE}${BOLD}Commands${RESET}\n`);
       console.log(`  ${FG_WHITE}/tools${RESET}      ${DIM}List registered tools${RESET}`);
@@ -837,6 +1046,9 @@ async function main() {
       console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Show git diff summary${RESET}`);
       console.log(`  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit: /commit <message>${RESET}`);
       console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Show git status (branch, changes)${RESET}`);
+      console.log(`  ${FG_WHITE}/task${RESET}       ${DIM}Background tasks: run, list, status, stop${RESET}`);
+      console.log(`  ${FG_WHITE}/voice${RESET}      ${DIM}Voice input (requires whisper.cpp)${RESET}`);
+      console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Toggle telemetry: /telemetry on|off${RESET}`);
       console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
       console.log(`  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`);
       console.log(`  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`);
@@ -857,8 +1069,43 @@ async function main() {
 
     startSpinner('Thinking...');
 
+    // Check for @file references (e.g., @image.png) and convert to content blocks
+    let submitPayload: Record<string, unknown> = { prompt: input };
+    const atMatches = input.match(/@(\S+\.(png|jpg|jpeg|gif|webp))/gi);
+    if (atMatches) {
+      const contentBlocks: Array<Record<string, unknown>> = [];
+      let textPart = input;
+      for (const match of atMatches) {
+        const filePath = match.slice(1); // remove @
+        const absPath = path.resolve(process.cwd(), filePath);
+        try {
+          const fileData = fs.readFileSync(absPath);
+          const base64Data = fileData.toString('base64');
+          const ext = path.extname(filePath).toLowerCase().slice(1);
+          const mediaType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+          contentBlocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType,
+              data: base64Data,
+            },
+          });
+          textPart = textPart.replace(match, '').trim();
+        } catch {
+          console.log(`${FG_YELLOW}Warning: Could not read ${filePath}${RESET}`);
+        }
+      }
+      if (textPart) {
+        contentBlocks.unshift({ type: 'text', text: textPart });
+      }
+      if (contentBlocks.length > 0) {
+        submitPayload = { prompt: contentBlocks };
+      }
+    }
+
     try {
-      await client.request('submitMessage', { prompt: input });
+      await client.request('submitMessage', submitPayload);
     } catch (err) {
       stopSpinner();
       console.error(`${FG_RED}Request failed: ${err}${RESET}`);

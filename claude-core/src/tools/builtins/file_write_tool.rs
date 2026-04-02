@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::tools::trait_def::*;
 
+use super::backup::backup_file_before_write;
 use super::path_utils::resolve_and_validate_path;
 
 /// FileWriteTool - writes content to a file, creating parent dirs if needed
@@ -101,6 +102,11 @@ impl Tool for FileWriteTool {
 
         let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
             .map_err(|e| ToolError::ExecutionFailed(e))?;
+
+        // Backup existing file before overwriting
+        if let Err(e) = backup_file_before_write(&resolved, &context.cwd).await {
+            eprintln!("Warning: failed to backup file: {}", e);
+        }
 
         // Create parent directories if needed
         if let Some(parent) = resolved.parent() {
