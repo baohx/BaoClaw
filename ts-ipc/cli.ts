@@ -66,22 +66,29 @@ function stopSpinner() {
 // ASCII Art Logo
 // ═══════════════════════════════════════════════════════════════
 function printLogo() {
+  // White Bichon Frise dog — BaoClaw mascot
+  const W = `${ESC}38;2;255;255;255m`;  // white
+  const B = `${ESC}38;2;40;40;40m`;     // black (eyes/nose)
+  const P = `${ESC}38;2;255;182;193m`;  // pink (tongue)
+  const S = `${ESC}38;2;220;220;220m`;  // light shadow
+  const G = FG_GRAY;
+  const O = FG_ORANGE;
+  const R = RESET;
+
   const logo = `
-${FG_GRAY}                                                          ${RESET}
-${FG_GRAY}     *                                       ${FG_ORANGE}█████▓▓░${RESET}${FG_GRAY}     ${RESET}
-${FG_GRAY}                                 *         ${FG_ORANGE}███▓░${RESET}${FG_GRAY}     ░░   ${RESET}
-${FG_GRAY}            ░░░░░░                        ${FG_ORANGE}███▓░${RESET}${FG_GRAY}           ${RESET}
-${FG_GRAY}    ░░░   ░░░░░░░░░░                      ${FG_ORANGE}███▓░${RESET}${FG_GRAY}           ${RESET}
-${FG_GRAY}   ░░░░░░░░░░░░░░░░░░░    ${BOLD}*${RESET}${FG_GRAY}                ${FG_ORANGE}██▓░░${RESET}${FG_GRAY}      ▓   ${RESET}
-${FG_GRAY}                                             ░▓▓${FG_ORANGE}███${RESET}${FG_GRAY}▓▓░    ${RESET}
-${FG_GRAY} *                                 ░░░░                   ${RESET}
-${FG_GRAY}                                 ░░░░░░░░                 ${RESET}
-${FG_GRAY}                               ░░░░░░░░░░░░░░░░           ${RESET}
-${FG_GRAY}      ${FG_CLAWD} █████████ ${RESET}${FG_GRAY}                         ▒▒░░▒▒      ▒ ▒▒${RESET}
-${FG_GRAY}                                            ▒▒         ▒▒ ${RESET}
-${FG_GRAY}      ${FG_CLAWD}${BG_CLAWD}██▄█████▄██${RESET}${FG_GRAY}                           ▒▒         ▒▒ ${RESET}
-${FG_GRAY}      ${FG_CLAWD} █████████ ${RESET}${FG_GRAY}                          ░          ▒   ${RESET}
-${FG_GRAY}      ${FG_CLAWD}█ █   █ █${RESET}${FG_GRAY}                                            ${RESET}
+${G}                                                                ${R}
+${G}        ${W}░░░░░░░░░░░${R}${G}                                             ${R}
+${G}      ${W}░░░░░░░░░░░░░░░${R}${G}                                           ${R}
+${G}     ${W}░░░░░░░░░░░░░░░░░${R}${G}        ${O}╔╗   ╔╗${R}${G}                        ${R}
+${G}    ${W}░░░░░${R}${B}██${R}${W}░░░░░${R}${B}██${R}${W}░░░░${R}${G}        ${O}║╚╗╔╝║${R}${G}                        ${R}
+${G}    ${W}░░░░░░░░${R}${B}▄${R}${W}░░░░░░░░░${R}${G}        ${O}╚═╝╚═╝${R}${G}                        ${R}
+${G}    ${W}░░░░░░░${R}${P}▀▀▀${R}${W}░░░░░░░░${R}${G}                                       ${R}
+${G}     ${W}░░░░░░░░░░░░░░░░░${R}${G}    ${O}${BOLD}B a o C l a w${R}${G}                    ${R}
+${G}    ${W}░░░░░░░░░░░░░░░░░░░${R}${G}                                         ${R}
+${G}   ${W}░░░░░${R}${G}  ${W}░░░░░░░${R}${G}  ${W}░░░░░${R}${G}   ${S}AI Coding Assistant${R}${G}                ${R}
+${G}   ${W}░░░░${R}${G}    ${W}░░░░░${R}${G}    ${W}░░░░${R}${G}   ${S}Powered by Rust${R}${G}                  ${R}
+${G}    ${W}░░${R}${G}      ${W}░░░${R}${G}      ${W}░░${R}${G}                                       ${R}
+${G}                                                                ${R}
 `;
   process.stdout.write(logo);
 }
