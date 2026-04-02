@@ -108,6 +108,8 @@ function printWelcome(sessionId: string) {
   console.log(`${DIM}        /mcp      — list MCP servers${RESET}`);
   console.log(`${DIM}        /skills   — list skills${RESET}`);
   console.log(`${DIM}        /plugins  — list plugins${RESET}`);
+  console.log(`${DIM}        /compact  — compress conversation context${RESET}`);
+  console.log(`${DIM}        /think    — toggle extended thinking${RESET}`);
   console.log(`${DIM}        /help     — all commands${RESET}`);
   console.log(`${DIM}        /quit     — disconnect (daemon stays running)${RESET}`);
   console.log(`${DIM}        /shutdown — stop daemon${RESET}`);
@@ -379,6 +381,27 @@ async function main() {
   const defaultBin = path.resolve(process.cwd(), 'claude-core', 'target', 'release', 'claude-core');
   const binaryPath = path.resolve(process.env.CLAUDE_CORE_BIN ?? defaultBin);
 
+  // Parse CLI flags
+  const args = process.argv.slice(2);
+  let thinkingEnabled = false;
+  let thinkingBudget = 10240;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--think') {
+      thinkingEnabled = true;
+      // Check if next arg is a number (budget)
+      if (i + 1 < args.length && /^\d+$/.test(args[i + 1])) {
+        thinkingBudget = parseInt(args[i + 1], 10);
+        i++;
+      }
+    } else if (args[i]?.startsWith('--think=')) {
+      thinkingEnabled = true;
+      const val = args[i].split('=')[1];
+      if (val && /^\d+$/.test(val)) {
+        thinkingBudget = parseInt(val, 10);
+      }
+    }
+  }
+
   // Check API key
   if (!process.env.ANTHROPIC_API_KEY) {
     console.error(`${FG_RED}${BOLD}Error:${RESET} ANTHROPIC_API_KEY is not set.`);
@@ -416,9 +439,12 @@ async function main() {
   await client.connect(socketPath);
 
   // Initialize
+  const thinkingSettings = thinkingEnabled
+    ? { thinking: { mode: 'enabled', budget_tokens: thinkingBudget } }
+    : {};
   const initResult = await client.request<{ capabilities: Record<string, unknown>; session_id: string; reconnected?: boolean; message_count?: number }>(
     'initialize',
-    { cwd: process.cwd(), settings: {} }
+    { cwd: process.cwd(), settings: { ...thinkingSettings } }
   );
 
   stopSpinner();
@@ -451,6 +477,17 @@ async function main() {
         break;
       }
 
+      case 'thinking_chunk': {
+        stopSpinner();
+        const content = (event as { content: string }).content;
+        if (!isStreaming) {
+          process.stdout.write(`\n${FG_GRAY}${ITALIC}💭 Thinking...${RESET}\n`);
+          isStreaming = true;
+        }
+        process.stdout.write(`${DIM}${content}${RESET}`);
+        break;
+      }
+
       case 'tool_use': {
         stopSpinner();
         if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
@@ -465,6 +502,41 @@ async function main() {
         stopSpinner();
         const tr = event as { tool_use_id: string; output: unknown; is_error: boolean };
         console.log(formatToolResult(tr.output, tr.is_error));
+        break;
+      }
+
+      case 'permission_request': {
+        stopSpinner();
+        if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+        const pr = event as { tool_name: string; input: Record<string, unknown>; tool_use_id: string };
+        console.log(`\n${FG_YELLOW}⚠ ${BOLD}Permission Required${RESET}`);
+        console.log(`  Tool: ${FG_WHITE}${pr.tool_name}${RESET}`);
+        console.log(`  Input: ${DIM}${JSON.stringify(pr.input)}${RESET}`);
+        console.log(`  ${FG_GREEN}[y]${RESET} Allow  ${FG_GREEN}[a]${RESET} Always Allow  ${FG_RED}[n]${RESET} Deny`);
+
+        const permRl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        permRl.question(`${FG_ORANGE}> ${RESET}`, async (answer: string) => {
+          permRl.close();
+          let decision: string;
+          let rule: string | undefined;
+          switch (answer.trim().toLowerCase()) {
+            case 'y': decision = 'allow'; break;
+            case 'a': decision = 'allow_always'; rule = pr.tool_name; break;
+            case 'n': default: decision = 'deny'; break;
+          }
+          try {
+            await client.request('permissionResponse', {
+              tool_use_id: pr.tool_use_id,
+              decision,
+              rule,
+            });
+          } catch (err) {
+            console.error(`${FG_RED}Failed to send permission response: ${err}${RESET}`);
+          }
+          if (decision !== 'deny') {
+            startSpinner(`Running ${pr.tool_name}...`);
+          }
+        });
         break;
       }
 
@@ -635,12 +707,136 @@ async function main() {
       return;
     }
 
+    if (input === '/think') {
+      thinkingEnabled = !thinkingEnabled;
+      const settings = thinkingEnabled
+        ? { thinking: { mode: 'enabled', budget_tokens: thinkingBudget } }
+        : { thinking: { mode: 'disabled' } };
+      try {
+        await client.request('updateSettings', { settings });
+        if (thinkingEnabled) {
+          console.log(`\n${FG_GREEN}${BOLD}Extended thinking enabled${RESET} ${DIM}(budget: ${thinkingBudget} tokens)${RESET}\n`);
+        } else {
+          console.log(`\n${FG_YELLOW}Extended thinking disabled${RESET}\n`);
+        }
+      } catch (err) {
+        console.error(`${FG_RED}Failed to update thinking settings: ${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input === '/compact') {
+      startSpinner('Compacting conversation...');
+      try {
+        const result = await client.request<{ tokens_saved: number; summary_tokens: number }>('compact');
+        stopSpinner();
+        if (result.tokens_saved === 0) {
+          console.log(`\n${DIM}Not enough messages to compact.${RESET}\n`);
+        } else {
+          console.log(`\n${FG_GREEN}${BOLD}Compacted${RESET} ${DIM}saved ${result.tokens_saved} tokens (summary: ${result.summary_tokens} tokens)${RESET}\n`);
+        }
+      } catch (err) {
+        stopSpinner();
+        console.error(`${FG_RED}Failed to compact: ${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input === '/diff') {
+      startSpinner('Running git diff...');
+      try {
+        const result = await client.request<{ diff: string }>('gitDiff');
+        stopSpinner();
+        console.log(`\n${FG_ORANGE}${BOLD}Git Diff${RESET}\n`);
+        console.log(result.diff);
+        console.log();
+      } catch (err) {
+        stopSpinner();
+        console.error(`${FG_RED}${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input.startsWith('/commit')) {
+      const message = input.slice('/commit'.length).trim();
+      if (!message) {
+        console.log(`\n${FG_YELLOW}Usage: /commit <message>${RESET}\n`);
+        rl.prompt();
+        return;
+      }
+      startSpinner('Committing...');
+      try {
+        const result = await client.request<{ hash: string; message: string }>('gitCommit', { message });
+        stopSpinner();
+        console.log(`\n${FG_GREEN}${BOLD}Committed${RESET} ${DIM}${result.hash}${RESET} ${result.message}\n`);
+      } catch (err) {
+        stopSpinner();
+        console.error(`${FG_RED}${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input === '/git') {
+      startSpinner('Getting git status...');
+      try {
+        const result = await client.request<{
+          branch: string | null;
+          has_changes: boolean;
+          staged_files: string[];
+          modified_files: string[];
+          untracked_files: string[];
+        }>('gitStatus');
+        stopSpinner();
+        console.log(`\n${FG_ORANGE}${BOLD}Git Status${RESET}\n`);
+        if (result.branch) {
+          console.log(`  ${FG_WHITE}Branch:${RESET} ${result.branch}`);
+        }
+        if (!result.has_changes) {
+          console.log(`  ${DIM}No changes${RESET}`);
+        } else {
+          if (result.staged_files.length > 0) {
+            console.log(`  ${FG_GREEN}Staged:${RESET}`);
+            for (const f of result.staged_files) {
+              console.log(`    ${FG_GREEN}+${RESET} ${f}`);
+            }
+          }
+          if (result.modified_files.length > 0) {
+            console.log(`  ${FG_YELLOW}Modified:${RESET}`);
+            for (const f of result.modified_files) {
+              console.log(`    ${FG_YELLOW}~${RESET} ${f}`);
+            }
+          }
+          if (result.untracked_files.length > 0) {
+            console.log(`  ${DIM}Untracked:${RESET}`);
+            for (const f of result.untracked_files) {
+              console.log(`    ${DIM}?${RESET} ${f}`);
+            }
+          }
+        }
+        console.log();
+      } catch (err) {
+        stopSpinner();
+        console.error(`${FG_RED}${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
     if (input === '/help') {
       console.log(`\n${FG_ORANGE}${BOLD}Commands${RESET}\n`);
       console.log(`  ${FG_WHITE}/tools${RESET}      ${DIM}List registered tools${RESET}`);
       console.log(`  ${FG_WHITE}/mcp${RESET}        ${DIM}List MCP server configurations${RESET}`);
       console.log(`  ${FG_WHITE}/skills${RESET}     ${DIM}List discovered skills${RESET}`);
       console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
+      console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
+      console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
+      console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Show git diff summary${RESET}`);
+      console.log(`  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit: /commit <message>${RESET}`);
+      console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Show git status (branch, changes)${RESET}`);
       console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
       console.log(`  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`);
       console.log(`  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`);

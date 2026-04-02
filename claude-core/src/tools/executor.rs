@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::trait_def::*;
+use crate::engine::query_engine::EngineEvent;
+use crate::permissions::gate::{PermissionDecision, PermissionGate};
+use crate::permissions::manager::{PermissionManager, PermissionResult};
 
 /// Result of a single tool execution
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -54,6 +58,121 @@ pub async fn execute_tool(
     }
 
     // Step 3: Call the tool
+    let call_result = tool.call(request.input.clone(), context, progress).await;
+    match call_result {
+        Ok(result) => {
+            let max_size = tool.max_result_size_chars();
+            let output = truncate_if_needed(result.data, max_size);
+            ToolExecutionResult {
+                tool_use_id,
+                tool_name,
+                output,
+                is_error: result.is_error,
+            }
+        }
+        Err(err) => ToolExecutionResult {
+            tool_use_id,
+            tool_name,
+            output: Value::String(format!("Tool execution error: {}", err)),
+            is_error: true,
+        },
+    }
+}
+
+/// Execute a single tool with permission checking via PermissionManager and PermissionGate.
+///
+/// Flow: validate → check PermissionManager → Allow/Deny/Ask branch → call tool
+/// Ask branch: sends PermissionRequest event via IPC, waits on PermissionGate with 5min timeout.
+pub async fn execute_tool_with_permission(
+    tool: &dyn Tool,
+    request: &ToolUseRequest,
+    context: &ToolContext,
+    permission_manager: &PermissionManager,
+    permission_gate: &PermissionGate,
+    event_tx: &tokio::sync::mpsc::Sender<EngineEvent>,
+    progress: &dyn ProgressSender,
+) -> ToolExecutionResult {
+    let tool_name = tool.name().to_string();
+    let tool_use_id = request.id.clone();
+
+    // Step 1: Validate input
+    let validation = tool.validate_input(&request.input, context).await;
+    if let ValidationResult::Invalid { message, .. } = validation {
+        return ToolExecutionResult {
+            tool_use_id,
+            tool_name,
+            output: Value::String(format!("Validation error: {}", message)),
+            is_error: true,
+        };
+    }
+
+    // Step 2: Check permissions via PermissionManager
+    let input_description = serde_json::to_string(&request.input).ok();
+    let perm_result = permission_manager.check_permission(
+        &tool_name,
+        input_description.as_deref(),
+    );
+
+    match perm_result {
+        PermissionResult::Allow => {
+            // Direct execution
+            call_tool_and_wrap(tool, request, context, progress).await
+        }
+        PermissionResult::Deny { message } => {
+            ToolExecutionResult {
+                tool_use_id,
+                tool_name,
+                output: Value::String(format!("Permission denied: {}", message)),
+                is_error: true,
+            }
+        }
+        PermissionResult::Ask { .. } => {
+            // Send PermissionRequest event to CLI
+            let _ = event_tx
+                .send(EngineEvent::PermissionRequest {
+                    tool_name: tool_name.clone(),
+                    input: request.input.clone(),
+                    tool_use_id: tool_use_id.clone(),
+                })
+                .await;
+
+            // Wait for user response with 5 minute timeout
+            let rx = permission_gate.request(&tool_use_id);
+            let decision = match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                Ok(Ok(decision)) => decision,
+                Ok(Err(_)) => PermissionDecision::Deny, // channel closed
+                Err(_) => PermissionDecision::Deny,      // timeout → auto-deny
+            };
+
+            match decision {
+                PermissionDecision::Allow => {
+                    call_tool_and_wrap(tool, request, context, progress).await
+                }
+                PermissionDecision::AllowAlways { rule } => {
+                    permission_manager.add_allow_always_rule("user", &tool_name, rule);
+                    call_tool_and_wrap(tool, request, context, progress).await
+                }
+                PermissionDecision::Deny => ToolExecutionResult {
+                    tool_use_id,
+                    tool_name,
+                    output: Value::String("Permission denied by user".to_string()),
+                    is_error: true,
+                },
+            }
+        }
+    }
+}
+
+/// Helper: call a tool and wrap the result into ToolExecutionResult.
+async fn call_tool_and_wrap(
+    tool: &dyn Tool,
+    request: &ToolUseRequest,
+    context: &ToolContext,
+    progress: &dyn ProgressSender,
+) -> ToolExecutionResult {
+    let tool_name = tool.name().to_string();
+    let tool_use_id = request.id.clone();
+
     let call_result = tool.call(request.input.clone(), context, progress).await;
     match call_result {
         Ok(result) => {

@@ -22,6 +22,8 @@ pub enum ClientMethod {
         cwd: PathBuf,
         model: Option<String>,
         settings: Value,
+        #[serde(default)]
+        resume_session_id: Option<String>,
     },
     #[serde(rename = "submitMessage")]
     SubmitMessage {
@@ -48,6 +50,16 @@ pub enum ClientMethod {
     ListSkills,
     #[serde(rename = "listPlugins")]
     ListPlugins,
+    #[serde(rename = "compact")]
+    Compact,
+    #[serde(rename = "switchModel")]
+    SwitchModel { model: String },
+    #[serde(rename = "gitDiff")]
+    GitDiff,
+    #[serde(rename = "gitCommit")]
+    GitCommit { message: String },
+    #[serde(rename = "gitStatus")]
+    GitStatus,
 }
 
 /// Parse a JSON-RPC request into a ClientMethod
@@ -106,6 +118,7 @@ mod tests {
                 cwd,
                 model,
                 settings,
+                ..
             } => {
                 assert_eq!(cwd, PathBuf::from("/home/user/project"));
                 assert_eq!(model, Some("claude-sonnet-4-20250514".to_string()));
@@ -307,5 +320,76 @@ mod tests {
 
         let err = RouterError::InvalidParams("bad field".to_string());
         assert_eq!(err.to_string(), "Invalid params: bad field");
+    }
+
+    #[test]
+    fn test_parse_compact() {
+        let req = make_request("compact", json!(null));
+        let method = parse_client_method(&req).unwrap();
+        assert_eq!(method, ClientMethod::Compact);
+    }
+
+    #[test]
+    fn test_parse_switch_model() {
+        let req = make_request(
+            "switchModel",
+            json!({ "model": "claude-opus-4-20250514" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::SwitchModel { model } => {
+                assert_eq!(model, "claude-opus-4-20250514");
+            }
+            _ => panic!("Expected SwitchModel, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_switch_model_missing_model() {
+        let req = make_request("switchModel", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        match err {
+            RouterError::InvalidParams(_) => {}
+            _ => panic!("Expected InvalidParams, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_parse_git_diff() {
+        let req = make_request("gitDiff", json!(null));
+        let method = parse_client_method(&req).unwrap();
+        assert_eq!(method, ClientMethod::GitDiff);
+    }
+
+    #[test]
+    fn test_parse_git_commit() {
+        let req = make_request(
+            "gitCommit",
+            json!({ "message": "feat: add git integration" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::GitCommit { message } => {
+                assert_eq!(message, "feat: add git integration");
+            }
+            _ => panic!("Expected GitCommit, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_git_commit_missing_message() {
+        let req = make_request("gitCommit", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        match err {
+            RouterError::InvalidParams(_) => {}
+            _ => panic!("Expected InvalidParams, got {:?}", err),
+        }
+    }
+
+    #[test]
+    fn test_parse_git_status() {
+        let req = make_request("gitStatus", json!(null));
+        let method = parse_client_method(&req).unwrap();
+        assert_eq!(method, ClientMethod::GitStatus);
     }
 }

@@ -10,5 +10,6 @@ pub use trait_def::{
 };
 
 pub use executor::{
-    execute_tool, execute_tools, find_tool, ToolExecutionResult, ToolUseRequest,
+    execute_tool, execute_tool_with_permission, execute_tools, find_tool, ToolExecutionResult,
+    ToolUseRequest,
 };

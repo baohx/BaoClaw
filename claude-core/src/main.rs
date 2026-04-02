@@ -14,12 +14,14 @@ mod tools;
 
 use api::client::{AnthropicClient, ApiClientConfig};
 use engine::query_engine::{EngineEvent, QueryEngine, QueryEngineConfig, ThinkingConfig, EMPTY_USAGE};
+use engine::transcript::{TranscriptWriter, rebuild_messages_from_transcript};
 use ipc::events::{send_engine_event, send_state_patches};
 use ipc::protocol::JsonRpcMessage;
 use ipc::router::{parse_client_method, ClientMethod};
 use ipc::server::{IpcError, IpcServer};
+use permissions::gate::{PermissionDecision, PermissionGate};
 use state::manager::{CoreState, StateManager};
-use tools::builtins::{BashTool, FileEditTool, FileReadTool, FileWriteTool};
+use tools::builtins::{BashTool, FileEditTool, FileReadTool, FileWriteTool, NotebookEditTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
 
 /// Socket directory for all BaoClaw daemon instances
 fn socket_dir() -> PathBuf {
@@ -79,7 +81,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|i| args.get(i + 1))
         .map(|s| s.to_string())
         .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string());
-    let cwd = PathBuf::from(&cwd_str);
+    let _cwd = PathBuf::from(&cwd_str);
+
+    // Parse --resume flag for session resumption
+    let cli_resume_session_id = args.iter().position(|a| a == "--resume")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.to_string());
+
+    // Parse --think flag for extended thinking
+    let cli_thinking_config = if args.iter().any(|a| a == "--think") {
+        let budget = args.iter().position(|a| a == "--think")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(10240);
+        ThinkingConfig::Enabled { budget_tokens: budget }
+    } else {
+        ThinkingConfig::Disabled
+    };
 
     // Create socket in the shared socket directory
     let socket_path = make_socket_path(&cwd_str);
@@ -137,7 +155,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(FileReadTool::new(vec![])),
         Arc::new(FileWriteTool::new(vec![])),
         Arc::new(FileEditTool::new(vec![])),
+        Arc::new(WebFetchTool::new()),
+        Arc::new(WebSearchTool::new()),
+        Arc::new(NotebookEditTool::new()),
+        Arc::new(TodoWriteTool::new()),
     ];
+
+    // ToolSearchTool needs the full tool list, so register it last
+    let engine_tools: Vec<Arc<dyn tools::Tool>> = {
+        let mut all = engine_tools;
+        all.push(Arc::new(ToolSearchTool::new(all.clone())));
+        all
+    };
 
     let session_id = uuid::Uuid::new_v4().to_string();
 
@@ -171,6 +200,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // We need to create the engine outside the loop so conversation persists
     let mut engine: Option<QueryEngine> = None;
 
+    // Create PermissionGate for the permission interactive flow
+    let permission_gate = PermissionGate::new();
+
     while !should_exit {
         eprintln!("Waiting for client connection...");
         let mut conn = match server.accept().await {
@@ -195,12 +227,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        let (init_id, init_cwd, init_model) = match init_msg {
+        let (init_id, init_cwd, init_model, init_resume_session_id) = match init_msg {
             JsonRpcMessage::Request(req) => {
                 let id = req.id.clone();
                 match parse_client_method(&req) {
-                    Ok(ClientMethod::Initialize { cwd: c, model: m, .. }) => {
-                        (id, c, m)
+                    Ok(ClientMethod::Initialize { cwd: c, model: m, resume_session_id: r, .. }) => {
+                        (id, c, m, r)
                     }
                     Ok(_) => {
                         let _ = conn.send_error(Some(req.id), -32600,
@@ -217,7 +249,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => { continue; }
         };
 
-        let model = init_model.unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+        let model = init_model
+            .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
+            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
         let work_cwd = init_cwd;
 
         // Create engine if first client, or reuse existing
@@ -227,16 +261,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tools: engine_tools.clone(),
                 api_client: Arc::clone(&api_client),
                 model: model.clone(),
-                thinking_config: ThinkingConfig::Disabled,
+                thinking_config: cli_thinking_config.clone(),
                 max_turns: None,
                 max_budget_usd: None,
                 verbose: false,
                 custom_system_prompt: None,
                 append_system_prompt: None,
+                session_id: Some(session_id.clone()),
             }));
         }
 
         let eng = engine.as_mut().unwrap();
+
+        // Handle session resume if requested (from RPC or CLI arg)
+        let resume_id = init_resume_session_id.or(cli_resume_session_id.clone());
+        let mut resumed = false;
+        if let Some(ref resume_id) = resume_id {
+            match TranscriptWriter::load(resume_id) {
+                Ok(entries) => {
+                    let messages = rebuild_messages_from_transcript(&entries);
+                    if !messages.is_empty() {
+                        eng.set_messages(messages);
+                        resumed = true;
+                        eprintln!("Resumed session {} ({} messages)", resume_id, eng.get_messages().len());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to load transcript for session {}: {}", resume_id, e);
+                }
+            }
+        }
+
         let msg_count = eng.get_messages().len();
 
         // Send init response — include whether this is a reconnection
@@ -244,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "capabilities": { "tools": true, "streaming": true, "permissions": true },
             "session_id": &session_id,
             "reconnected": msg_count > 0,
+            "resumed": resumed,
             "message_count": msg_count,
         })).await;
 
@@ -323,11 +379,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             should_exit = true;
                                         }
                                         // /disconnect — client leaves, daemon stays
-                                        ClientMethod::UpdateSettings { .. } => {
+                                        ClientMethod::UpdateSettings { settings } => {
+                                            // Handle thinking config updates
+                                            if let Some(thinking) = settings.get("thinking") {
+                                                if let Some(mode) = thinking.get("mode").and_then(|v| v.as_str()) {
+                                                    let eng = engine.as_mut().unwrap();
+                                                    match mode {
+                                                        "enabled" => {
+                                                            let budget = thinking.get("budget_tokens")
+                                                                .and_then(|v| v.as_u64())
+                                                                .unwrap_or(10240) as u32;
+                                                            eng.update_thinking_config(ThinkingConfig::Enabled { budget_tokens: budget });
+                                                        }
+                                                        "adaptive" => {
+                                                            eng.update_thinking_config(ThinkingConfig::Adaptive);
+                                                        }
+                                                        _ => {
+                                                            eng.update_thinking_config(ThinkingConfig::Disabled);
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             let _ = conn.send_response(id, serde_json::json!("ok")).await;
                                         }
-                                        ClientMethod::PermissionResponse { .. } => {
-                                            let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                                        ClientMethod::PermissionResponse { tool_use_id, decision, rule } => {
+                                            let perm_decision = match decision.as_str() {
+                                                "allow" => PermissionDecision::Allow,
+                                                "allow_always" => PermissionDecision::AllowAlways { rule },
+                                                _ => PermissionDecision::Deny,
+                                            };
+                                            let delivered = permission_gate.respond(&tool_use_id, perm_decision);
+                                            let _ = conn.send_response(id, serde_json::json!({"delivered": delivered})).await;
                                         }
                                         ClientMethod::Initialize { .. } => {
                                             let _ = conn.send_error(Some(id), -32600, "Already initialized".into()).await;
@@ -349,6 +431,117 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         ClientMethod::ListPlugins => {
                                             let p = discovery::plugins::discover_plugins(&work_cwd).await;
                                             let _ = conn.send_response(id, serde_json::json!({"plugins": p, "count": p.len()})).await;
+                                        }
+                                        ClientMethod::Compact => {
+                                            let eng = engine.as_mut().unwrap();
+                                            match eng.compact().await {
+                                                Ok(result) => {
+                                                    let _ = conn.send_response(id, serde_json::json!({
+                                                        "tokens_saved": result.tokens_saved,
+                                                        "summary_tokens": result.summary_tokens,
+                                                    })).await;
+                                                }
+                                                Err(e) => {
+                                                    let _ = conn.send_error(Some(id), -32000, e.message).await;
+                                                }
+                                            }
+                                        }
+                                        ClientMethod::SwitchModel { model: new_model } => {
+                                            let eng = engine.as_mut().unwrap();
+                                            eng.update_model(new_model.clone());
+                                            state_manager.update(|s| { s.model = new_model.clone(); });
+                                            let _ = conn.send_response(id, serde_json::json!({"model": new_model})).await;
+                                        }
+                                        ClientMethod::GitDiff => {
+                                            let output = tokio::process::Command::new("git")
+                                                .args(["diff", "--stat"])
+                                                .current_dir(&work_cwd)
+                                                .output()
+                                                .await;
+                                            match output {
+                                                Ok(o) if o.status.success() => {
+                                                    let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                                                    let result = if stdout.trim().is_empty() {
+                                                        "No uncommitted changes.".to_string()
+                                                    } else {
+                                                        stdout
+                                                    };
+                                                    let _ = conn.send_response(id, serde_json::json!({"diff": result})).await;
+                                                }
+                                                Ok(o) => {
+                                                    let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                                                    let _ = conn.send_error(Some(id), -32000, format!("git diff failed: {}", stderr)).await;
+                                                }
+                                                Err(e) => {
+                                                    let _ = conn.send_error(Some(id), -32000, format!("Not a git repository or git not available: {}", e)).await;
+                                                }
+                                            }
+                                        }
+                                        ClientMethod::GitCommit { message } => {
+                                            // Stage all changes
+                                            let add_result = tokio::process::Command::new("git")
+                                                .args(["add", "-A"])
+                                                .current_dir(&work_cwd)
+                                                .output()
+                                                .await;
+                                            match add_result {
+                                                Ok(o) if o.status.success() => {
+                                                    // Commit
+                                                    let commit_result = tokio::process::Command::new("git")
+                                                        .args(["commit", "-m", &message])
+                                                        .current_dir(&work_cwd)
+                                                        .output()
+                                                        .await;
+                                                    match commit_result {
+                                                        Ok(co) if co.status.success() => {
+                                                            // Get commit hash
+                                                            let hash = tokio::process::Command::new("git")
+                                                                .args(["rev-parse", "--short", "HEAD"])
+                                                                .current_dir(&work_cwd)
+                                                                .output()
+                                                                .await
+                                                                .ok()
+                                                                .and_then(|h| String::from_utf8(h.stdout).ok())
+                                                                .map(|s| s.trim().to_string())
+                                                                .unwrap_or_default();
+                                                            let _ = conn.send_response(id, serde_json::json!({"hash": hash, "message": message})).await;
+                                                        }
+                                                        Ok(co) => {
+                                                            let stderr = String::from_utf8_lossy(&co.stderr).to_string();
+                                                            let stdout = String::from_utf8_lossy(&co.stdout).to_string();
+                                                            let msg = if stderr.is_empty() { stdout } else { stderr };
+                                                            let _ = conn.send_error(Some(id), -32000, format!("git commit failed: {}", msg)).await;
+                                                        }
+                                                        Err(e) => {
+                                                            let _ = conn.send_error(Some(id), -32000, format!("git commit error: {}", e)).await;
+                                                        }
+                                                    }
+                                                }
+                                                Ok(o) => {
+                                                    let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                                                    let _ = conn.send_error(Some(id), -32000, format!("git add failed: {}", stderr)).await;
+                                                }
+                                                Err(e) => {
+                                                    let _ = conn.send_error(Some(id), -32000, format!("Not a git repository or git not available: {}", e)).await;
+                                                }
+                                            }
+                                        }
+                                        ClientMethod::GitStatus => {
+                                            let git_info = engine::git_info::get_git_info(std::path::Path::new(&work_cwd));
+                                            match git_info {
+                                                Some(info) => {
+                                                    let _ = conn.send_response(id, serde_json::json!({
+                                                        "branch": info.branch,
+                                                        "has_changes": info.has_changes,
+                                                        "staged_files": info.staged_files,
+                                                        "modified_files": info.modified_files,
+                                                        "untracked_files": info.untracked_files,
+                                                    })).await;
+                                                }
+                                                None => {
+                                                    let _ = conn.send_error(Some(id), -32000, "Not a git repository".to_string()).await;
+                                                }
+                                            }
                                         }
                                     }
                                 }
