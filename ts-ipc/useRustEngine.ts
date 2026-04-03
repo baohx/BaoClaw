@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IpcClient } from './client';
-import { StatePatch, QueryResult, ErrorInfo } from './types';
-import { setupStreamHandlers, applyStatePatches, StreamHandlerManager } from './streamHandler';
+import { IpcClient } from './client.js';
+import { StatePatch, QueryResult, ErrorInfo } from './types.js';
+import { setupStreamHandlers, applyStatePatches, StreamHandlerManager } from './streamHandler.js';
 
 export interface Message {
   uuid: string;

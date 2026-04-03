@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-use crate::api::client::{AnthropicClient, ApiStreamEvent, CreateMessageRequest};
+use crate::api::client::{AnthropicClient, ApiError, ApiStreamEvent, CreateMessageRequest};
+use crate::api::fallback::{FallbackAction, FallbackController};
+use crate::config::BaoclawConfig;
 use crate::engine::cost_tracker::CostTracker;
 use crate::engine::git_info::{get_git_info, GitInfo};
 use crate::engine::transcript::{TranscriptEntry, TranscriptEntryType, TranscriptWriter};
@@ -34,6 +36,8 @@ pub struct QueryEngineConfig {
     pub custom_system_prompt: Option<String>,
     pub append_system_prompt: Option<String>,
     pub session_id: Option<String>,
+    pub fallback_models: Vec<String>,
+    pub max_retries_per_model: u32,
 }
 
 /// Thinking mode configuration for the LLM.
@@ -87,6 +91,11 @@ pub enum EngineEvent {
     },
     #[serde(rename = "state_update")]
     StateUpdate { patch: Value },
+    #[serde(rename = "model_fallback")]
+    ModelFallback {
+        from_model: String,
+        to_model: String,
+    },
     #[serde(rename = "result")]
     Result(QueryResult),
     #[serde(rename = "error")]
@@ -140,6 +149,7 @@ pub struct CompactResult {
 pub struct QueryEngine {
     config: QueryEngineConfig,
     messages: Vec<Message>,
+    pending_messages: Option<Arc<tokio::sync::Mutex<Vec<Message>>>>,
     abort_tx: watch::Sender<bool>,
     abort_rx: watch::Receiver<bool>,
     total_usage: Usage,
@@ -152,6 +162,7 @@ impl QueryEngine {
         Self {
             config,
             messages: Vec::new(),
+            pending_messages: None,
             abort_tx,
             abort_rx,
             total_usage: EMPTY_USAGE,
@@ -196,6 +207,15 @@ impl QueryEngine {
     /// Get the current model name.
     pub fn get_model(&self) -> &str {
         &self.config.model
+    }
+
+    /// Sync messages back from the spawned query loop task.
+    /// Must be called after the query loop completes (after draining the event rx).
+    pub async fn sync_messages(&mut self) {
+        if let Some(pending) = self.pending_messages.take() {
+            let msgs = pending.lock().await;
+            self.messages = msgs.clone();
+        }
     }
 
     /// Execute context compaction.
@@ -358,13 +378,19 @@ impl QueryEngine {
             thinking_config: self.config.thinking_config.clone(),
             abort_rx: self.abort_rx.clone(),
             session_id: self.config.session_id.clone(),
+            fallback_models: self.config.fallback_models.clone(),
+            max_retries_per_model: self.config.max_retries_per_model,
         };
 
-        let messages = self.messages.clone();
+        let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
+        let messages_for_task = Arc::clone(&messages_shared);
 
         tokio::spawn(async move {
-            run_query_loop(messages, loop_config, tx).await;
+            let mut msgs = messages_for_task.lock().await;
+            run_query_loop(&mut msgs, loop_config, tx).await;
         });
+
+        self.pending_messages = Some(messages_shared);
 
         rx
     }
@@ -392,6 +418,8 @@ pub struct QueryLoopConfig {
     pub thinking_config: ThinkingConfig,
     pub abort_rx: watch::Receiver<bool>,
     pub session_id: Option<String>,
+    pub fallback_models: Vec<String>,
+    pub max_retries_per_model: u32,
 }
 
 impl QueryLoopConfig {
@@ -402,7 +430,7 @@ impl QueryLoopConfig {
 
 /// The core query loop that calls the LLM, processes tool uses, and loops until done.
 async fn run_query_loop(
-    mut messages: Vec<Message>,
+    messages: &mut Vec<Message>,
     config: QueryLoopConfig,
     tx: mpsc::Sender<EngineEvent>,
 ) {
@@ -432,6 +460,15 @@ async fn run_query_loop(
             data: serde_json::to_value(last_msg).unwrap_or_default(),
         });
     }
+
+    // Build FallbackController from config
+    let fallback_config = BaoclawConfig {
+        model: config.model.clone(),
+        fallback_models: config.fallback_models.clone(),
+        max_retries_per_model: config.max_retries_per_model,
+        extra: std::collections::HashMap::new(),
+    };
+    let mut fallback_controller = FallbackController::new(&fallback_config);
 
     loop {
         // Check abort
@@ -464,13 +501,62 @@ async fn run_query_loop(
             }
         }
 
-        // Build API request
-        let request = build_api_request(&messages, &config);
+        // Build API request using the current model from fallback controller
+        let current_config = QueryLoopConfig {
+            api_client: Arc::clone(&config.api_client),
+            tools: config.tools.clone(),
+            model: fallback_controller.current_model().to_string(),
+            max_turns: config.max_turns,
+            cwd: config.cwd.clone(),
+            custom_system_prompt: config.custom_system_prompt.clone(),
+            append_system_prompt: config.append_system_prompt.clone(),
+            project_instructions: config.project_instructions.clone(),
+            git_info: config.git_info.clone(),
+            thinking_config: config.thinking_config.clone(),
+            abort_rx: config.abort_rx.clone(),
+            session_id: config.session_id.clone(),
+            fallback_models: config.fallback_models.clone(),
+            max_retries_per_model: config.max_retries_per_model,
+        };
+        let request = build_api_request(&messages, &current_config);
 
-        // Call LLM API (streaming)
+        // Call LLM API (streaming) with rate-limit fallback handling
         let stream_result = config.api_client.create_message_stream(request).await;
         let mut stream = match stream_result {
             Ok(s) => s,
+            Err(ApiError::RateLimited) => {
+                // Handle rate limit with fallback controller
+                match fallback_controller.on_rate_limit() {
+                    FallbackAction::Retry { model, attempt, delay } => {
+                        eprintln!("Rate limited on {}, retrying (attempt {})...", model, attempt);
+                        tokio::time::sleep(delay).await;
+                        continue; // retry the loop
+                    }
+                    FallbackAction::Fallback { from, to } => {
+                        eprintln!("Rate limited on {}, falling back to {}", from, to);
+                        let _ = tx.send(EngineEvent::ModelFallback {
+                            from_model: from,
+                            to_model: to,
+                        }).await;
+                        continue; // retry with new model
+                    }
+                    FallbackAction::Exhausted { models_tried, total_retries } => {
+                        let _ = tx.send(EngineEvent::Error(EngineError {
+                            code: "all_models_exhausted".to_string(),
+                            message: format!(
+                                "All models exhausted after {} retries. Tried: {}",
+                                total_retries,
+                                models_tried.join(", ")
+                            ),
+                            details: Some(serde_json::json!({
+                                "models_tried": models_tried,
+                                "total_retries": total_retries,
+                            })),
+                        })).await;
+                        return;
+                    }
+                }
+            }
             Err(e) => {
                 let _ = tx.send(EngineEvent::Error(EngineError {
                     code: "api_error".to_string(),
@@ -1060,6 +1146,8 @@ mod tests {
             custom_system_prompt: None,
             append_system_prompt: None,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         }
     }
 
@@ -1508,6 +1596,8 @@ mod tests {
             thinking_config: ThinkingConfig::Disabled,
             abort_rx,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -1536,6 +1626,8 @@ mod tests {
             thinking_config: ThinkingConfig::Disabled,
             abort_rx,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -1564,6 +1656,8 @@ mod tests {
             thinking_config: ThinkingConfig::Disabled,
             abort_rx,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         };
         let messages = vec![
             Message {
@@ -1685,6 +1779,8 @@ mod tests {
             thinking_config: ThinkingConfig::Disabled,
             abort_rx,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -1713,6 +1809,8 @@ mod tests {
             thinking_config: ThinkingConfig::Disabled,
             abort_rx,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -1891,6 +1989,8 @@ mod tests {
             thinking_config,
             abort_rx,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         }
     }
 

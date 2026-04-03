@@ -120,6 +120,8 @@ impl ApiError {
 pub struct SseStream {
     inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
     buffer: String,
+    /// Holds incomplete UTF-8 bytes from the previous chunk boundary.
+    pending_bytes: Vec<u8>,
 }
 
 impl SseStream {
@@ -127,6 +129,7 @@ impl SseStream {
         Self {
             inner: Box::pin(byte_stream),
             buffer: String::new(),
+            pending_bytes: Vec::new(),
         }
     }
 }
@@ -146,12 +149,32 @@ impl Stream for SseStream {
             // Need more data from the byte stream
             match Pin::new(&mut this.inner).poll_next(cx) {
                 Poll::Ready(Some(Ok(chunk))) => {
-                    match std::str::from_utf8(&chunk) {
-                        Ok(text) => this.buffer.push_str(text),
+                    // Prepend any pending incomplete bytes from the previous chunk
+                    let mut bytes = std::mem::take(&mut this.pending_bytes);
+                    bytes.extend_from_slice(&chunk);
+
+                    // Try to decode as UTF-8; handle incomplete sequences at the end
+                    match std::str::from_utf8(&bytes) {
+                        Ok(text) => {
+                            this.buffer.push_str(text);
+                        }
                         Err(e) => {
-                            return Poll::Ready(Some(Err(ApiError::ParseError(
-                                format!("Invalid UTF-8 in SSE stream: {}", e),
-                            ))));
+                            let valid_up_to = e.valid_up_to();
+                            if valid_up_to > 0 {
+                                // Push the valid portion
+                                let valid_text = unsafe { std::str::from_utf8_unchecked(&bytes[..valid_up_to]) };
+                                this.buffer.push_str(valid_text);
+                            }
+                            // Check if this is an incomplete sequence at the end (recoverable)
+                            // vs a genuinely invalid byte in the middle (unrecoverable)
+                            if e.error_len().is_none() {
+                                // Incomplete sequence at end — save remaining bytes for next chunk
+                                this.pending_bytes = bytes[valid_up_to..].to_vec();
+                            } else {
+                                // Genuinely invalid UTF-8 byte — skip the bad byte and continue
+                                let bad_len = e.error_len().unwrap();
+                                this.pending_bytes = bytes[valid_up_to + bad_len..].to_vec();
+                            }
                         }
                     }
                     // Loop back to try parsing again with new data

@@ -7,7 +7,7 @@ INSTALL_DIR="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 BIN_DIR="${BAOCLAW_BIN_DIR:-$HOME/.local/bin}"
 
 echo "╔═══════════════════════════════════════╗"
-echo "║       BaoClaw Installer v0.1.0        ║"
+echo "║       BaoClaw Installer v0.2.0        ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
 
@@ -35,13 +35,10 @@ echo "✓ Rust binary installed to $INSTALL_DIR/bin/"
 
 # 5. Copy TS-IPC files
 mkdir -p "$INSTALL_DIR/ts-ipc"
-cp "$SCRIPT_DIR/ts-ipc/cli.ts" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/client.ts" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/index.ts" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/streamHandler.ts" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/types.ts" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/rustCore.ts" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/useRustEngine.ts" "$INSTALL_DIR/ts-ipc/"
+# Copy all TypeScript source files
+for f in "$SCRIPT_DIR"/ts-ipc/*.ts; do
+  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/ts-ipc/"
+done
 cp "$SCRIPT_DIR/ts-ipc/package.json" "$INSTALL_DIR/ts-ipc/"
 cp "$SCRIPT_DIR/ts-ipc/package-lock.json" "$INSTALL_DIR/ts-ipc/"
 cp "$SCRIPT_DIR/ts-ipc/tsconfig.json" "$INSTALL_DIR/ts-ipc/"
@@ -64,7 +61,7 @@ cat > "$BIN_DIR/baoclaw" << 'LAUNCHER'
 BAOCLAW_HOME="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-  echo "BaoClaw v0.1.0 — AI coding assistant"
+  echo "BaoClaw v0.2.0 — AI coding assistant"
   echo ""
   echo "Usage: baoclaw"
   echo ""
@@ -76,7 +73,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 fi
 
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-  echo "baoclaw 0.1.0"
+  echo "baoclaw 0.2.0"
   exit 0
 fi
 

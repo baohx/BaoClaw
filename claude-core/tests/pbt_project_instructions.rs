@@ -54,6 +54,8 @@ proptest! {
             thinking_config: ThinkingConfig::Disabled,
             abort_rx,
             session_id: None,
+            fallback_models: vec![],
+            max_retries_per_model: 2,
         };
 
         let system = build_system_prompt(&config);

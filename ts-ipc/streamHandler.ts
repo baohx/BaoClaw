@@ -1,5 +1,5 @@
-import { IpcClient } from './client';
-import { StreamEvent, StatePatch } from './types';
+import { IpcClient } from './client.js';
+import { StreamEvent, StatePatch } from './types.js';
 
 type StreamEventHandler = (event: StreamEvent) => void;
 type StatePatchHandler = (patches: StatePatch[]) => void;

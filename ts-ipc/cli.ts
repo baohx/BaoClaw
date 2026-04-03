@@ -7,7 +7,7 @@ import * as net from 'net';
 import * as readline from 'readline';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-import { renderMarkdown } from './markdownRenderer';
+import { renderMarkdown } from './markdownRenderer.js';
 import * as fs from 'fs';
 import * as os from 'os';
 
@@ -21,16 +21,16 @@ const DIM = `${ESC}2m`;
 const ITALIC = `${ESC}3m`;
 const UNDERLINE = `${ESC}4m`;
 
-// Colors (Claude-inspired palette)
+// Colors (optimized for dark terminal backgrounds)
 const FG_ORANGE = `${ESC}38;2;217;119;40m`;   // Claude orange
-const FG_CYAN = `${ESC}36m`;
-const FG_GREEN = `${ESC}32m`;
-const FG_YELLOW = `${ESC}33m`;
-const FG_RED = `${ESC}31m`;
-const FG_MAGENTA = `${ESC}35m`;
-const FG_BLUE = `${ESC}34m`;
-const FG_WHITE = `${ESC}37m`;
-const FG_GRAY = `${ESC}90m`;
+const FG_CYAN = `${ESC}96m`;                   // bright cyan
+const FG_GREEN = `${ESC}92m`;                  // bright green
+const FG_YELLOW = `${ESC}93m`;                 // bright yellow
+const FG_RED = `${ESC}91m`;                    // bright red
+const FG_MAGENTA = `${ESC}95m`;                // bright magenta
+const FG_BLUE = `${ESC}94m`;                   // bright blue
+const FG_WHITE = `${ESC}97m`;                  // bright white
+const FG_GRAY = `${ESC}38;2;160;160;160m`;     // lighter gray (visible on dark bg)
 const FG_BRIGHT_WHITE = `${ESC}97m`;
 const BG_DARK = `${ESC}48;2;30;30;30m`;
 
@@ -96,14 +96,15 @@ ${G}                                                                ${R}
   process.stdout.write(logo);
 }
 
-function printWelcome(sessionId: string) {
+function printWelcome(sessionId: string, model: string) {
   const cols = process.stdout.columns || 80;
   const line = '─'.repeat(Math.min(cols - 2, 70));
 
-  console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v0.1.0${RESET}`);
+  console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v0.2.0${RESET}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log(`${DIM}  Session: ${sessionId}${RESET}`);
   console.log(`${DIM}  cwd: ${process.cwd()}${RESET}`);
+  console.log(`${DIM}  model: ${RESET}${FG_GREEN}${model}${RESET}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log();
   console.log(`${DIM}  Tips: Type your message and press Enter.${RESET}`);
@@ -113,6 +114,7 @@ function printWelcome(sessionId: string) {
   console.log(`${DIM}        /plugins  — list plugins${RESET}`);
   console.log(`${DIM}        /compact  — compress conversation context${RESET}`);
   console.log(`${DIM}        /think    — toggle extended thinking${RESET}`);
+  console.log(`${DIM}        /model    — show or switch model${RESET}`);
   console.log(`${DIM}        /help     — all commands${RESET}`);
   console.log(`${DIM}        /voice    — voice input (whisper.cpp)${RESET}`);
   console.log(`${DIM}        /quit     — disconnect (daemon stays running)${RESET}`);
@@ -174,7 +176,7 @@ function formatToolResult(output: unknown, isError: boolean): string {
     : outputStr;
 
   const lines = truncated.split('\n');
-  const color = isError ? FG_RED : FG_GRAY;
+  const color = isError ? FG_RED : FG_WHITE;
   const prefix = isError ? `${FG_RED}✗` : `${FG_GREEN}✓`;
 
   if (lines.length <= 1) {
@@ -513,7 +515,13 @@ async function main() {
   if (initResult.reconnected) {
     console.log(`\n${FG_GREEN}${BOLD}Reconnected${RESET} ${DIM}to session ${initResult.session_id} (${initResult.message_count} messages in history)${RESET}\n`);
   }
-  printWelcome(initResult.session_id);
+  const activeModel = process.env.ANTHROPIC_MODEL || (() => {
+    try {
+      const raw = fs.readFileSync(path.join(os.homedir(), '.baoclaw', 'config.json'), 'utf-8');
+      return JSON.parse(raw).model || 'claude-sonnet-4-20250514';
+    } catch { return 'claude-sonnet-4-20250514'; }
+  })();
+  printWelcome(initResult.session_id, activeModel);
 
   // ── Stream event handling ──
   let isStreaming = false;
@@ -543,7 +551,7 @@ async function main() {
           process.stdout.write(`\n${FG_GRAY}${ITALIC}💭 Thinking...${RESET}\n`);
           isStreaming = true;
         }
-        process.stdout.write(`${DIM}${content}${RESET}`);
+        process.stdout.write(`${FG_GRAY}${content}${RESET}`);
         break;
       }
 
@@ -624,7 +632,16 @@ async function main() {
           : '';
         const tools = toolCount > 0 ? `${toolCount} tool${toolCount > 1 ? 's' : ''}` : '';
         const parts = [tools, tokens, `${(elapsed / 1000).toFixed(1)}s`].filter(Boolean).join(' · ');
-        console.log(`\n${FG_GRAY}  ${parts}${RESET}\n`);
+        console.log(`\n${FG_CYAN}  ${parts}${RESET}\n`);
+        break;
+      }
+
+      case 'model_fallback': {
+        stopSpinner();
+        if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+        const fb = event as { from_model: string; to_model: string };
+        console.log(`\n${FG_YELLOW}⚠ ${BOLD}Model Fallback${RESET}${FG_YELLOW} ${fb.from_model} → ${fb.to_model} (rate limited)${RESET}\n`);
+        startSpinner('Retrying with ' + fb.to_model + '...');
         break;
       }
 
@@ -653,9 +670,45 @@ async function main() {
 
   rl.prompt();
 
-  rl.on('line', async (line: string) => {
-    const input = line.trim();
-    if (!input) { rl.prompt(); return; }
+  // Paste detection: accumulate lines arriving within 50ms into a single input
+  let pasteBuffer: string[] = [];
+  let pasteTimer: ReturnType<typeof setTimeout> | null = null;
+  let processingInput = false;
+
+  async function handleInput(input: string) {
+    if (processingInput) return;
+    processingInput = true;
+    try {
+      await handleLine(input);
+    } finally {
+      processingInput = false;
+    }
+  }
+
+  rl.on('line', (line: string) => {
+    pasteBuffer.push(line);
+    if (pasteTimer) clearTimeout(pasteTimer);
+    pasteTimer = setTimeout(async () => {
+      const lines = pasteBuffer;
+      pasteBuffer = [];
+      pasteTimer = null;
+
+      // If single line, process normally
+      if (lines.length === 1) {
+        const input = lines[0].trim();
+        if (!input) { rl.prompt(); return; }
+        await handleInput(input);
+        return;
+      }
+
+      // Multi-line paste: join with newlines
+      const combined = lines.join('\n').trim();
+      if (!combined) { rl.prompt(); return; }
+      await handleInput(combined);
+    }, 50);
+  });
+
+  async function handleLine(input: string) {
 
     if (input === '/quit' || input === '/exit' || input === '/q') {
       console.log(`\n${DIM}Disconnecting (daemon stays running)...${RESET}`);
@@ -782,6 +835,60 @@ async function main() {
         }
       } catch (err) {
         console.error(`${FG_RED}Failed to list plugins: ${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input === '/model' || input.startsWith('/model ')) {
+      const modelArg = input.slice('/model'.length).trim();
+      if (!modelArg) {
+        // Show current model, fallback chain, and config
+        const configPath = path.join(os.homedir(), '.baoclaw', 'config.json');
+        let fallbackModels: string[] = [];
+        let maxRetries = 2;
+        let configModel = 'claude-sonnet-4-20250514';
+        try {
+          const raw = fs.readFileSync(configPath, 'utf-8');
+          const cfg = JSON.parse(raw);
+          configModel = cfg.model || configModel;
+          fallbackModels = cfg.fallback_models || [];
+          maxRetries = cfg.max_retries_per_model ?? 2;
+        } catch { /* use defaults */ }
+
+        const activeModel = process.env.ANTHROPIC_MODEL || configModel;
+
+        console.log(`\n${FG_ORANGE}${BOLD}Model Configuration${RESET}\n`);
+        console.log(`  ${FG_WHITE}Active model:${RESET}  ${FG_GREEN}${activeModel}${RESET}`);
+        if (process.env.ANTHROPIC_MODEL) {
+          console.log(`  ${FG_GRAY}(overridden by ANTHROPIC_MODEL env var, config: ${configModel})${RESET}`);
+        }
+        console.log(`  ${FG_WHITE}Max retries:${RESET}   ${maxRetries} per model`);
+        console.log();
+
+        if (fallbackModels.length > 0) {
+          console.log(`  ${FG_WHITE}Fallback chain:${RESET}`);
+          console.log(`    ${FG_CYAN}0.${RESET} ${FG_GREEN}${activeModel}${RESET} ${FG_GRAY}(primary)${RESET}`);
+          fallbackModels.forEach((m: string, i: number) => {
+            console.log(`    ${FG_CYAN}${i + 1}.${RESET} ${FG_YELLOW}${m}${RESET}`);
+          });
+        } else {
+          console.log(`  ${FG_GRAY}No fallback models configured.${RESET}`);
+          console.log(`  ${FG_GRAY}Edit ~/.baoclaw/config.json to add fallback_models.${RESET}`);
+        }
+
+        console.log();
+        console.log(`  ${FG_WHITE}Switch:${RESET}  /model <model-name>`);
+        console.log(`  ${FG_WHITE}Config:${RESET}  ~/.baoclaw/config.json`);
+        console.log();
+      } else {
+        // Switch model
+        try {
+          const result = await client.request<{ model: string }>('switchModel', { model: modelArg });
+          console.log(`\n${FG_GREEN}${BOLD}Switched to ${result.model}${RESET}\n`);
+        } catch (err) {
+          console.error(`${FG_RED}Failed to switch model: ${err}${RESET}`);
+        }
       }
       rl.prompt();
       return;
@@ -1016,8 +1123,127 @@ async function main() {
     }
 
     if (input === '/voice') {
-      console.log(`${FG_YELLOW}Voice input requires whisper.cpp integration.${RESET}`);
-      console.log(`${DIM}This feature is planned for a future release.${RESET}`);
+      // Voice input: record audio via arecord, transcribe via whisper-cli
+      const whisperBin = process.env.WHISPER_CLI || 'whisper-cli';
+      const whisperModel = process.env.WHISPER_MODEL || path.join(os.homedir(), '.baoclaw', 'models', 'ggml-base.bin');
+
+      // Check if whisper-cli is available
+      try {
+        require('child_process').execSync(`which ${whisperBin}`, { stdio: 'ignore' });
+      } catch {
+        console.log(`\n${FG_YELLOW}whisper-cli not found.${RESET}`);
+        console.log(`${DIM}Install whisper.cpp and ensure 'whisper-cli' is in PATH.${RESET}`);
+        console.log(`${DIM}Or set WHISPER_CLI env var to the binary path.${RESET}`);
+        console.log(`${DIM}Model path: ${whisperModel}${RESET}`);
+        console.log(`${DIM}  Set WHISPER_MODEL env var to override.${RESET}\n`);
+        rl.prompt();
+        return;
+      }
+
+      // Check if model file exists
+      if (!fs.existsSync(whisperModel)) {
+        console.log(`\n${FG_YELLOW}Whisper model not found at: ${whisperModel}${RESET}`);
+        console.log(`${DIM}Download a model:${RESET}`);
+        console.log(`${DIM}  mkdir -p ~/.baoclaw/models${RESET}`);
+        console.log(`${DIM}  curl -L -o ~/.baoclaw/models/ggml-base.bin \\${RESET}`);
+        console.log(`${DIM}    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin${RESET}`);
+        console.log(`${DIM}Or set WHISPER_MODEL env var to your model path.${RESET}\n`);
+        rl.prompt();
+        return;
+      }
+
+      const tmpWav = path.join(os.tmpdir(), `baoclaw-voice-${Date.now()}.wav`);
+
+      console.log(`\n${FG_ORANGE}${BOLD}🎤 Recording...${RESET} ${DIM}Press Enter to stop.${RESET}`);
+
+      // Start recording with arecord (Linux) or sox (cross-platform fallback)
+      let recProc: ChildProcess;
+      try {
+        // Try arecord first (ALSA, common on Linux)
+        recProc = spawn('arecord', ['-f', 'S16_LE', '-r', '16000', '-c', '1', '-t', 'wav', tmpWav], {
+          stdio: ['pipe', 'ignore', 'ignore'],
+        });
+      } catch {
+        try {
+          // Fallback to sox/rec
+          recProc = spawn('rec', ['-r', '16000', '-c', '1', '-b', '16', tmpWav], {
+            stdio: ['pipe', 'ignore', 'ignore'],
+          });
+        } catch {
+          console.log(`${FG_RED}No audio recorder found. Install arecord (alsa-utils) or sox.${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+      }
+
+      // Wait for Enter to stop recording
+      await new Promise<void>((resolve) => {
+        const stopRl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        stopRl.once('line', () => {
+          stopRl.close();
+          recProc.kill('SIGTERM');
+          resolve();
+        });
+      });
+
+      // Wait for process to exit
+      await new Promise<void>((resolve) => {
+        recProc.on('close', () => resolve());
+        setTimeout(() => { recProc.kill('SIGKILL'); resolve(); }, 2000);
+      });
+
+      if (!fs.existsSync(tmpWav) || fs.statSync(tmpWav).size < 100) {
+        console.log(`${FG_YELLOW}Recording too short or failed.${RESET}\n`);
+        try { fs.unlinkSync(tmpWav); } catch {}
+        rl.prompt();
+        return;
+      }
+
+      // Transcribe with whisper-cli
+      startSpinner('Transcribing...');
+      try {
+        const result = require('child_process').execSync(
+          `${whisperBin} -m "${whisperModel}" -f "${tmpWav}" -l auto --no-timestamps -otxt 2>/dev/null`,
+          { encoding: 'utf-8', timeout: 30000 }
+        ).trim();
+
+        stopSpinner();
+
+        // Also check for .txt output file (whisper-cli sometimes writes to file)
+        let transcript = result;
+        const txtFile = tmpWav + '.txt';
+        if ((!transcript || transcript.length < 2) && fs.existsSync(txtFile)) {
+          transcript = fs.readFileSync(txtFile, 'utf-8').trim();
+          try { fs.unlinkSync(txtFile); } catch {}
+        }
+
+        if (!transcript || transcript.length < 2) {
+          console.log(`${FG_YELLOW}Could not transcribe audio.${RESET}\n`);
+        } else {
+          console.log(`${FG_GREEN}📝 ${transcript}${RESET}\n`);
+
+          // Submit the transcribed text as a message
+          console.log(`${FG_BRIGHT_WHITE}${BOLD}You${RESET} ${transcript}`);
+          currentText = '';
+          isStreaming = false;
+          toolCount = 0;
+          queryStartTime = Date.now();
+          startSpinner('Thinking...');
+          try {
+            await client.request('submitMessage', { prompt: transcript });
+          } catch (err) {
+            stopSpinner();
+            console.error(`${FG_RED}Request failed: ${err}${RESET}`);
+          }
+        }
+      } catch (err) {
+        stopSpinner();
+        console.error(`${FG_RED}Transcription failed: ${err}${RESET}`);
+      }
+
+      // Cleanup
+      try { fs.unlinkSync(tmpWav); } catch {}
+
       rl.prompt();
       return;
     }
@@ -1043,6 +1269,7 @@ async function main() {
       console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
       console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
       console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
+      console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model: /model [name]${RESET}`);
       console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Show git diff summary${RESET}`);
       console.log(`  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit: /commit <message>${RESET}`);
       console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Show git status (branch, changes)${RESET}`);
@@ -1112,7 +1339,7 @@ async function main() {
     }
 
     rl.prompt();
-  });
+  }
 
   rl.on('close', async () => {
     stopSpinner();

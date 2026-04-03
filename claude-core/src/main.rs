@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 mod api;
 mod bridge;
+mod config;
 mod discovery;
 mod engine;
 mod ipc;
@@ -146,6 +147,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("baoclaw-core daemon started (pid={}, cwd={})", std::process::id(), cwd_str);
     }
 
+    // Load BaoClaw config from ~/.baoclaw/config.json
+    let mut baoclaw_config = config::load_config();
+    config::apply_env_override(&mut baoclaw_config);
+
     // Get API key and config from environment
     let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
     let api_client = Arc::new(AnthropicClient::new(ApiClientConfig {
@@ -226,7 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state_manager = StateManager::new(CoreState {
         session_id: session_id.clone(),
-        model: "claude-sonnet-4-20250514".to_string(),
+        model: baoclaw_config.model.clone(),
         verbose: false,
         tasks: std::collections::HashMap::new(),
         usage: EMPTY_USAGE,
@@ -308,7 +313,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let model = init_model
             .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
-            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+            .unwrap_or_else(|| baoclaw_config.model.clone());
         let work_cwd = init_cwd;
 
         // Create engine if first client, or reuse existing
@@ -325,6 +330,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 custom_system_prompt: None,
                 append_system_prompt: None,
                 session_id: Some(session_id.clone()),
+                fallback_models: baoclaw_config.fallback_models.clone(),
+                max_retries_per_model: baoclaw_config.max_retries_per_model,
             }));
         }
 
@@ -424,6 +431,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 }
                                             }
                                             if !client_disconnected {
+                                                // Sync messages back from the spawned query loop
+                                                eng.sync_messages().await;
                                                 let _ = conn.send_response(id, serde_json::json!({"status": "complete"})).await;
                                             }
                                         }

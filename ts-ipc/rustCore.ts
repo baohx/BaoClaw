@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from 'child_process';
-import { IpcClient } from './client';
+import { IpcClient } from './client.js';
 
 export interface RustCoreConfig {
   /** Path to the claude-core binary */
