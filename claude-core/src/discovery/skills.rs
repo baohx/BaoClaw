@@ -17,16 +17,10 @@ pub struct SkillInfo {
 pub async fn discover_skills(cwd: &Path) -> Vec<SkillInfo> {
     let mut skills = Vec::new();
 
-    // Project skills: .baoclaw/skills/ in cwd and parent dirs
-    let mut dir = cwd.to_path_buf();
-    loop {
-        let skills_dir = dir.join(".baoclaw").join("skills");
-        if let Ok(entries) = scan_skills_dir(&skills_dir, "project").await {
-            skills.extend(entries);
-        }
-        if !dir.pop() {
-            break;
-        }
+    // Project skills: <cwd>/.baoclaw/skills/
+    let skills_dir = cwd.join(".baoclaw").join("skills");
+    if let Ok(entries) = scan_skills_dir(&skills_dir, "project").await {
+        skills.extend(entries);
     }
 
     // User skills: ~/.baoclaw/skills/

@@ -183,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine_tools: Vec<Arc<dyn tools::Tool>> = {
         let mut all = engine_tools;
 
-        // MCP integration: discover and connect to MCP servers
+        // MCP integration: discover and connect to MCP servers (with timeout)
         let mcp_servers = discovery::mcp_config::discover_mcp_servers(std::path::Path::new(&cwd_str)).await;
         for server_info in &mcp_servers {
             if server_info.disabled {
@@ -198,8 +198,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     transport: mcp::McpTransportType::Stdio,
                 };
                 let mut client = mcp::McpClient::new(config);
-                match client.connect_stdio().await {
-                    Ok(()) => {
+                // 30 second timeout for MCP server connection
+                let connect_result = tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    client.connect_stdio(),
+                ).await;
+                match connect_result {
+                    Ok(Ok(())) => {
                         let client = Arc::new(client);
                         if let Ok(tools) = client.list_tools().await {
                             for tool_def in tools {
@@ -213,8 +218,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         eprintln!("MCP server '{}' connected", server_info.name);
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         eprintln!("Warning: MCP server '{}' failed to connect: {}", server_info.name, e);
+                    }
+                    Err(_) => {
+                        eprintln!("Warning: MCP server '{}' connection timed out (30s)", server_info.name);
                     }
                 }
             }

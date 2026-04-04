@@ -46,7 +46,7 @@ struct McpServerEntry {
 pub async fn discover_mcp_servers(cwd: &Path) -> Vec<McpServerInfo> {
     let mut servers = Vec::new();
 
-    // User-level config
+    // User-level config: ~/.baoclaw/mcp.json
     if let Some(home) = dirs_path() {
         let user_config = home.join(".baoclaw").join("mcp.json");
         if let Ok(entries) = load_mcp_config(&user_config, "user").await {
@@ -54,13 +54,13 @@ pub async fn discover_mcp_servers(cwd: &Path) -> Vec<McpServerInfo> {
         }
     }
 
-    // Project-level config
+    // Project-level config: <cwd>/.baoclaw/mcp.json
     let project_config = cwd.join(".baoclaw").join("mcp.json");
     if let Ok(entries) = load_mcp_config(&project_config, "project").await {
         servers.extend(entries);
     }
 
-    // Local config (gitignored)
+    // Local config (gitignored): <cwd>/.baoclaw/mcp.local.json
     let local_config = cwd.join(".baoclaw").join("mcp.local.json");
     if let Ok(entries) = load_mcp_config(&local_config, "local").await {
         servers.extend(entries);

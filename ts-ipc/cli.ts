@@ -69,8 +69,8 @@ function stopSpinner() {
 // ASCII Art Logo
 // ═══════════════════════════════════════════════════════════════
 function printLogo() {
-  // White Bichon Frise dog — BaoClaw mascot
-  const W = `${ESC}38;2;255;255;255m`;  // white
+  // White Bichon Frise dog — BaoClaw mascot (4 legs + tail)
+  const W = `${ESC}38;2;255;255;255m`;  // white fur
   const B = `${ESC}38;2;40;40;40m`;     // black (eyes/nose)
   const P = `${ESC}38;2;255;182;193m`;  // pink (tongue)
   const S = `${ESC}38;2;220;220;220m`;  // light shadow
@@ -80,6 +80,8 @@ function printLogo() {
 
   const logo = `
 ${G}                                                                ${R}
+${G}       ${W}░░${R}${G}         ${W}░░${R}${G}                                            ${R}
+${G}       ${W}░░░${R}${G}       ${W}░░░${R}${G}                                            ${R}
 ${G}        ${W}░░░░░░░░░░░${R}${G}                                             ${R}
 ${G}      ${W}░░░░░░░░░░░░░░░${R}${G}                                           ${R}
 ${G}     ${W}░░░░░░░░░░░░░░░░░${R}${G}        ${O}╔╗   ╔╗${R}${G}                        ${R}
@@ -87,23 +89,24 @@ ${G}    ${W}░░░░░${R}${B}██${R}${W}░░░░░${R}${B}██${
 ${G}    ${W}░░░░░░░░${R}${B}▄${R}${W}░░░░░░░░░${R}${G}        ${O}╚═╝╚═╝${R}${G}                        ${R}
 ${G}    ${W}░░░░░░░${R}${P}▀▀▀${R}${W}░░░░░░░░${R}${G}                                       ${R}
 ${G}     ${W}░░░░░░░░░░░░░░░░░${R}${G}    ${O}${BOLD}B a o C l a w${R}${G}                    ${R}
-${G}    ${W}░░░░░░░░░░░░░░░░░░░${R}${G}                                         ${R}
+${G}    ${W}░░░░░░░░░░░░░░░░░░░░${R}${W}~${R}${G}                                      ${R}
 ${G}   ${W}░░░░░${R}${G}  ${W}░░░░░░░${R}${G}  ${W}░░░░░${R}${G}   ${S}AI Coding Assistant${R}${G}                ${R}
-${G}   ${W}░░░░${R}${G}    ${W}░░░░░${R}${G}    ${W}░░░░${R}${G}   ${S}Powered by Rust${R}${G}                  ${R}
-${G}    ${W}░░${R}${G}      ${W}░░░${R}${G}      ${W}░░${R}${G}                                       ${R}
+${G}   ${W}░░░░${R}${G}  ${W}░░░░${R}${G} ${W}░░░░${R}${G}  ${W}░░░░${R}${G}   ${S}Powered by Rust${R}${G}                  ${R}
+${G}   ${W}░░░░${R}${G}  ${W}░░░░${R}${G} ${W}░░░░${R}${G}  ${W}░░░░${R}${G}                                    ${R}
+${G}    ${W}░░${R}${G}    ${W}░░${R}${G}   ${W}░░${R}${G}    ${W}░░${R}${G}                                      ${R}
 ${G}                                                                ${R}
 `;
   process.stdout.write(logo);
 }
 
-function printWelcome(sessionId: string, model: string) {
+function printWelcome(sessionId: string, model: string, cwd: string) {
   const cols = process.stdout.columns || 80;
   const line = '─'.repeat(Math.min(cols - 2, 70));
 
-  console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v0.2.0${RESET}`);
+  console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v0.3.0${RESET}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log(`${DIM}  Session: ${sessionId}${RESET}`);
-  console.log(`${DIM}  cwd: ${process.cwd()}${RESET}`);
+  console.log(`${DIM}  cwd: ${cwd}${RESET}`);
   console.log(`${DIM}  model: ${RESET}${FG_GREEN}${model}${RESET}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log();
@@ -356,7 +359,7 @@ async function startNewDaemon(binaryPath: string): Promise<string> {
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`Timeout waiting for engine startup.\n${stderr}`));
-    }, 10000);
+    }, 60000);
 
     child.stdout?.on('data', (data: Buffer) => {
       buf += data.toString();
@@ -481,14 +484,17 @@ async function main() {
   let socketPath: string;
   let child: ChildProcess | null = null;
   let isReconnect = false;
+  let effectiveCwd = process.cwd(); // default: current terminal directory
 
   if (daemons.length > 0) {
     const selected = await selectDaemon(daemons);
     if (selected) {
-      // Connect to existing daemon
+      // Connect to existing daemon — use the daemon's original cwd
       socketPath = selected.socket;
       isReconnect = true;
-      console.log(`${DIM}Reconnecting to pid=${selected.pid}...${RESET}`);
+      effectiveCwd = selected.cwd;
+      try { process.chdir(effectiveCwd); } catch {}
+      console.log(`${DIM}Reconnecting to pid=${selected.pid} (cwd: ${selected.cwd})...${RESET}`);
     } else {
       // Start new daemon
       socketPath = await startNewDaemon(binaryPath);
@@ -499,6 +505,7 @@ async function main() {
 
   // Connect IPC
   const client = new IpcClient();
+  startSpinner('Connecting to engine (loading MCP servers)...');
   await client.connect(socketPath);
 
   // Initialize
@@ -507,7 +514,7 @@ async function main() {
     : {};
   const initResult = await client.request<{ capabilities: Record<string, unknown>; session_id: string; reconnected?: boolean; message_count?: number }>(
     'initialize',
-    { cwd: process.cwd(), settings: { ...thinkingSettings } }
+    { cwd: effectiveCwd, settings: { ...thinkingSettings } }
   );
 
   stopSpinner();
@@ -521,7 +528,7 @@ async function main() {
       return JSON.parse(raw).model || 'claude-sonnet-4-20250514';
     } catch { return 'claude-sonnet-4-20250514'; }
   })();
-  printWelcome(initResult.session_id, activeModel);
+  printWelcome(initResult.session_id, activeModel, effectiveCwd);
 
   // ── Stream event handling ──
   let isStreaming = false;
