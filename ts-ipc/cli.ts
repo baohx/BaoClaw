@@ -950,6 +950,11 @@ async function main() {
         if (result.scaffold_created) {
           console.log(`\${DIM}  Created .baoclaw/ scaffold (BAOCLAW.md, mcp.json, skills/)\${RESET}`);
         }
+        console.log(`\${DIM}  Session history cleared, project memory loaded.\${RESET}`);
+        // Reset local streaming state
+        currentText = '';
+        isStreaming = false;
+        toolCount = 0;
         console.log();
       } catch (err) {
         stopSpinner();

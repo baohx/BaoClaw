@@ -421,6 +421,9 @@ async fn handle_shared_client(
                                     };
                                     let mut engine = session.engine_write().await;
                                     engine.update_cwd(abs_cwd.clone());
+                                    engine.set_messages(vec![]); // clear session history
+                                    drop(engine); // release write lock before memory switch
+                                    shared.memory_store.switch_project(&abs_cwd).await;
                                     let mut conn_guard = conn.lock().await;
                                     let _ = conn_guard.send_response(id, serde_json::json!({
                                         "cwd": abs_cwd.display().to_string(),
@@ -844,6 +847,8 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                                         false
                                     };
                                     engine.update_cwd(abs_cwd.clone());
+                                    engine.set_messages(vec![]); // clear session history
+                                    shared.memory_store.switch_project(&abs_cwd).await;
                                     work_cwd = abs_cwd.clone();
                                     let _ = conn.send_response(id, serde_json::json!({
                                         "cwd": abs_cwd.display().to_string(),
