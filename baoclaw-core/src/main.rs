@@ -660,8 +660,13 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
             },
         ).await;
 
-        // Resume session history for newly created shared sessions
-        if is_new {
+        // Resume session history if session is new OR has no messages
+        // (e.g., after /cd cleared history, or reconnecting to a daemon that was restarted)
+        let current_msg_count = session.engine_read().await.get_messages().len();
+        let needs_resume = is_new || current_msg_count == 0;
+        eprintln!("Shared session '{}': is_new={}, messages={}, needs_resume={}, resume_id={:?}",
+            session_id_clone, is_new, current_msg_count, needs_resume, resume_for_shared);
+        if needs_resume {
             if let Some(ref rid) = resume_for_shared {
                 match TranscriptWriter::load(rid) {
                     Ok(entries) => {
