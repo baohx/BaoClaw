@@ -942,7 +942,7 @@ async function main() {
       }
       startSpinner('Switching directory...');
       try {
-        const result = await client.request<{ cwd: string; scaffold_created: boolean }>('switchCwd', { cwd: targetDir });
+        const result = await client.request<{ cwd: string; scaffold_created: boolean; message_count?: number }>('switchCwd', { cwd: targetDir });
         stopSpinner();
         // Also change the Node process cwd for @file resolution
         try { process.chdir(result.cwd); } catch {}
@@ -950,7 +950,11 @@ async function main() {
         if (result.scaffold_created) {
           console.log(`\${DIM}  Created .baoclaw/ scaffold (BAOCLAW.md, mcp.json, skills/)\${RESET}`);
         }
-        console.log(`\${DIM}  Session history cleared, project memory loaded.\${RESET}`);
+        if (result.message_count && result.message_count > 0) {
+          console.log(`\${DIM}  Resumed project session (\${result.message_count} messages).\${RESET}`);
+        } else {
+          console.log(`\${DIM}  Fresh session started, project memory loaded.\${RESET}`);
+        }
         // Reset local streaming state
         currentText = '';
         isStreaming = false;

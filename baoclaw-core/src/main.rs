@@ -421,7 +421,24 @@ async fn handle_shared_client(
                                     };
                                     let mut engine = session.engine_write().await;
                                     engine.update_cwd(abs_cwd.clone());
-                                    engine.set_messages(vec![]); // clear session history
+                                    // Try to resume latest session for the new project
+                                    let new_cwd_str = abs_cwd.to_string_lossy().to_string();
+                                    if let Some(prev_session) = engine::transcript::find_latest_session_for_cwd(&new_cwd_str) {
+                                        match TranscriptWriter::load(&prev_session) {
+                                            Ok(entries) => {
+                                                let messages = rebuild_messages_from_transcript(&entries);
+                                                if !messages.is_empty() {
+                                                    engine.set_messages(messages);
+                                                    eprintln!("Resumed project session {} ({} messages)", prev_session, engine.get_messages().len());
+                                                } else {
+                                                    engine.set_messages(vec![]);
+                                                }
+                                            }
+                                            Err(_) => { engine.set_messages(vec![]); }
+                                        }
+                                    } else {
+                                        engine.set_messages(vec![]); // no previous session
+                                    }
                                     drop(engine); // release write lock before memory switch
                                     shared.memory_store.switch_project(&abs_cwd).await;
                                     let mut conn_guard = conn.lock().await;
@@ -674,8 +691,14 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         max_retries_per_model: shared.baoclaw_config.max_retries_per_model,
     });
 
-    // Handle session resume if requested (from RPC or CLI arg)
-    let resume_id = init_resume_session_id.or(shared.cli_resume_session_id.clone());
+    // Handle session resume: explicit ID > CLI arg > auto-detect from cwd
+    let resume_id = init_resume_session_id
+        .or(shared.cli_resume_session_id.clone())
+        .or_else(|| {
+            // Auto-find the latest session for this project directory
+            let cwd_str = work_cwd.to_string_lossy().to_string();
+            engine::transcript::find_latest_session_for_cwd(&cwd_str)
+        });
     let mut resumed = false;
     if let Some(ref resume_id) = resume_id {
         match TranscriptWriter::load(resume_id) {
@@ -847,12 +870,31 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                                         false
                                     };
                                     engine.update_cwd(abs_cwd.clone());
-                                    engine.set_messages(vec![]); // clear session history
+                                    // Try to resume latest session for the new project
+                                    let new_cwd_str = abs_cwd.to_string_lossy().to_string();
+                                    if let Some(prev_session) = engine::transcript::find_latest_session_for_cwd(&new_cwd_str) {
+                                        match TranscriptWriter::load(&prev_session) {
+                                            Ok(entries) => {
+                                                let messages = rebuild_messages_from_transcript(&entries);
+                                                if !messages.is_empty() {
+                                                    engine.set_messages(messages);
+                                                    eprintln!("Resumed project session {} ({} messages)", prev_session, engine.get_messages().len());
+                                                } else {
+                                                    engine.set_messages(vec![]);
+                                                }
+                                            }
+                                            Err(_) => { engine.set_messages(vec![]); }
+                                        }
+                                    } else {
+                                        engine.set_messages(vec![]); // no previous session
+                                    }
                                     shared.memory_store.switch_project(&abs_cwd).await;
                                     work_cwd = abs_cwd.clone();
+                                    let msg_count = engine.get_messages().len();
                                     let _ = conn.send_response(id, serde_json::json!({
                                         "cwd": abs_cwd.display().to_string(),
-                                        "scaffold_created": created
+                                        "scaffold_created": created,
+                                        "message_count": msg_count
                                     })).await;
                                 }
                             }
@@ -1220,7 +1262,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
     };
 
-    let session_id = uuid::Uuid::new_v4().to_string();
+    // Session ID: cwd-hash prefix + short UUID for uniqueness
+    // This ties sessions to projects so they can be auto-resumed per-project.
+    let cwd_hash = &format!("{:x}", md5_simple(&cwd_str))[..8];
+    let session_id = format!("{}-{}", cwd_hash, &uuid::Uuid::new_v4().to_string()[..8]);
 
     // Write metadata file for discovery by CLI
     write_meta(&socket_path, &cwd_str, &session_id);
