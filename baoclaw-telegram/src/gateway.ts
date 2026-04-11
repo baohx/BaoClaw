@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import TelegramBot from 'node-telegram-bot-api';
+import { parseDocument, buildDocumentBlock, buildImageBlock } from './docParser.js';
 import {
   SessionState, InitializeResult,
   parseCommand, isRegisteredCommand, COMMAND_REGISTRY,
@@ -478,6 +479,8 @@ async function main() {
   // Per-chat response accumulator and completion signal
   const accumulators = new Map<number, string>();
   const resultResolvers = new Map<number, () => void>();
+  // Per-chat pending attachments (for document/image uploads)
+  const pendingAttachments = new Map<number, Record<string, unknown>[]>();
   let activeChatId: number | null = null;
 
   // ── Stream event handler ──
@@ -643,7 +646,7 @@ async function main() {
   async function handleCompact(): Promise<string> {
     if (!ipcClient.connected) return formatDisconnected();
     try {
-      const result = await ipcClient.request<{ tokens_saved: number; summary_tokens: number }>('compact');
+      const result = await ipcClient.request<{ tokens_saved: number; summary_tokens: number; tokens_before: number; tokens_after: number }>('compact');
       return formatCompact(result);
     } catch (err: any) {
       const msg = err?.message || '';
@@ -818,7 +821,7 @@ async function main() {
   };
 
   // ── Process a single message for a chat ──
-  async function processMessage(chatId: number, text: string): Promise<void> {
+  async function processMessage(chatId: number, text: string, attachments?: Record<string, unknown>[]): Promise<void> {
     activeChatId = chatId;
     accumulators.set(chatId, '');
 
@@ -829,7 +832,11 @@ async function main() {
 
     try {
       await bot.sendChatAction(chatId, 'typing');
-      await ipcClient.request('submitMessage', { prompt: text });
+      const params: Record<string, unknown> = { prompt: text };
+      if (attachments && attachments.length > 0) {
+        params.attachments = attachments;
+      }
+      await ipcClient.request('submitMessage', params);
       // Wait for the stream to complete (result or error event)
       await resultPromise;
     } catch (err: any) {
@@ -855,14 +862,16 @@ async function main() {
     while (chatQueue.hasQueued(chatId)) {
       const text = chatQueue.dequeue(chatId);
       if (!text) break;
-      await processMessage(chatId, text);
+      // Check for pending attachments
+      const attachments = pendingAttachments.get(chatId);
+      pendingAttachments.delete(chatId);
+      await processMessage(chatId, text, attachments);
     }
     chatQueue.finishProcessing(chatId);
   }
 
   // ── Bot message handler ──
   bot.on('message', async (msg) => {
-    if (!msg.text) return;
     const chatId = msg.chat.id;
 
     // Allowlist check (empty = allow all)
@@ -870,6 +879,94 @@ async function main() {
       console.log(`Rejected: chat ${chatId}`);
       return;
     }
+
+    // ── Handle document uploads (PDF, DOCX) ──
+    if (msg.document) {
+      const doc = msg.document;
+      const fileName = doc.file_name || 'unknown';
+      const mimeType = doc.mime_type || 'application/octet-stream';
+      const caption = msg.caption || `请分析这个文件: ${fileName}`;
+
+      try {
+        await bot.sendMessage(chatId, `📄 正在处理文件: ${fileName}...`);
+        const fileLink = await bot.getFileLink(doc.file_id);
+        const resp = await fetch(fileLink);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+
+        // Route B: try native document block (PDF only)
+        const docBlock = buildDocumentBlock(buffer, mimeType);
+        if (docBlock) {
+          // Send as attachment for native API support
+          chatQueue.enqueue(chatId, caption);
+          // Store attachments for the next processMessage call
+          pendingAttachments.set(chatId, [docBlock]);
+          if (!chatQueue.isProcessing(chatId)) {
+            processQueue(chatId);
+          }
+          return;
+        }
+
+        // Route A: extract text for non-PDF or as fallback
+        const parsed = await parseDocument(buffer, mimeType, fileName);
+        if (parsed.error) {
+          await bot.sendMessage(chatId, `❌ ${parsed.error}`);
+          return;
+        }
+        if (!parsed.text.trim()) {
+          await bot.sendMessage(chatId, '⚠️ 文件内容为空或无法提取文本。');
+          return;
+        }
+
+        // Truncate if too large (keep ~100k chars to stay within context limits)
+        const maxChars = 100_000;
+        let docText = parsed.text;
+        if (docText.length > maxChars) {
+          docText = docText.slice(0, maxChars) + `\n\n[... 文档已截断，共 ${parsed.text.length} 字符]`;
+        }
+
+        const prompt = `[文件: ${fileName}${parsed.pageCount ? ` (${parsed.pageCount}页)` : ''}]\n\n${docText}\n\n---\n${caption}`;
+        chatQueue.enqueue(chatId, prompt);
+        if (!chatQueue.isProcessing(chatId)) {
+          processQueue(chatId);
+        }
+      } catch (err: any) {
+        console.error(`Document processing error: ${err.message}`);
+        try { await bot.sendMessage(chatId, `❌ 文件处理失败: ${err.message}`); } catch {}
+      }
+      return;
+    }
+
+    // ── Handle photo uploads ──
+    if (msg.photo && msg.photo.length > 0) {
+      const photo = msg.photo[msg.photo.length - 1]; // highest resolution
+      const caption = msg.caption || '请描述这张图片';
+
+      try {
+        await bot.sendMessage(chatId, '🖼️ 正在处理图片...');
+        const fileLink = await bot.getFileLink(photo.file_id);
+        const resp = await fetch(fileLink);
+        const buffer = Buffer.from(await resp.arrayBuffer());
+
+        // Detect mime type from file extension
+        const ext = fileLink.split('.').pop()?.toLowerCase() || 'jpg';
+        const mimeMap: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' };
+        const mimeType = mimeMap[ext] || 'image/jpeg';
+
+        const imageBlock = buildImageBlock(buffer, mimeType);
+        chatQueue.enqueue(chatId, caption);
+        pendingAttachments.set(chatId, [imageBlock]);
+        if (!chatQueue.isProcessing(chatId)) {
+          processQueue(chatId);
+        }
+      } catch (err: any) {
+        console.error(`Photo processing error: ${err.message}`);
+        try { await bot.sendMessage(chatId, `❌ 图片处理失败: ${err.message}`); } catch {}
+      }
+      return;
+    }
+
+    // ── Handle text messages ──
+    if (!msg.text) return;
 
     // Command routing
     const parsed = parseCommand(msg.text);
