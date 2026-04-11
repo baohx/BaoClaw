@@ -935,8 +935,8 @@ async function main() {
     if (input.startsWith('/cd')) {
       const targetDir = input.slice('/cd'.length).trim();
       if (!targetDir) {
-        console.log(`\n\${FG_WHITE}Current directory:\${RESET} \${process.cwd()}`);
-        console.log(`\${DIM}Usage: /cd <path>\${RESET}\n`);
+        console.log(`\n${FG_WHITE}Current directory:${RESET} ${process.cwd()}`);
+        console.log(`${DIM}Usage: /cd <path>${RESET}\n`);
         rl.prompt();
         return;
       }
@@ -946,14 +946,14 @@ async function main() {
         stopSpinner();
         // Also change the Node process cwd for @file resolution
         try { process.chdir(result.cwd); } catch {}
-        console.log(`\n\${FG_GREEN}\${BOLD}Switched to\${RESET} \${result.cwd}`);
+        console.log(`\n${FG_GREEN}${BOLD}Switched to${RESET} ${result.cwd}`);
         if (result.scaffold_created) {
-          console.log(`\${DIM}  Created .baoclaw/ scaffold (BAOCLAW.md, mcp.json, skills/)\${RESET}`);
+          console.log(`${DIM}  Created .baoclaw/ scaffold (BAOCLAW.md, mcp.json, skills/)${RESET}`);
         }
         if (result.message_count && result.message_count > 0) {
-          console.log(`\${DIM}  Resumed project session (\${result.message_count} messages).\${RESET}`);
+          console.log(`${DIM}  Resumed project session (${result.message_count} messages).${RESET}`);
         } else {
-          console.log(`\${DIM}  Fresh session started, project memory loaded.\${RESET}`);
+          console.log(`${DIM}  Fresh session started, project memory loaded.${RESET}`);
         }
         // Reset local streaming state
         currentText = '';
@@ -962,7 +962,7 @@ async function main() {
         console.log();
       } catch (err) {
         stopSpinner();
-        console.error(`\${FG_RED}\${err}\${RESET}`);
+        console.error(`${FG_RED}${err}${RESET}`);
       }
       rl.prompt();
       return;
