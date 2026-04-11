@@ -387,7 +387,7 @@ async function startNewDaemon(binaryPath: string): Promise<string> {
 const COMMANDS = [
   '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
-  '/clear', '/abort', '/task', '/voice', '/telemetry',
+  '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory',
 ];
 
 /**
@@ -431,6 +431,14 @@ function completer(line: string): [string[], string] {
   // File path completion on the last whitespace-separated token
   const tokens = line.split(/\s+/);
   const last = tokens[tokens.length - 1] || '';
+
+  // @file completion for attachments
+  if (last.startsWith('@')) {
+    const partial = last.slice(1);
+    const matches = getFileCompletions(partial).map(m => '@' + m);
+    return [matches.length > 0 ? matches : [last], last];
+  }
+
   if (last.includes('/') || last.includes('.')) {
     const matches = getFileCompletions(last);
     return [matches.length > 0 ? matches : [last], last];
@@ -512,9 +520,9 @@ async function main() {
   const thinkingSettings = thinkingEnabled
     ? { thinking: { mode: 'enabled', budget_tokens: thinkingBudget } }
     : {};
-  const initResult = await client.request<{ capabilities: Record<string, unknown>; session_id: string; reconnected?: boolean; message_count?: number }>(
+  const initResult = await client.request<{ capabilities: Record<string, unknown>; session_id: string; reconnected?: boolean; message_count?: number; shared?: boolean }>(
     'initialize',
-    { cwd: effectiveCwd, settings: { ...thinkingSettings } }
+    { cwd: effectiveCwd, settings: { ...thinkingSettings }, shared_session_id: 'default' }
   );
 
   stopSpinner();
@@ -923,16 +931,81 @@ async function main() {
     if (input === '/compact') {
       startSpinner('Compacting conversation...');
       try {
-        const result = await client.request<{ tokens_saved: number; summary_tokens: number }>('compact');
+        const result = await client.request<{ tokens_saved: number; summary_tokens: number; tokens_before: number; tokens_after: number }>('compact');
         stopSpinner();
         if (result.tokens_saved === 0) {
           console.log(`\n${DIM}Not enough messages to compact.${RESET}\n`);
         } else {
-          console.log(`\n${FG_GREEN}${BOLD}Compacted${RESET} ${DIM}saved ${result.tokens_saved} tokens (summary: ${result.summary_tokens} tokens)${RESET}\n`);
+          console.log(`\n${FG_GREEN}${BOLD}Compacted${RESET} ${DIM}${result.tokens_before}→${result.tokens_after} tokens (saved ${result.tokens_saved}, summary ${result.summary_tokens})${RESET}\n`);
         }
       } catch (err) {
         stopSpinner();
         console.error(`${FG_RED}Failed to compact: ${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input.startsWith('/memory')) {
+      const memArgs = input.slice('/memory'.length).trim();
+      const subCmd = memArgs.split(/\s+/)[0] || '';
+      const rest = memArgs.slice(subCmd.length).trim();
+
+      if (subCmd === 'list' || subCmd === 'ls') {
+        try {
+          const result = await client.request<{ memories: any[]; count: number }>('memoryList');
+          if (result.count === 0) {
+            console.log(`\n${DIM}No memories stored.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Long-term Memory${RESET} ${DIM}(${result.count})${RESET}\n`);
+            for (const m of result.memories) {
+              console.log(`  ${FG_WHITE}${BOLD}${m.id}${RESET} ${DIM}[${m.category}]${RESET} ${m.content}`);
+            }
+            console.log();
+          }
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else if (subCmd === 'add') {
+        // /memory add [category] content
+        const parts = rest.split(/\s+/);
+        let category = 'fact';
+        let content = rest;
+        if (parts[0] && ['fact', 'preference', 'pref', 'decision', 'dec'].includes(parts[0])) {
+          category = parts[0];
+          content = parts.slice(1).join(' ');
+        }
+        if (!content) {
+          console.log(`\n${FG_YELLOW}Usage: /memory add [fact|preference|decision] <content>${RESET}\n`);
+        } else {
+          try {
+            const result = await client.request<{ memory: any }>('memoryAdd', { content, category });
+            console.log(`\n${FG_GREEN}✓ Memory added${RESET} ${DIM}[${result.memory.id}] ${result.memory.content}${RESET}\n`);
+          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        }
+      } else if (subCmd === 'delete' || subCmd === 'del' || subCmd === 'rm') {
+        if (!rest) {
+          console.log(`\n${FG_YELLOW}Usage: /memory delete <id>${RESET}\n`);
+        } else {
+          try {
+            const result = await client.request<{ deleted: boolean }>('memoryDelete', { id: rest });
+            if (result.deleted) {
+              console.log(`\n${FG_GREEN}✓ Memory deleted${RESET}\n`);
+            } else {
+              console.log(`\n${FG_YELLOW}Memory not found: ${rest}${RESET}\n`);
+            }
+          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        }
+      } else if (subCmd === 'clear') {
+        try {
+          const result = await client.request<{ cleared: number }>('memoryClear');
+          console.log(`\n${FG_GREEN}✓ Cleared ${result.cleared} memories${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else {
+        console.log(`\n${FG_ORANGE}${BOLD}Memory Commands${RESET}\n`);
+        console.log(`  ${FG_WHITE}/memory list${RESET}                    ${DIM}List all memories${RESET}`);
+        console.log(`  ${FG_WHITE}/memory add [category] <text>${RESET}  ${DIM}Add a memory (fact/preference/decision)${RESET}`);
+        console.log(`  ${FG_WHITE}/memory delete <id>${RESET}            ${DIM}Delete a memory${RESET}`);
+        console.log(`  ${FG_WHITE}/memory clear${RESET}                  ${DIM}Clear all memories${RESET}`);
+        console.log();
       }
       rl.prompt();
       return;
@@ -1255,6 +1328,112 @@ async function main() {
       return;
     }
 
+    if (input.startsWith('/telegram')) {
+      const telegramArgs = input.slice('/telegram'.length).trim();
+      const subCmd = telegramArgs.split(/\s+/)[0] || '';
+      const baoclawHome = process.env.BAOCLAW_HOME || path.join(os.homedir(), '.baoclaw');
+      const tgPidFile = path.join(os.homedir(), '.baoclaw', 'telegram-gateway.pid');
+      const tgLogFile = path.join(os.homedir(), '.baoclaw', 'telegram-gateway.log');
+      const gatewayScript = path.join(baoclawHome, 'baoclaw-telegram', 'src', 'gateway.ts');
+
+      if (subCmd === 'start') {
+        // Check if already running
+        if (fs.existsSync(tgPidFile)) {
+          try {
+            const pidData = JSON.parse(fs.readFileSync(tgPidFile, 'utf-8'));
+            try {
+              process.kill(pidData.pid, 0);
+              console.log(`\n${FG_YELLOW}Telegram gateway already running (pid=${pidData.pid}, @${pidData.bot_username || '?'}).${RESET}\n`);
+              rl.prompt();
+              return;
+            } catch { /* dead process, continue */ }
+          } catch { /* invalid pid file, continue */ }
+        }
+
+        // Find tsx binary from the telegram gateway's node_modules
+        const tsxBin = path.join(baoclawHome, 'baoclaw-telegram', 'node_modules', '.bin', 'tsx');
+        const tsxPath = fs.existsSync(tsxBin) ? tsxBin : path.join(path.dirname(process.execPath), 'tsx');
+
+        // Spawn gateway as detached background process
+        const logFd = fs.openSync(tgLogFile, 'a');
+        try {
+          const child = spawn(process.execPath, [tsxPath, gatewayScript], {
+            cwd: process.cwd(),
+            stdio: ['ignore', logFd, logFd],
+            env: { ...process.env },
+            detached: true,
+          });
+          child.on('error', (err) => {
+            console.error(`${FG_RED}Failed to spawn gateway: ${err.message}${RESET}`);
+          });
+          child.unref();
+          console.log(`\n${FG_GREEN}${BOLD}Telegram gateway starting...${RESET}`);
+          console.log(`${DIM}  Log: ${tgLogFile}${RESET}`);
+          console.log(`${DIM}  PID file: ${tgPidFile}${RESET}\n`);
+        } finally {
+          fs.closeSync(logFd);
+        }
+      } else if (subCmd === 'stop') {
+        if (!fs.existsSync(tgPidFile)) {
+          console.log(`\n${FG_YELLOW}Telegram gateway is not running (no PID file).${RESET}\n`);
+        } else {
+          try {
+            const pidData = JSON.parse(fs.readFileSync(tgPidFile, 'utf-8'));
+            try {
+              process.kill(pidData.pid, 'SIGTERM');
+              console.log(`\n${FG_GREEN}Sent SIGTERM to Telegram gateway (pid=${pidData.pid}).${RESET}\n`);
+            } catch {
+              console.log(`\n${FG_YELLOW}Process ${pidData.pid} not found. Cleaning up PID file.${RESET}\n`);
+              try { fs.unlinkSync(tgPidFile); } catch {}
+            }
+          } catch {
+            console.log(`\n${FG_RED}Invalid PID file.${RESET}\n`);
+          }
+        }
+      } else if (subCmd === 'status') {
+        if (!fs.existsSync(tgPidFile)) {
+          console.log(`\n${FG_YELLOW}Telegram gateway is not running.${RESET}\n`);
+        } else {
+          try {
+            const pidData = JSON.parse(fs.readFileSync(tgPidFile, 'utf-8'));
+            let alive = false;
+            try { process.kill(pidData.pid, 0); alive = true; } catch {}
+            if (alive) {
+              console.log(`\n${FG_GREEN}${BOLD}Telegram gateway is running${RESET}`);
+              console.log(`  ${FG_WHITE}PID:${RESET}      ${pidData.pid}`);
+              if (pidData.bot_username) console.log(`  ${FG_WHITE}Bot:${RESET}      @${pidData.bot_username}`);
+              if (pidData.daemon_pid) console.log(`  ${FG_WHITE}Daemon:${RESET}   pid=${pidData.daemon_pid}`);
+              if (pidData.started_at) console.log(`  ${FG_WHITE}Started:${RESET}  ${pidData.started_at}`);
+              console.log();
+            } else {
+              console.log(`\n${FG_YELLOW}Telegram gateway is not running (stale PID file).${RESET}\n`);
+              try { fs.unlinkSync(tgPidFile); } catch {}
+            }
+          } catch {
+            console.log(`\n${FG_RED}Invalid PID file.${RESET}\n`);
+          }
+        }
+      } else {
+        console.log(`\n${FG_ORANGE}${BOLD}Telegram Gateway${RESET}\n`);
+        console.log(`  ${FG_WHITE}/telegram start${RESET}   ${DIM}Start the Telegram gateway${RESET}`);
+        console.log(`  ${FG_WHITE}/telegram stop${RESET}    ${DIM}Stop the Telegram gateway${RESET}`);
+        console.log(`  ${FG_WHITE}/telegram status${RESET}  ${DIM}Check gateway status${RESET}`);
+        console.log();
+        console.log(`  ${DIM}Config in ~/.baoclaw/config.json:${RESET}`);
+        console.log(`  ${DIM}{${RESET}`);
+        console.log(`  ${DIM}  "telegram": {${RESET}`);
+        console.log(`  ${DIM}    "token": "123456:ABC-DEF...",${RESET}`);
+        console.log(`  ${DIM}    "allowedChatIds": [12345678]${RESET}`);
+        console.log(`  ${DIM}  }${RESET}`);
+        console.log(`  ${DIM}}${RESET}`);
+        console.log();
+        console.log(`  ${DIM}Or set TELEGRAM_BOT_TOKEN env var.${RESET}`);
+        console.log();
+      }
+      rl.prompt();
+      return;
+    }
+
     if (input.startsWith('/telemetry')) {
       const arg = input.slice('/telemetry'.length).trim().toLowerCase();
       if (arg === 'on') {
@@ -1282,7 +1461,10 @@ async function main() {
       console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Show git status (branch, changes)${RESET}`);
       console.log(`  ${FG_WHITE}/task${RESET}       ${DIM}Background tasks: run, list, status, stop${RESET}`);
       console.log(`  ${FG_WHITE}/voice${RESET}      ${DIM}Voice input (requires whisper.cpp)${RESET}`);
+      console.log(`  ${FG_WHITE}@file.pdf${RESET}   ${DIM}Attach file: @photo.png @doc.pdf @doc.docx${RESET}`);
       console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Toggle telemetry: /telemetry on|off${RESET}`);
+      console.log(`  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway: start, stop, status${RESET}`);
+      console.log(`  ${FG_WHITE}/memory${RESET}     ${DIM}Long-term memory: list, add, delete, clear${RESET}`);
       console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
       console.log(`  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`);
       console.log(`  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`);
@@ -1303,38 +1485,54 @@ async function main() {
 
     startSpinner('Thinking...');
 
-    // Check for @file references (e.g., @image.png) and convert to content blocks
+    // Check for @file references and convert to attachments
     let submitPayload: Record<string, unknown> = { prompt: input };
-    const atMatches = input.match(/@(\S+\.(png|jpg|jpeg|gif|webp))/gi);
+    const atFileRegex = /@(\S+\.(png|jpg|jpeg|gif|webp|pdf|docx|doc))/gi;
+    const atMatches = input.match(atFileRegex);
     if (atMatches) {
-      const contentBlocks: Array<Record<string, unknown>> = [];
+      const attachments: Array<Record<string, unknown>> = [];
       let textPart = input;
       for (const match of atMatches) {
         const filePath = match.slice(1); // remove @
         const absPath = path.resolve(process.cwd(), filePath);
+        const ext = path.extname(filePath).toLowerCase().slice(1);
         try {
           const fileData = fs.readFileSync(absPath);
-          const base64Data = fileData.toString('base64');
-          const ext = path.extname(filePath).toLowerCase().slice(1);
-          const mediaType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
-          contentBlocks.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: base64Data,
-            },
-          });
+          if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+            // Image attachment
+            const mediaType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+            attachments.push({
+              type: 'image',
+              source: { type: 'base64', media_type: mediaType, data: fileData.toString('base64') },
+            });
+          } else if (ext === 'pdf') {
+            // PDF — send as native document block (Route B)
+            attachments.push({
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: fileData.toString('base64') },
+            });
+          } else if (ext === 'docx') {
+            // DOCX — extract text inline (Route A), mammoth not available in CLI so read raw
+            // For CLI we send as document block; core will handle it
+            attachments.push({
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                data: fileData.toString('base64'),
+              },
+            });
+          } else if (ext === 'doc') {
+            console.log(`${FG_YELLOW}Warning: .doc format not supported, please convert to .docx${RESET}`);
+          }
           textPart = textPart.replace(match, '').trim();
         } catch {
           console.log(`${FG_YELLOW}Warning: Could not read ${filePath}${RESET}`);
         }
       }
-      if (textPart) {
-        contentBlocks.unshift({ type: 'text', text: textPart });
-      }
-      if (contentBlocks.length > 0) {
-        submitPayload = { prompt: contentBlocks };
+      if (attachments.length > 0) {
+        submitPayload = { prompt: textPart || '请分析这个文件', attachments };
+        console.log(`${DIM}  📎 ${attachments.length} attachment(s)${RESET}`);
       }
     }
 
