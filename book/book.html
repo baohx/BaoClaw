@@ -1,0 +1,2316 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Agent Harness 实战</title>
+  <style type="text/css">
+      code{white-space: pre-wrap;}
+      span.smallcaps{font-variant: small-caps;}
+      span.underline{text-decoration: underline;}
+      div.column{display: inline-block; vertical-align: top; width: 50%;}
+  </style>
+  <style type="text/css">
+a.sourceLine { display: inline-block; line-height: 1.25; }
+a.sourceLine { pointer-events: none; color: inherit; text-decoration: inherit; }
+a.sourceLine:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode { white-space: pre; position: relative; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+code.sourceCode { white-space: pre-wrap; }
+a.sourceLine { text-indent: -1em; padding-left: 1em; }
+}
+pre.numberSource a.sourceLine
+  { position: relative; left: -4em; }
+pre.numberSource a.sourceLine::before
+  { content: attr(title);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; pointer-events: all; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+    color: #aaaaaa;
+  }
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+div.sourceCode
+  {  }
+@media screen {
+a.sourceLine::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+code span.at { color: #7d9029; } /* Attribute */
+code span.bn { color: #40a070; } /* BaseN */
+code span.bu { } /* BuiltIn */
+code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+code span.ch { color: #4070a0; } /* Char */
+code span.cn { color: #880000; } /* Constant */
+code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+code span.dt { color: #902000; } /* DataType */
+code span.dv { color: #40a070; } /* DecVal */
+code span.er { color: #ff0000; font-weight: bold; } /* Error */
+code span.ex { } /* Extension */
+code span.fl { color: #40a070; } /* Float */
+code span.fu { color: #06287e; } /* Function */
+code span.im { } /* Import */
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+code span.op { color: #666666; } /* Operator */
+code span.ot { color: #007020; } /* Other */
+code span.pp { color: #bc7a00; } /* Preprocessor */
+code span.sc { color: #4070a0; } /* SpecialChar */
+code span.ss { color: #bb6688; } /* SpecialString */
+code span.st { color: #4070a0; } /* String */
+code span.va { color: #19177c; } /* Variable */
+code span.vs { color: #4070a0; } /* VerbatimString */
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+<h1 class="title">Agent Harness 实战</h1>
+</header>
+<nav id="TOC">
+<ul>
+<li><a href="#agent-harness-实战从-baoclaw-看-ai-agent-系统架构">Agent Harness 实战：从 BaoClaw 看 AI Agent 系统架构</a><ul>
+<li><a href="#关于本书">关于本书</a></li>
+<li><a href="#参考实现baoclaw">参考实现：BaoClaw</a></li>
+<li><a href="#目录">目录</a></li>
+<li><a href="#写作理念">写作理念</a></li>
+<li><a href="#license">License</a></li>
+</ul></li>
+<li><a href="#第-1-章agent-的本质-从-llm-到-agent">第 1 章：Agent 的本质 —— 从 LLM 到 Agent</a><ul>
+<li><a href="#llm-不是-agent">1.1 LLM 不是 Agent</a></li>
+<li><a href="#agent-的三个核心能力">1.2 Agent 的三个核心能力</a></li>
+<li><a href="#agent-harness-是什么">1.3 Agent Harness 是什么</a></li>
+<li><a href="#baoclaw-的整体架构">1.4 BaoClaw 的整体架构</a></li>
+<li><a href="#本书的路线图">1.5 本书的路线图</a></li>
+</ul></li>
+<li><a href="#第-2-章react-循环-agent-的心跳">第 2 章：ReAct 循环 —— Agent 的心跳</a><ul>
+<li><a href="#什么是-react">2.1 什么是 ReAct</a></li>
+<li><a href="#baoclaw-的-react-实现">2.2 BaoClaw 的 ReAct 实现</a></li>
+<li><a href="#事件驱动的架构">2.3 事件驱动的架构</a></li>
+<li><a href="#与其他框架的对比">2.4 与其他框架的对比</a></li>
+<li><a href="#小结">2.5 小结</a></li>
+</ul></li>
+<li><a href="#第-3-章agent-harness-架构概览">第 3 章：Agent Harness 架构概览</a><ul>
+<li><a href="#为什么需要-harness">3.1 为什么需要 Harness</a></li>
+<li><a href="#baoclaw-的三层架构">3.2 BaoClaw 的三层架构</a></li>
+<li><a href="#daemon-模式">3.3 Daemon 模式</a></li>
+<li><a href="#数据流">3.4 数据流</a></li>
+<li><a href="#配置体系">3.5 配置体系</a></li>
+<li><a href="#小结-1">3.6 小结</a></li>
+</ul></li>
+<li><a href="#第-4-章工具系统设计-tool-trait-与执行器">第 4 章：工具系统设计 —— Tool Trait 与执行器</a><ul>
+<li><a href="#问题agent-如何获得行动能力">4.1 问题：Agent 如何获得行动能力</a></li>
+<li><a href="#模式tool-trait">4.2 模式：Tool Trait</a></li>
+<li><a href="#内置工具">4.3 内置工具</a></li>
+<li><a href="#工具执行器">4.4 工具执行器</a></li>
+<li><a href="#小结-2">4.5 小结</a></li>
+</ul></li>
+<li><a href="#第-5-章mcp-协议-让-agent-获得无限能力">第 5 章：MCP 协议 —— 让 Agent 获得无限能力</a><ul>
+<li><a href="#问题内置工具的局限">5.1 问题：内置工具的局限</a></li>
+<li><a href="#mcp-协议概述">5.2 MCP 协议概述</a></li>
+<li><a href="#baoclaw-的-mcp-实现">5.3 BaoClaw 的 MCP 实现</a></li>
+<li><a href="#配置">5.4 配置</a></li>
+<li><a href="#踩过的坑">5.5 踩过的坑</a></li>
+<li><a href="#小结-3">5.6 小结</a></li>
+</ul></li>
+<li><a href="#第-6-章skills-可插拔的-agent-行为">第 6 章：Skills —— 可插拔的 Agent 行为</a><ul>
+<li><a href="#问题工具-vs-指令">6.1 问题：工具 vs 指令</a></li>
+<li><a href="#模式skill-系统提示词注入">6.2 模式：Skill = 系统提示词注入</a></li>
+<li><a href="#baoclaw-的实现">6.3 BaoClaw 的实现</a></li>
+<li><a href="#skill-vs-tool-的选择">6.4 Skill vs Tool 的选择</a></li>
+<li><a href="#小结-4">6.5 小结</a></li>
+</ul></li>
+<li><a href="#第-7-章plugins-打包分发的能力套件">第 7 章：Plugins —— 打包分发的能力套件</a><ul>
+<li><a href="#问题能力的组合与分发">7.1 问题：能力的组合与分发</a></li>
+<li><a href="#模式plugin-skill-mcp-tools-的容器">7.2 模式：Plugin = Skill + MCP + Tools 的容器</a></li>
+<li><a href="#baoclaw-的实现-1">7.3 BaoClaw 的实现</a></li>
+<li><a href="#小结-5">7.4 小结</a></li>
+</ul></li>
+<li><a href="#第-8-章上下文管理-系统提示词的构建">第 8 章：上下文管理 —— 系统提示词的构建</a><ul>
+<li><a href="#问题ai-需要知道什么">8.1 问题：AI 需要知道什么</a></li>
+<li><a href="#baoclaw-的系统提示词构建">8.2 BaoClaw 的系统提示词构建</a></li>
+<li><a href="#baoclaw.md-项目级指令">8.3 BAOCLAW.md —— 项目级指令</a></li>
+<li><a href="#上下文窗口预算">8.4 上下文窗口预算</a></li>
+<li><a href="#小结-6">8.5 小结</a></li>
+</ul></li>
+<li><a href="#第-9-章短期记忆-对话历史与-compact">第 9 章：短期记忆 —— 对话历史与 Compact</a><ul>
+<li><a href="#问题对话越来越长怎么办">9.1 问题：对话越来越长怎么办</a></li>
+<li><a href="#baoclaw-的短期记忆">9.2 BaoClaw 的短期记忆</a></li>
+<li><a href="#compact-机制">9.3 Compact 机制</a></li>
+<li><a href="#小结-7">9.4 小结</a></li>
+</ul></li>
+<li><a href="#第-10-章长期记忆-跨会话的知识持久化">第 10 章：长期记忆 —— 跨会话的知识持久化</a><ul>
+<li><a href="#问题agent-的失忆症">10.1 问题：Agent 的“失忆症”</a></li>
+<li><a href="#模式jsonl-文件-系统提示词注入">10.2 模式：JSONL 文件 + 系统提示词注入</a></li>
+<li><a href="#baoclaw-的实现-2">10.3 BaoClaw 的实现</a></li>
+<li><a href="#两种写入方式">10.4 两种写入方式</a></li>
+<li><a href="#小结-8">10.5 小结</a></li>
+</ul></li>
+<li><a href="#第-11-章会话设计-共享恢复与多客户端">第 11 章：会话设计 —— 共享、恢复与多客户端</a><ul>
+<li><a href="#问题多个入口一个大脑">11.1 问题：多个入口，一个大脑</a></li>
+<li><a href="#会话模式">11.2 会话模式</a></li>
+<li><a href="#sharedsession-的设计claude-coresrcengineshared_session.rs">11.3 SharedSession 的设计（<code>claude-core/src/engine/shared_session.rs</code>）</a></li>
+<li><a href="#会话持久化transcript">11.4 会话持久化（Transcript）</a></li>
+<li><a href="#baoclaw-的客户端连接流程">11.5 BaoClaw 的客户端连接流程</a></li>
+<li><a href="#小结-9">11.6 小结</a></li>
+</ul></li>
+<li><a href="#第-12-章守护进程架构-daemon-模式">第 12 章：守护进程架构 —— Daemon 模式</a><ul>
+<li><a href="#问题agent-进程的生命周期">12.1 问题：Agent 进程的生命周期</a></li>
+<li><a href="#模式daemon-客户端分离">12.2 模式：Daemon + 客户端分离</a></li>
+<li><a href="#小结-10">12.3 小结</a></li>
+</ul></li>
+<li><a href="#第-13-章ipc-协议-json-rpc-over-uds">第 13 章：IPC 协议 —— JSON-RPC over UDS</a><ul>
+<li><a href="#协议选择">13.1 协议选择</a></li>
+<li><a href="#消息类型">13.2 消息类型</a></li>
+<li><a href="#方法列表claude-coresrcipcrouter.rs">13.3 方法列表（<code>claude-core/src/ipc/router.rs</code>）</a></li>
+<li><a href="#流式事件">13.4 流式事件</a></li>
+<li><a href="#小结-11">13.5 小结</a></li>
+</ul></li>
+<li><a href="#第-14-章多客户端接入-终端telegram更多">第 14 章：多客户端接入 —— 终端、Telegram、更多</a><ul>
+<li><a href="#客户端是薄的">14.1 客户端是“薄”的</a></li>
+<li><a href="#终端-clits-ipccli.ts">14.2 终端 CLI（<code>ts-ipc/cli.ts</code>）</a></li>
+<li><a href="#telegram-网关baoclaw-telegramsrcgateway.ts">14.3 Telegram 网关（<code>baoclaw-telegram/src/gateway.ts</code>）</a></li>
+<li><a href="#添加新客户端">14.4 添加新客户端</a></li>
+<li><a href="#小结-12">14.5 小结</a></li>
+</ul></li>
+<li><a href="#第-15-章共享会话-sharedqueryengine-的设计">第 15 章：共享会话 —— SharedQueryEngine 的设计</a><ul>
+<li><a href="#问题从各自独立到实时共享">15.1 问题：从“各自独立”到“实时共享”</a></li>
+<li><a href="#设计sessionregistry-sharedsession">15.2 设计：SessionRegistry + SharedSession</a></li>
+<li><a href="#并发控制的三个层次">15.3 并发控制的三个层次</a></li>
+<li><a href="#事件广播-1">15.4 事件广播</a></li>
+<li><a href="#小结-13">15.5 小结</a></li>
+</ul></li>
+<li><a href="#第-16-章错误处理与恢复-从-fallback-到自动-compact">第 16 章：错误处理与恢复 —— 从 Fallback 到自动 Compact</a><ul>
+<li><a href="#问题生产环境中什么都会出错">16.1 问题：生产环境中什么都会出错</a></li>
+<li><a href="#错误分类与处理策略">16.2 错误分类与处理策略</a></li>
+<li><a href="#设计原则">16.3 设计原则</a></li>
+<li><a href="#小结-14">16.4 小结</a></li>
+</ul></li>
+<li><a href="#第-17-章流式输出-sse-事件与广播">第 17 章：流式输出 —— SSE 事件与广播</a><ul>
+<li><a href="#问题用户不想等">17.1 问题：用户不想等</a></li>
+<li><a href="#两层流式架构">17.2 两层流式架构</a></li>
+<li><a href="#事件类型engineevent">17.3 事件类型（<code>EngineEvent</code>）</a></li>
+<li><a href="#共享模式下的广播">17.4 共享模式下的广播</a></li>
+<li><a href="#客户端渲染">17.5 客户端渲染</a></li>
+<li><a href="#小结-15">17.6 小结</a></li>
+</ul></li>
+<li><a href="#第-18-章权限控制-permissiongate-模式">第 18 章：权限控制 —— PermissionGate 模式</a><ul>
+<li><a href="#问题ai-不应该无限制地行动">18.1 问题：AI 不应该无限制地行动</a></li>
+<li><a href="#模式请求-授权-执行">18.2 模式：请求-授权-执行</a></li>
+<li><a href="#baoclaw-的实现-3">18.3 BaoClaw 的实现</a></li>
+<li><a href="#哪些工具需要授权">18.4 哪些工具需要授权</a></li>
+<li><a href="#小结-16">18.5 小结</a></li>
+</ul></li>
+<li><a href="#第-19-章成本追踪-token-计量与预算">第 19 章：成本追踪 —— Token 计量与预算</a><ul>
+<li><a href="#问题ai-调用不是免费的">19.1 问题：AI 调用不是免费的</a></li>
+<li><a href="#baoclaw-的成本追踪">19.2 BaoClaw 的成本追踪</a></li>
+<li><a href="#成本优化策略">19.3 成本优化策略</a></li>
+<li><a href="#小结-17">19.4 小结</a></li>
+</ul></li>
+<li><a href="#第-20-章computer-use-桌面控制-agent">第 20 章：Computer Use —— 桌面控制 Agent</a><ul>
+<li><a href="#从代码到桌面">20.1 从代码到桌面</a></li>
+<li><a href="#baoclaw-的-computer-use-实现">20.2 BaoClaw 的 Computer Use 实现</a></li>
+<li><a href="#图片处理的挑战">20.3 图片处理的挑战</a></li>
+<li><a href="#工作流示例">20.4 工作流示例</a></li>
+<li><a href="#小结-18">20.5 小结</a></li>
+</ul></li>
+<li><a href="#第-22-章多模型支持-fallback-与模型切换">第 22 章：多模型支持 —— Fallback 与模型切换</a><ul>
+<li><a href="#问题不要把鸡蛋放在一个篮子里">22.1 问题：不要把鸡蛋放在一个篮子里</a></li>
+<li><a href="#baoclaw-的多模型架构">22.2 BaoClaw 的多模型架构</a></li>
+<li><a href="#兼容不同-api">22.3 兼容不同 API</a></li>
+<li><a href="#小结-19">22.4 小结</a></li>
+</ul></li>
+<li><a href="#附录-abaoclaw-完整架构图">附录 A：BaoClaw 完整架构图</a><ul>
+<li><a href="#系统架构">系统架构</a></li>
+<li><a href="#文件系统布局">文件系统布局</a></li>
+</ul></li>
+<li><a href="#附录-b从零搭建-agent-harness">附录 B：从零搭建 Agent Harness</a><ul>
+<li><a href="#最小可行-agent">最小可行 Agent</a></li>
+<li><a href="#技术选型建议">技术选型建议</a></li>
+</ul></li>
+<li><a href="#附录-c与其他框架的对比">附录 C：与其他框架的对比</a><ul>
+<li><a href="#agent-harness-框架对比">Agent Harness 框架对比</a></li>
+<li><a href="#选型建议">选型建议</a></li>
+<li><a href="#baoclaw-的独特之处">BaoClaw 的独特之处</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="agent-harness-实战从-baoclaw-看-ai-agent-系统架构">Agent Harness 实战：从 BaoClaw 看 AI Agent 系统架构</h1>
+<blockquote>
+<p>以一个真实的 Agent Harness 产品为原型，深入剖析 AI Agent 系统的设计模式与工程实践。</p>
+</blockquote>
+<h2 id="关于本书">关于本书</h2>
+<p>本书以 BaoClaw —— 一个基于 Rust + TypeScript 构建的 AI 编码助手 —— 作为参考实现，系统讲解 Agent Harness（Agent 运行时框架）的架构设计、核心模式和生产实践。</p>
+<p>与市面上大多数 Agent 教程不同，本书不是 API 调用指南或 Prompt 技巧集锦，而是从工程角度回答：</p>
+<ul>
+<li>一个 Agent 系统的核心循环是什么？</li>
+<li>工具系统如何设计才能可扩展？</li>
+<li>多客户端如何共享同一个 Agent 会话？</li>
+<li>记忆系统如何跨会话持久化？</li>
+<li>MCP 协议如何让 Agent 获得无限能力？</li>
+<li>生产环境中如何处理上下文窗口、错误恢复、并发控制？</li>
+</ul>
+<p>每一个问题，都有 BaoClaw 的真实代码作为答案。</p>
+<h2 id="参考实现baoclaw">参考实现：BaoClaw</h2>
+<p>BaoClaw 是一个完整的 Agent Harness 系统，包含：</p>
+<table>
+<thead>
+<tr class="header">
+<th>组件</th>
+<th>技术栈</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>claude-core</td>
+<td>Rust</td>
+<td>守护进程、QueryEngine、工具执行、IPC 服务</td>
+</tr>
+<tr class="even">
+<td>ts-ipc</td>
+<td>TypeScript</td>
+<td>终端 CLI 客户端</td>
+</tr>
+<tr class="odd">
+<td>baoclaw-telegram</td>
+<td>TypeScript</td>
+<td>Telegram 网关客户端</td>
+</tr>
+</tbody>
+</table>
+<h2 id="目录">目录</h2>
+<h3 id="part-1agent-基础">Part 1：Agent 基础</h3>
+<ul>
+<li><a href="Part1-Agent基础/ch01-agent的本质.md">第 1 章：Agent 的本质 —— 从 LLM 到 Agent</a></li>
+<li><a href="Part1-Agent基础/ch02-react循环.md">第 2 章：ReAct 循环 —— Agent 的心跳</a></li>
+<li><a href="Part1-Agent基础/ch03-harness架构概览.md">第 3 章：Agent Harness 架构概览</a></li>
+</ul>
+<h3 id="part-2工具与扩展">Part 2：工具与扩展</h3>
+<ul>
+<li><a href="Part2-工具与扩展/ch04-工具系统设计.md">第 4 章：工具系统设计 —— Tool Trait 与执行器</a></li>
+<li><a href="Part2-工具与扩展/ch05-mcp协议.md">第 5 章：MCP 协议 —— 让 Agent 获得无限能力</a></li>
+<li><a href="Part2-工具与扩展/ch06-skills.md">第 6 章：Skills —— 可插拔的 Agent 行为</a></li>
+<li><a href="Part2-工具与扩展/ch07-plugins.md">第 7 章：Plugins —— 打包分发的能力套件</a></li>
+</ul>
+<h3 id="part-3上下文与记忆">Part 3：上下文与记忆</h3>
+<ul>
+<li><a href="Part3-上下文与记忆/ch08-上下文管理.md">第 8 章：上下文管理 —— 系统提示词的构建</a></li>
+<li><a href="Part3-上下文与记忆/ch09-短期记忆.md">第 9 章：短期记忆 —— 对话历史与 Compact</a></li>
+<li><a href="Part3-上下文与记忆/ch10-长期记忆.md">第 10 章：长期记忆 —— 跨会话的知识持久化</a></li>
+<li><a href="Part3-上下文与记忆/ch11-会话设计.md">第 11 章：会话设计 —— 共享、恢复与多客户端</a></li>
+</ul>
+<h3 id="part-4ipc-与多客户端">Part 4：IPC 与多客户端</h3>
+<ul>
+<li><a href="Part4-IPC与多客户端/ch12-守护进程架构.md">第 12 章：守护进程架构 —— Daemon 模式</a></li>
+<li><a href="Part4-IPC与多客户端/ch13-ipc协议.md">第 13 章：IPC 协议 —— JSON-RPC over UDS</a></li>
+<li><a href="Part4-IPC与多客户端/ch14-多客户端接入.md">第 14 章：多客户端接入 —— 终端、Telegram、更多</a></li>
+<li><a href="Part4-IPC与多客户端/ch15-共享会话.md">第 15 章：共享会话 —— SharedQueryEngine 的设计</a></li>
+</ul>
+<h3 id="part-5生产实践">Part 5：生产实践</h3>
+<ul>
+<li><a href="Part5-生产实践/ch16-错误处理与恢复.md">第 16 章：错误处理与恢复 —— 从 Fallback 到自动 Compact</a></li>
+<li><a href="Part5-生产实践/ch17-流式输出.md">第 17 章：流式输出 —— SSE 事件与广播</a></li>
+<li><a href="Part5-生产实践/ch18-权限控制.md">第 18 章：权限控制 —— PermissionGate 模式</a></li>
+<li><a href="Part5-生产实践/ch19-成本追踪.md">第 19 章：成本追踪 —— Token 计量与预算</a></li>
+</ul>
+<h3 id="part-6高级模式">Part 6：高级模式</h3>
+<ul>
+<li><a href="Part6-高级模式/ch20-computer-use.md">第 20 章：Computer Use —— 桌面控制 Agent</a></li>
+<li><a href="Part6-高级模式/ch21-agentic-coding.md">第 21 章：Agentic Coding —— 代码生成与编辑</a></li>
+<li><a href="Part6-高级模式/ch22-多模型支持.md">第 22 章：多模型支持 —— Fallback 与模型切换</a></li>
+</ul>
+<h3 id="附录">附录</h3>
+<ul>
+<li><a href="附录/appendix-a-架构图.md">附录 A：BaoClaw 完整架构图</a></li>
+<li><a href="附录/appendix-b-从零搭建.md">附录 B：从零搭建 Agent Harness</a></li>
+<li><a href="附录/appendix-c-框架对比.md">附录 C：与其他框架的对比</a></li>
+</ul>
+<h2 id="写作理念">写作理念</h2>
+<p><strong>模式优先，代码为证。</strong></p>
+<p>每一章遵循这样的结构： 1. <strong>问题</strong> —— 什么场景需要这个能力？ 2. <strong>模式</strong> —— 通用的设计模式是什么？ 3. <strong>实现</strong> —— BaoClaw 是怎么做的？（附真实代码） 4. <strong>思考</strong> —— 还有哪些替代方案？</p>
+<h2 id="license">License</h2>
+<p>本书内容采用 CC BY-NC-SA 4.0 协议。</p>
+
+<h1 id="第-1-章agent-的本质-从-llm-到-agent">第 1 章：Agent 的本质 —— 从 LLM 到 Agent</h1>
+<h2 id="llm-不是-agent">1.1 LLM 不是 Agent</h2>
+<p>大语言模型（LLM）本质上是一个函数：输入一段文本，输出一段文本。它没有记忆、没有工具、没有自主行动的能力。你问它“帮我创建一个文件”，它只能告诉你怎么做，但不能真的去做。</p>
+<pre><code>LLM: text → text</code></pre>
+<p>Agent 不同。Agent 是一个<strong>循环系统</strong>：它接收用户指令，思考需要做什么，调用工具执行动作，观察结果，然后决定下一步。这个循环一直持续，直到任务完成。</p>
+<pre><code>Agent: 指令 → [思考 → 行动 → 观察]* → 结果</code></pre>
+<p>关键区别在于：LLM 是一次性的输入输出，Agent 是持续的循环决策。</p>
+<h2 id="agent-的三个核心能力">1.2 Agent 的三个核心能力</h2>
+<p>一个 Agent 系统需要三个核心能力：</p>
+<p><strong>1. 推理（Reasoning）</strong></p>
+<p>Agent 需要理解用户意图，分解任务，制定计划。这部分由 LLM 提供。</p>
+<p><strong>2. 行动（Action）</strong></p>
+<p>Agent 需要能够执行动作 —— 读写文件、运行命令、调用 API。这部分由工具系统（Tool System）提供。</p>
+<p><strong>3. 记忆（Memory）</strong></p>
+<p>Agent 需要记住之前发生了什么 —— 对话历史、用户偏好、项目上下文。这部分由记忆系统（Memory System）提供。</p>
+<p>在 BaoClaw 中，这三个能力分别对应：</p>
+<table>
+<thead>
+<tr class="header">
+<th>能力</th>
+<th>BaoClaw 实现</th>
+<th>代码位置</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>推理</td>
+<td>QueryEngine 调用 LLM API</td>
+<td><code>claude-core/src/engine/query_engine.rs</code></td>
+</tr>
+<tr class="even">
+<td>行动</td>
+<td>Tool trait + 内置工具 + MCP</td>
+<td><code>claude-core/src/tools/</code></td>
+</tr>
+<tr class="odd">
+<td>记忆</td>
+<td>Messages + Transcript + MemoryStore</td>
+<td><code>claude-core/src/engine/</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="agent-harness-是什么">1.3 Agent Harness 是什么</h2>
+<p>Agent Harness（Agent 运行时框架）是承载 Agent 运行的基础设施。它不是 Agent 本身，而是让 Agent 能够运行的“容器”。</p>
+<p>类比： - LLM 是引擎 - Agent 是驾驶员 - Agent Harness 是整辆车 —— 包括方向盘、油门、刹车、仪表盘</p>
+<p>BaoClaw 就是一个 Agent Harness。它提供：</p>
+<ul>
+<li><strong>进程管理</strong>：Daemon 模式，后台运行</li>
+<li><strong>IPC 通信</strong>：JSON-RPC over Unix Domain Socket</li>
+<li><strong>工具注册</strong>：Tool trait，统一的工具接口</li>
+<li><strong>上下文构建</strong>：系统提示词、Skills、Memory 的组装</li>
+<li><strong>流式输出</strong>：SSE 事件流，实时反馈</li>
+<li><strong>多客户端</strong>：终端、Telegram、未来更多</li>
+<li><strong>会话管理</strong>：共享会话、会话恢复、Compact</li>
+</ul>
+<h2 id="baoclaw-的整体架构">1.4 BaoClaw 的整体架构</h2>
+<pre><code>┌─────────────────────────────────────────────────┐
+│                   Clients                        │
+│  ┌──────────┐  ┌──────────────┐  ┌───────────┐ │
+│  │ Terminal  │  │   Telegram   │  │  Future   │ │
+│  │  CLI      │  │   Gateway    │  │  Clients  │ │
+│  └─────┬────┘  └──────┬───────┘  └─────┬─────┘ │
+│        │               │               │        │
+│        └───────────────┼───────────────┘        │
+│                        │ IPC (JSON-RPC / UDS)    │
+│                        ▼                         │
+│  ┌─────────────────────────────────────────────┐│
+│  │              Daemon (Rust)                   ││
+│  │  ┌─────────────────────────────────────┐    ││
+│  │  │         SharedState                  │    ││
+│  │  │  ┌──────────┐  ┌────────────────┐  │    ││
+│  │  │  │ Tools    │  │ SessionRegistry│  │    ││
+│  │  │  │ (builtin │  │ (shared mode)  │  │    ││
+│  │  │  │  + MCP)  │  └────────────────┘  │    ││
+│  │  │  └──────────┘  ┌────────────────┐  │    ││
+│  │  │  ┌──────────┐  │ MemoryStore    │  │    ││
+│  │  │  │ Skills   │  │ (long-term)    │  │    ││
+│  │  │  └──────────┘  └────────────────┘  │    ││
+│  │  └─────────────────────────────────────┘    ││
+│  │                    │                         ││
+│  │                    ▼                         ││
+│  │  ┌─────────────────────────────────────┐    ││
+│  │  │         QueryEngine                  │    ││
+│  │  │  Messages ←→ LLM API ←→ Tools       │    ││
+│  │  │  (ReAct Loop)                        │    ││
+│  │  └─────────────────────────────────────┘    ││
+│  └─────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────┘</code></pre>
+<h2 id="本书的路线图">1.5 本书的路线图</h2>
+<p>接下来的章节将逐层深入这个架构：</p>
+<ul>
+<li><strong>Part 1</strong>（本部分）：理解 Agent 的核心概念和 ReAct 循环</li>
+<li><strong>Part 2</strong>：深入工具系统 —— 从内置工具到 MCP 协议</li>
+<li><strong>Part 3</strong>：上下文与记忆 —— 短期、长期、项目级</li>
+<li><strong>Part 4</strong>：IPC 与多客户端 —— Daemon 架构和共享会话</li>
+<li><strong>Part 5</strong>：生产实践 —— 错误处理、流式输出、权限控制</li>
+<li><strong>Part 6</strong>：高级模式 —— Computer Use、Agentic Coding</li>
+</ul>
+<p>每一章都会指向 BaoClaw 的真实代码，让你不仅理解“为什么”，还能看到“怎么做”。</p>
+
+<h1 id="第-2-章react-循环-agent-的心跳">第 2 章：ReAct 循环 —— Agent 的心跳</h1>
+<h2 id="什么是-react">2.1 什么是 ReAct</h2>
+<p>ReAct（Reasoning + Acting）是 Agent 的核心运行模式。它的本质是一个循环：</p>
+<pre><code>用户消息 → LLM 思考 → 决定行动 → 执行工具 → 观察结果 → LLM 再思考 → ... → 最终回复</code></pre>
+<p>这个循环是 Agent 的“心跳”。没有它，LLM 只能做一次性的问答；有了它，Agent 可以完成任意复杂的多步骤任务。</p>
+<h2 id="baoclaw-的-react-实现">2.2 BaoClaw 的 ReAct 实现</h2>
+<p>在 BaoClaw 中，ReAct 循环实现在 <code>run_query_loop</code> 函数中（<code>claude-core/src/engine/query_engine.rs</code>）。</p>
+<p>核心流程：</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb5-1" title="1"><span class="kw">loop</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb5-2" title="2">    <span class="co">// 1. 构建 API 请求（包含完整对话历史 + 工具定义）</span></a>
+<a class="sourceLine" id="cb5-3" title="3">    <span class="kw">let</span> request = build_api_request(&amp;messages, &amp;config);</a>
+<a class="sourceLine" id="cb5-4" title="4">    </a>
+<a class="sourceLine" id="cb5-5" title="5">    <span class="co">// 2. 调用 LLM API（流式）</span></a>
+<a class="sourceLine" id="cb5-6" title="6">    <span class="kw">let</span> <span class="kw">mut</span> stream = api_client.create_message_stream(request).await?;</a>
+<a class="sourceLine" id="cb5-7" title="7">    </a>
+<a class="sourceLine" id="cb5-8" title="8">    <span class="co">// 3. 处理流式响应，收集 content blocks</span></a>
+<a class="sourceLine" id="cb5-9" title="9">    <span class="co">//    - TextBlock: AI 的文字回复</span></a>
+<a class="sourceLine" id="cb5-10" title="10">    <span class="co">//    - ToolUseBlock: AI 决定调用的工具</span></a>
+<a class="sourceLine" id="cb5-11" title="11">    <span class="co">//    - ThinkingBlock: 扩展思考内容</span></a>
+<a class="sourceLine" id="cb5-12" title="12">    <span class="kw">while</span> <span class="kw">let</span> <span class="cn">Some</span>(event) = stream.next().await <span class="op">{</span> ... <span class="op">}</span></a>
+<a class="sourceLine" id="cb5-13" title="13">    </a>
+<a class="sourceLine" id="cb5-14" title="14">    <span class="co">// 4. 检查是否有工具调用</span></a>
+<a class="sourceLine" id="cb5-15" title="15">    <span class="kw">let</span> tool_uses = extract_tool_uses(&amp;assistant_content_blocks);</a>
+<a class="sourceLine" id="cb5-16" title="16">    </a>
+<a class="sourceLine" id="cb5-17" title="17">    <span class="kw">if</span> tool_uses.is_empty() <span class="op">{</span></a>
+<a class="sourceLine" id="cb5-18" title="18">        <span class="co">// 没有工具调用 → 任务完成，返回结果</span></a>
+<a class="sourceLine" id="cb5-19" title="19">        <span class="kw">return</span>;</a>
+<a class="sourceLine" id="cb5-20" title="20">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb5-21" title="21">    </a>
+<a class="sourceLine" id="cb5-22" title="22">    <span class="co">// 5. 执行工具</span></a>
+<a class="sourceLine" id="cb5-23" title="23">    <span class="kw">let</span> tool_results = execute_tools(&amp;tools, &amp;tool_uses, &amp;context).await;</a>
+<a class="sourceLine" id="cb5-24" title="24">    </a>
+<a class="sourceLine" id="cb5-25" title="25">    <span class="co">// 6. 将工具结果加入对话历史</span></a>
+<a class="sourceLine" id="cb5-26" title="26">    messages.push(build_tool_result_message(&amp;tool_results));</a>
+<a class="sourceLine" id="cb5-27" title="27">    </a>
+<a class="sourceLine" id="cb5-28" title="28">    <span class="co">// 7. 回到步骤 1，让 LLM 看到工具结果后继续思考</span></a>
+<a class="sourceLine" id="cb5-29" title="29">    turn_count += <span class="dv">1</span>;</a>
+<a class="sourceLine" id="cb5-30" title="30"><span class="op">}</span></a></code></pre></div>
+<p>关键设计点：</p>
+<h3 id="流式处理">2.2.1 流式处理</h3>
+<p>BaoClaw 使用 SSE（Server-Sent Events）流式接收 LLM 的响应。每收到一个 token，就通过事件通道发送给客户端，实现实时打字效果：</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb6-1" title="1"><span class="pp">ApiStreamEvent::</span>ContentBlockDelta <span class="op">{</span> delta, .. <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb6-2" title="2">    <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Some</span>(text) = delta.get(<span class="st">&quot;text&quot;</span>).and_then(|v| v.as_str()) <span class="op">{</span></a>
+<a class="sourceLine" id="cb6-3" title="3">        <span class="co">// 实时发送给客户端</span></a>
+<a class="sourceLine" id="cb6-4" title="4">        tx.send(<span class="pp">EngineEvent::</span>AssistantChunk <span class="op">{</span> content: text.to_string() <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb6-5" title="5">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb6-6" title="6"><span class="op">}</span></a></code></pre></div>
+<h3 id="工具调用的闭环">2.2.2 工具调用的闭环</h3>
+<p>当 LLM 决定调用工具时，它会在响应中包含一个 <code>tool_use</code> content block：</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb7-1" title="1"><span class="fu">{</span></a>
+<a class="sourceLine" id="cb7-2" title="2">    <span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;tool_use&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb7-3" title="3">    <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;tu_001&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb7-4" title="4">    <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;Bash&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb7-5" title="5">    <span class="dt">&quot;input&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;ls -la&quot;</span> <span class="fu">}</span></a>
+<a class="sourceLine" id="cb7-6" title="6"><span class="fu">}</span></a></code></pre></div>
+<p>BaoClaw 提取这些 tool_use blocks，执行对应的工具，然后将结果作为 <code>tool_result</code> 消息追加到对话历史中。LLM 在下一轮看到工具结果后，可以继续调用更多工具或给出最终回复。</p>
+<h3 id="终止条件">2.2.3 终止条件</h3>
+<p>循环在以下情况终止：</p>
+<ol type="1">
+<li><strong>LLM 不再调用工具</strong> —— <code>tool_uses.is_empty()</code>，任务完成</li>
+<li><strong>达到最大轮次</strong> —— <code>turn_count &gt;= max_turns</code>，防止无限循环</li>
+<li><strong>用户中止</strong> —— <code>abort</code> 信号被触发</li>
+<li><strong>API 错误</strong> —— 网络错误、认证失败等</li>
+<li><strong>上下文窗口超出</strong> —— 自动 compact 后重试</li>
+</ol>
+<h2 id="事件驱动的架构">2.3 事件驱动的架构</h2>
+<p>BaoClaw 的 ReAct 循环不是简单的请求-响应，而是事件驱动的。<code>QueryEngine</code> 通过 <code>mpsc::channel</code> 向客户端发送各种事件：</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb8-1" title="1"><span class="kw">pub</span> <span class="kw">enum</span> EngineEvent <span class="op">{</span></a>
+<a class="sourceLine" id="cb8-2" title="2">    AssistantChunk <span class="op">{</span> content: <span class="dt">String</span> <span class="op">}</span>,     <span class="co">// AI 输出的文字片段</span></a>
+<a class="sourceLine" id="cb8-3" title="3">    ThinkingChunk <span class="op">{</span> content: <span class="dt">String</span> <span class="op">}</span>,      <span class="co">// 扩展思考内容</span></a>
+<a class="sourceLine" id="cb8-4" title="4">    ToolUse <span class="op">{</span> tool_name, input, id <span class="op">}</span>,       <span class="co">// AI 决定调用工具</span></a>
+<a class="sourceLine" id="cb8-5" title="5">    ToolResult <span class="op">{</span> id, output, is_error <span class="op">}</span>,    <span class="co">// 工具执行结果</span></a>
+<a class="sourceLine" id="cb8-6" title="6">    PermissionRequest <span class="op">{</span> tool_name, input <span class="op">}</span>, <span class="co">// 需要用户授权</span></a>
+<a class="sourceLine" id="cb8-7" title="7">    <span class="dt">Result</span>(QueryResult),                    <span class="co">// 最终结果</span></a>
+<a class="sourceLine" id="cb8-8" title="8">    Error(EngineError),                     <span class="co">// 错误</span></a>
+<a class="sourceLine" id="cb8-9" title="9">    ModelFallback <span class="op">{</span> from, to <span class="op">}</span>,             <span class="co">// 模型降级</span></a>
+<a class="sourceLine" id="cb8-10" title="10">    StateUpdate <span class="op">{</span> patch <span class="op">}</span>,                  <span class="co">// 状态更新</span></a>
+<a class="sourceLine" id="cb8-11" title="11"><span class="op">}</span></a></code></pre></div>
+<p>这种设计让客户端（终端 CLI、Telegram）可以实时展示 Agent 的每一步动作，而不是等到全部完成才返回。</p>
+<h2 id="与其他框架的对比">2.4 与其他框架的对比</h2>
+<table>
+<thead>
+<tr class="header">
+<th>特性</th>
+<th>BaoClaw</th>
+<th>LangChain</th>
+<th>Claude Code</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>循环实现</td>
+<td>Rust async loop</td>
+<td>Python chain</td>
+<td>TypeScript loop</td>
+</tr>
+<tr class="even">
+<td>流式输出</td>
+<td>SSE events via IPC</td>
+<td>Callbacks</td>
+<td>Direct stdout</td>
+</tr>
+<tr class="odd">
+<td>工具执行</td>
+<td>并行 + 权限控制</td>
+<td>串行</td>
+<td>并行</td>
+</tr>
+<tr class="even">
+<td>错误恢复</td>
+<td>Fallback + auto-compact</td>
+<td>手动重试</td>
+<td>手动重试</td>
+</tr>
+</tbody>
+</table>
+<h2 id="小结">2.5 小结</h2>
+<p>ReAct 循环是 Agent 的核心。理解了这个循环，你就理解了 Agent 系统的骨架。接下来的章节将深入循环中的每个组件 —— 工具系统、上下文管理、记忆系统 —— 看它们如何协同工作。</p>
+
+<h1 id="第-3-章agent-harness-架构概览">第 3 章：Agent Harness 架构概览</h1>
+<h2 id="为什么需要-harness">3.1 为什么需要 Harness</h2>
+<p>直接调用 LLM API 写一个 chatbot 很简单。但要构建一个生产级的 Agent 系统，你需要解决大量“API 之外”的问题：</p>
+<ul>
+<li>工具怎么注册和发现？</li>
+<li>多个客户端怎么连接同一个 Agent？</li>
+<li>对话历史太长怎么办？</li>
+<li>工具执行需要用户授权怎么处理？</li>
+<li>Agent 进程崩溃了怎么恢复？</li>
+</ul>
+<p>Agent Harness 就是解决这些问题的框架。它是 Agent 的“运行时环境”。</p>
+<h2 id="baoclaw-的三层架构">3.2 BaoClaw 的三层架构</h2>
+<p>BaoClaw 采用经典的三层架构：</p>
+<pre><code>┌─────────────────────────────────┐
+│        Client Layer             │  TypeScript
+│  (CLI, Telegram, ...)           │
+├─────────────────────────────────┤
+│        IPC Layer                │  JSON-RPC 2.0 / UDS
+│  (Protocol, Routing)            │
+├─────────────────────────────────┤
+│        Core Layer               │  Rust
+│  (QueryEngine, Tools, Memory)   │
+└─────────────────────────────────┘</code></pre>
+<h3 id="client-layer客户端层">Client Layer（客户端层）</h3>
+<p>负责用户交互。每个客户端是一个独立进程，通过 IPC 连接到 Core。</p>
+<ul>
+<li><code>ts-ipc/cli.ts</code> —— 终端 CLI，富文本 TUI</li>
+<li><code>baoclaw-telegram/src/gateway.ts</code> —— Telegram Bot 网关</li>
+</ul>
+<p>客户端是“薄”的 —— 只负责 UI 渲染和用户输入，不包含业务逻辑。</p>
+<h3 id="ipc-layer通信层">IPC Layer（通信层）</h3>
+<p>客户端和 Core 之间的通信协议。</p>
+<ul>
+<li>传输：Unix Domain Socket（UDS）</li>
+<li>协议：JSON-RPC 2.0 + NDJSON 分帧</li>
+<li>发现：<code>/tmp/baoclaw-sockets/</code> 目录下的 metadata JSON 文件</li>
+</ul>
+<h3 id="core-layer核心层">Core Layer（核心层）</h3>
+<p>Agent 的大脑。一个 Rust 守护进程，包含：</p>
+<table>
+<thead>
+<tr class="header">
+<th>组件</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>QueryEngine</td>
+<td>ReAct 循环、LLM API 调用</td>
+</tr>
+<tr class="even">
+<td>Tool System</td>
+<td>工具注册、执行、权限控制</td>
+</tr>
+<tr class="odd">
+<td>MemoryStore</td>
+<td>长期记忆持久化</td>
+</tr>
+<tr class="even">
+<td>SessionRegistry</td>
+<td>共享会话管理</td>
+</tr>
+<tr class="odd">
+<td>TranscriptWriter</td>
+<td>对话记录持久化</td>
+</tr>
+<tr class="even">
+<td>PermissionGate</td>
+<td>工具执行授权</td>
+</tr>
+<tr class="odd">
+<td>CostTracker</td>
+<td>Token 计量和成本追踪</td>
+</tr>
+<tr class="even">
+<td>TaskManager</td>
+<td>后台任务管理</td>
+</tr>
+</tbody>
+</table>
+<h2 id="daemon-模式">3.3 Daemon 模式</h2>
+<p>BaoClaw 的 Core 以 Daemon（守护进程）模式运行：</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb10-1" title="1"><span class="co"># CLI 启动时自动 spawn daemon</span></a>
+<a class="sourceLine" id="cb10-2" title="2"><span class="ex">baoclaw</span></a>
+<a class="sourceLine" id="cb10-3" title="3">  └→ <span class="ex">spawn</span> claude-core --daemon --cwd /path/to/project</a>
+<a class="sourceLine" id="cb10-4" title="4">       └→ 监听 <span class="ex">UDS</span> socket</a>
+<a class="sourceLine" id="cb10-5" title="5">       └→ 输出 <span class="ex">SOCKET</span>:/tmp/baoclaw-sockets/baoclaw-xxx.sock</a>
+<a class="sourceLine" id="cb10-6" title="6">       └→ 写入 <span class="ex">metadata</span> JSON</a>
+<a class="sourceLine" id="cb10-7" title="7">       └→ 等待客户端连接</a></code></pre></div>
+<p>Daemon 模式的优势：</p>
+<ol type="1">
+<li><strong>进程独立</strong> —— CLI 退出不影响 daemon，Telegram 可以随时连接</li>
+<li><strong>多客户端</strong> —— 多个客户端可以同时连接同一个 daemon</li>
+<li><strong>会话持久</strong> —— 对话历史在 daemon 进程内存中，不随客户端断开而丢失</li>
+<li><strong>资源共享</strong> —— MCP 服务器连接、工具实例在所有客户端间共享</li>
+</ol>
+<h2 id="数据流">3.4 数据流</h2>
+<p>一次完整的用户交互的数据流：</p>
+<pre><code>1. 用户在终端输入 &quot;帮我创建一个 hello.py&quot;
+2. CLI 发送 JSON-RPC: submitMessage { prompt: &quot;帮我创建一个 hello.py&quot; }
+3. Daemon 收到请求，QueryEngine 开始 ReAct 循环
+4. QueryEngine 调用 LLM API（带系统提示词 + 对话历史 + 工具定义）
+5. LLM 返回 tool_use: FileWrite { path: &quot;hello.py&quot;, content: &quot;...&quot; }
+6. Daemon 发送 stream/event: tool_use 通知给客户端
+7. QueryEngine 执行 FileWriteTool
+8. Daemon 发送 stream/event: tool_result 通知给客户端
+9. QueryEngine 再次调用 LLM（带工具结果）
+10. LLM 返回文字回复 &quot;已创建 hello.py&quot;
+11. Daemon 发送 stream/event: assistant_chunk 通知给客户端
+12. Daemon 发送 stream/event: result 通知给客户端
+13. CLI 渲染最终结果</code></pre>
+<p>如果 Telegram 也连接了同一个 daemon（共享模式），步骤 6-12 的事件会同时广播给 Telegram 客户端。</p>
+<h2 id="配置体系">3.5 配置体系</h2>
+<p>BaoClaw 的配置分为多个层级：</p>
+<table>
+<thead>
+<tr class="header">
+<th>层级</th>
+<th>文件</th>
+<th>作用域</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>全局配置</td>
+<td><code>~/.baoclaw/config.json</code></td>
+<td>所有项目</td>
+</tr>
+<tr class="even">
+<td>全局 MCP</td>
+<td><code>~/.baoclaw/mcp.json</code></td>
+<td>所有项目</td>
+</tr>
+<tr class="odd">
+<td>全局 Skills</td>
+<td><code>~/.baoclaw/skills/</code></td>
+<td>所有项目</td>
+</tr>
+<tr class="even">
+<td>全局 Memory</td>
+<td><code>~/.baoclaw/memory.jsonl</code></td>
+<td>所有项目</td>
+</tr>
+<tr class="odd">
+<td>项目配置</td>
+<td><code>&lt;cwd&gt;/.baoclaw/</code></td>
+<td>当前项目</td>
+</tr>
+<tr class="even">
+<td>项目指令</td>
+<td><code>&lt;cwd&gt;/BAOCLAW.md</code></td>
+<td>当前项目</td>
+</tr>
+<tr class="odd">
+<td>项目 MCP</td>
+<td><code>&lt;cwd&gt;/.baoclaw/mcp.json</code></td>
+<td>当前项目</td>
+</tr>
+<tr class="even">
+<td>项目 Skills</td>
+<td><code>&lt;cwd&gt;/.baoclaw/skills/</code></td>
+<td>当前项目</td>
+</tr>
+</tbody>
+</table>
+<p>这种分层设计让用户可以在全局设置通用偏好，在项目级设置特定规则。</p>
+<h2 id="小结-1">3.6 小结</h2>
+<p>Agent Harness 的核心职责是：让 Agent 能够稳定、高效、安全地运行。BaoClaw 通过 Daemon 模式 + IPC 通信 + 分层配置实现了这一目标。接下来我们将深入每个子系统的设计细节。</p>
+
+<h1 id="第-4-章工具系统设计-tool-trait-与执行器">第 4 章：工具系统设计 —— Tool Trait 与执行器</h1>
+<h2 id="问题agent-如何获得行动能力">4.1 问题：Agent 如何获得行动能力</h2>
+<p>LLM 只能生成文本。要让 Agent 能读写文件、运行命令、搜索网页，需要一个工具系统。</p>
+<p>核心问题： - 如何定义统一的工具接口？ - 如何让 LLM 知道有哪些工具可用？ - 如何安全地执行工具？</p>
+<h2 id="模式tool-trait">4.2 模式：Tool Trait</h2>
+<p>BaoClaw 使用 Rust 的 trait 定义统一的工具接口（<code>claude-core/src/tools/trait_def.rs</code>）：</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb12-1" title="1"><span class="at">#[</span>async_trait<span class="at">]</span></a>
+<a class="sourceLine" id="cb12-2" title="2"><span class="kw">pub</span> <span class="kw">trait</span> Tool: <span class="bu">Send</span> + <span class="bu">Sync</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb12-3" title="3">    <span class="kw">fn</span> name(&amp;<span class="kw">self</span>) -&gt; &amp;<span class="dt">str</span>;                    <span class="co">// 工具名称</span></a>
+<a class="sourceLine" id="cb12-4" title="4">    <span class="kw">fn</span> input_schema(&amp;<span class="kw">self</span>) -&gt; JsonSchema;      <span class="co">// 输入参数的 JSON Schema</span></a>
+<a class="sourceLine" id="cb12-5" title="5">    <span class="kw">fn</span> prompt(&amp;<span class="kw">self</span>) -&gt; <span class="dt">String</span>;                <span class="co">// 给 LLM 看的工具描述</span></a>
+<a class="sourceLine" id="cb12-6" title="6">    </a>
+<a class="sourceLine" id="cb12-7" title="7">    async <span class="kw">fn</span> call(</a>
+<a class="sourceLine" id="cb12-8" title="8">        &amp;<span class="kw">self</span>,</a>
+<a class="sourceLine" id="cb12-9" title="9">        input: Value,                          <span class="co">// LLM 提供的参数</span></a>
+<a class="sourceLine" id="cb12-10" title="10">        context: &amp;ToolContext,                 <span class="co">// 执行上下文（cwd, model, abort_signal）</span></a>
+<a class="sourceLine" id="cb12-11" title="11">        progress: &amp;dyn ProgressSender,         <span class="co">// 进度回调</span></a>
+<a class="sourceLine" id="cb12-12" title="12">    ) -&gt; <span class="dt">Result</span>&lt;ToolResult, ToolError&gt;;</a>
+<a class="sourceLine" id="cb12-13" title="13">    </a>
+<a class="sourceLine" id="cb12-14" title="14">    <span class="kw">fn</span> max_result_size_chars(&amp;<span class="kw">self</span>) -&gt; <span class="dt">usize</span> <span class="op">{</span> <span class="dv">100_000</span> <span class="op">}</span>  <span class="co">// 结果截断阈值</span></a>
+<a class="sourceLine" id="cb12-15" title="15">    <span class="kw">fn</span> is_read_only(&amp;<span class="kw">self</span>, input: &amp;Value) -&gt; <span class="dt">bool</span> <span class="op">{</span> <span class="cn">false</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb12-16" title="16"><span class="op">}</span></a></code></pre></div>
+<p>这个设计的关键点：</p>
+<ol type="1">
+<li><strong><code>input_schema</code></strong> —— 返回 JSON Schema，告诉 LLM 这个工具接受什么参数。LLM 会根据 schema 生成正确的 JSON 输入。</li>
+<li><strong><code>prompt</code></strong> —— 工具的自然语言描述，帮助 LLM 理解什么时候该用这个工具。</li>
+<li><strong><code>Send + Sync</code></strong> —— 工具实例在多个异步任务间共享（<code>Arc&lt;dyn Tool&gt;</code>）。</li>
+<li><strong><code>max_result_size_chars</code></strong> —— 防止工具返回过大的结果撑爆上下文窗口。MCP 工具覆盖为 10MB 以支持截图。</li>
+</ol>
+<h2 id="内置工具">4.3 内置工具</h2>
+<p>BaoClaw 内置了 14 个工具：</p>
+<table>
+<thead>
+<tr class="header">
+<th>工具</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>BashTool</td>
+<td>执行 shell 命令</td>
+</tr>
+<tr class="even">
+<td>FileReadTool</td>
+<td>读取文件内容</td>
+</tr>
+<tr class="odd">
+<td>FileWriteTool</td>
+<td>创建/覆盖文件</td>
+</tr>
+<tr class="even">
+<td>FileEditTool</td>
+<td>编辑文件（搜索替换）</td>
+</tr>
+<tr class="odd">
+<td>GrepTool</td>
+<td>正则搜索文件内容</td>
+</tr>
+<tr class="even">
+<td>GlobTool</td>
+<td>文件路径模式匹配</td>
+</tr>
+<tr class="odd">
+<td>WebFetchTool</td>
+<td>获取网页内容</td>
+</tr>
+<tr class="even">
+<td>WebSearchTool</td>
+<td>网页搜索</td>
+</tr>
+<tr class="odd">
+<td>AgentTool</td>
+<td>子 Agent（只读工具集）</td>
+</tr>
+<tr class="even">
+<td>TodoWriteTool</td>
+<td>TODO 列表管理</td>
+</tr>
+<tr class="odd">
+<td>NotebookEditTool</td>
+<td>Jupyter Notebook 编辑</td>
+</tr>
+<tr class="even">
+<td>ToolSearchTool</td>
+<td>搜索可用工具</td>
+</tr>
+<tr class="odd">
+<td>MemoryTool</td>
+<td>自动保存长期记忆</td>
+</tr>
+<tr class="even">
+<td>ProjectNoteTool</td>
+<td>自动写入项目规则</td>
+</tr>
+</tbody>
+</table>
+<h2 id="工具执行器">4.4 工具执行器</h2>
+<p>工具执行在 <code>claude-core/src/tools/executor.rs</code> 中实现：</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb13-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> execute_tools(</a>
+<a class="sourceLine" id="cb13-2" title="2">    tools: &amp;<span class="op">[</span>Arc&lt;dyn Tool&gt;<span class="op">]</span>,</a>
+<a class="sourceLine" id="cb13-3" title="3">    tool_uses: &amp;<span class="op">[</span>ToolUseRequest<span class="op">]</span>,</a>
+<a class="sourceLine" id="cb13-4" title="4">    context: &amp;ToolContext,</a>
+<a class="sourceLine" id="cb13-5" title="5">    progress: &amp;dyn ProgressSender,</a>
+<a class="sourceLine" id="cb13-6" title="6">) -&gt; <span class="dt">Vec</span>&lt;ToolExecutionResult&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb13-7" title="7">    <span class="co">// 并行执行所有工具调用</span></a>
+<a class="sourceLine" id="cb13-8" title="8">    <span class="kw">let</span> futures: <span class="dt">Vec</span>&lt;_&gt; = tool_uses.iter().map(|tu| <span class="op">{</span></a>
+<a class="sourceLine" id="cb13-9" title="9">        <span class="kw">let</span> tool = find_tool(tools, &amp;tu.name);</a>
+<a class="sourceLine" id="cb13-10" title="10">        async <span class="kw">move</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb13-11" title="11">            <span class="kw">match</span> tool <span class="op">{</span></a>
+<a class="sourceLine" id="cb13-12" title="12">                <span class="cn">Some</span>(t) =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb13-13" title="13">                    <span class="kw">let</span> result = t.call(tu.input.clone(), context, progress).await;</a>
+<a class="sourceLine" id="cb13-14" title="14">                    <span class="co">// 截断过大的结果</span></a>
+<a class="sourceLine" id="cb13-15" title="15">                    <span class="kw">let</span> output = truncate_if_needed(result.data, t.max_result_size_chars());</a>
+<a class="sourceLine" id="cb13-16" title="16">                    ToolExecutionResult <span class="op">{</span> tool_use_id, output, is_error <span class="op">}</span></a>
+<a class="sourceLine" id="cb13-17" title="17">                <span class="op">}</span></a>
+<a class="sourceLine" id="cb13-18" title="18">                <span class="cn">None</span> =&gt; ToolExecutionResult <span class="op">{</span> </a>
+<a class="sourceLine" id="cb13-19" title="19">                    output: <span class="st">&quot;Tool not found&quot;</span>, is_error: <span class="cn">true</span> </a>
+<a class="sourceLine" id="cb13-20" title="20">                <span class="op">}</span></a>
+<a class="sourceLine" id="cb13-21" title="21">            <span class="op">}</span></a>
+<a class="sourceLine" id="cb13-22" title="22">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb13-23" title="23">    <span class="op">}</span>).collect();</a>
+<a class="sourceLine" id="cb13-24" title="24">    </a>
+<a class="sourceLine" id="cb13-25" title="25">    <span class="pp">futures::future::</span>join_all(futures).await</a>
+<a class="sourceLine" id="cb13-26" title="26"><span class="op">}</span></a></code></pre></div>
+<p>关键设计：<strong>结果截断</strong>。<code>truncate_if_needed</code> 确保工具返回的数据不会超过阈值，防止一张截图的 base64 数据撑爆 200K 的上下文窗口。</p>
+<h2 id="小结-2">4.5 小结</h2>
+<p>工具系统是 Agent 的“手脚”。统一的 Tool trait 让内置工具和 MCP 外部工具使用相同的接口，执行器负责并行执行和结果截断。下一章我们将看到 MCP 协议如何让 Agent 获得无限的外部工具。</p>
+
+<h1 id="第-5-章mcp-协议-让-agent-获得无限能力">第 5 章：MCP 协议 —— 让 Agent 获得无限能力</h1>
+<h2 id="问题内置工具的局限">5.1 问题：内置工具的局限</h2>
+<p>内置工具是有限的。你不可能为每个场景都写一个 Rust 工具。用户可能需要： - 控制桌面（截图、点击） - 操作数据库 - 调用企业内部 API - 连接智能家居设备</p>
+<p>MCP（Model Context Protocol）解决了这个问题：它定义了一个标准协议，让任何外部程序都能作为工具服务器接入 Agent。</p>
+<h2 id="mcp-协议概述">5.2 MCP 协议概述</h2>
+<p>MCP 使用 JSON-RPC 2.0 over stdio 通信：</p>
+<pre><code>Agent (Client)                    MCP Server (外部进程)
+    │                                    │
+    │── initialize ──────────────────────&gt;│
+    │&lt;─ capabilities, serverInfo ─────────│
+    │── notifications/initialized ───────&gt;│
+    │── tools/list ──────────────────────&gt;│
+    │&lt;─ { tools: [...] } ────────────────│
+    │                                    │
+    │── tools/call { name, arguments } ──&gt;│
+    │&lt;─ { content: [...] } ──────────────│</code></pre>
+<h2 id="baoclaw-的-mcp-实现">5.3 BaoClaw 的 MCP 实现</h2>
+<h3 id="传输层claude-coresrcmcptransport.rs">传输层（<code>claude-core/src/mcp/transport.rs</code>）</h3>
+<p><code>StdioTransport</code> 负责 spawn 子进程并通过 stdin/stdout 通信：</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb15-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> spawn(command: &amp;<span class="dt">str</span>, args: &amp;<span class="op">[</span><span class="dt">String</span><span class="op">]</span>, env: &amp;HashMap&lt;<span class="dt">String</span>, <span class="dt">String</span>&gt;) </a>
+<a class="sourceLine" id="cb15-2" title="2">    -&gt; <span class="dt">Result</span>&lt;<span class="kw">Self</span>, McpError&gt; </a>
+<a class="sourceLine" id="cb15-3" title="3"><span class="op">{</span></a>
+<a class="sourceLine" id="cb15-4" title="4">    <span class="kw">let</span> <span class="kw">mut</span> child = <span class="pp">Command::</span>new(command).args(args).envs(env)</a>
+<a class="sourceLine" id="cb15-5" title="5">        .stdin(<span class="pp">Stdio::</span>piped()).stdout(<span class="pp">Stdio::</span>piped()).stderr(<span class="pp">Stdio::</span>piped())</a>
+<a class="sourceLine" id="cb15-6" title="6">        .spawn()?;</a>
+<a class="sourceLine" id="cb15-7" title="7">    </a>
+<a class="sourceLine" id="cb15-8" title="8">    <span class="co">// MCP initialize 握手</span></a>
+<a class="sourceLine" id="cb15-9" title="9">    transport.request(<span class="st">&quot;initialize&quot;</span>, <span class="cn">Some</span>(<span class="pp">json!</span>(<span class="op">{</span></a>
+<a class="sourceLine" id="cb15-10" title="10">        <span class="st">&quot;protocolVersion&quot;</span>: <span class="st">&quot;2024-11-05&quot;</span>,</a>
+<a class="sourceLine" id="cb15-11" title="11">        <span class="st">&quot;capabilities&quot;</span>: <span class="op">{}</span>,</a>
+<a class="sourceLine" id="cb15-12" title="12">        <span class="st">&quot;clientInfo&quot;</span>: <span class="op">{</span> <span class="st">&quot;name&quot;</span>: <span class="st">&quot;baoclaw&quot;</span>, <span class="st">&quot;version&quot;</span>: <span class="st">&quot;0.3.0&quot;</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb15-13" title="13">    <span class="op">}</span>))).await?;</a>
+<a class="sourceLine" id="cb15-14" title="14">    </a>
+<a class="sourceLine" id="cb15-15" title="15">    <span class="co">// 发送 initialized 通知</span></a>
+<a class="sourceLine" id="cb15-16" title="16">    transport.notify(<span class="st">&quot;notifications/initialized&quot;</span>, <span class="cn">None</span>).await?;</a>
+<a class="sourceLine" id="cb15-17" title="17">    </a>
+<a class="sourceLine" id="cb15-18" title="18">    <span class="cn">Ok</span>(transport)</a>
+<a class="sourceLine" id="cb15-19" title="19"><span class="op">}</span></a></code></pre></div>
+<h3 id="工具发现claude-coresrcmcpclient.rs">工具发现（<code>claude-core/src/mcp/client.rs</code>）</h3>
+<p>连接成功后，调用 <code>tools/list</code> 获取工具列表：</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb16-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> refresh_tools(&amp;<span class="kw">self</span>) -&gt; <span class="dt">Result</span>&lt;(), McpError&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb16-2" title="2">    <span class="kw">let</span> result = transport.request(<span class="st">&quot;tools/list&quot;</span>, <span class="cn">None</span>).await?;</a>
+<a class="sourceLine" id="cb16-3" title="3">    <span class="kw">let</span> tool_defs: <span class="dt">Vec</span>&lt;McpToolDef&gt; = <span class="pp">serde_json::</span>from_value(result<span class="op">[</span><span class="st">&quot;tools&quot;</span><span class="op">]</span>.clone())?;</a>
+<a class="sourceLine" id="cb16-4" title="4">    *<span class="kw">self</span>.tools.write().await = tool_defs;</a>
+<a class="sourceLine" id="cb16-5" title="5"><span class="op">}</span></a></code></pre></div>
+<p>注意：MCP 返回的字段名是 camelCase（<code>inputSchema</code>），而 Rust 用 snake_case。需要 <code>#[serde(rename = &quot;inputSchema&quot;)]</code>。</p>
+<h3 id="工具包装claude-coresrcmcptool_wrapper.rs">工具包装（<code>claude-core/src/mcp/tool_wrapper.rs</code>）</h3>
+<p><code>McpToolWrapper</code> 将 MCP 工具包装为 BaoClaw 的 <code>Tool</code> trait：</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb17-1" title="1"><span class="kw">impl</span> Tool <span class="kw">for</span> McpToolWrapper <span class="op">{</span></a>
+<a class="sourceLine" id="cb17-2" title="2">    <span class="kw">fn</span> name(&amp;<span class="kw">self</span>) -&gt; &amp;<span class="dt">str</span> <span class="op">{</span> &amp;<span class="kw">self</span>.tool_def.name <span class="op">}</span></a>
+<a class="sourceLine" id="cb17-3" title="3">    <span class="kw">fn</span> prompt(&amp;<span class="kw">self</span>) -&gt; <span class="dt">String</span> <span class="op">{</span> </a>
+<a class="sourceLine" id="cb17-4" title="4">        <span class="pp">format!</span>(<span class="st">&quot;[MCP:{}] {}&quot;</span>, <span class="kw">self</span>.server_name, <span class="kw">self</span>.tool_def.description) </a>
+<a class="sourceLine" id="cb17-5" title="5">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb17-6" title="6">    <span class="kw">fn</span> max_result_size_chars(&amp;<span class="kw">self</span>) -&gt; <span class="dt">usize</span> <span class="op">{</span> <span class="dv">10_000_000</span> <span class="op">}</span> <span class="co">// 10MB，支持截图</span></a>
+<a class="sourceLine" id="cb17-7" title="7">    </a>
+<a class="sourceLine" id="cb17-8" title="8">    async <span class="kw">fn</span> call(&amp;<span class="kw">self</span>, input: Value, ...) -&gt; <span class="dt">Result</span>&lt;ToolResult, ToolError&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb17-9" title="9">        <span class="kw">self</span>.client.call_tool(&amp;<span class="kw">self</span>.tool_def.name, input).await</a>
+<a class="sourceLine" id="cb17-10" title="10">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb17-11" title="11"><span class="op">}</span></a></code></pre></div>
+<h2 id="配置">5.4 配置</h2>
+<p>MCP 服务器在 <code>~/.baoclaw/mcp.json</code> 中配置：</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb18-1" title="1"><span class="fu">{</span></a>
+<a class="sourceLine" id="cb18-2" title="2">    <span class="dt">&quot;mcpServers&quot;</span><span class="fu">:</span> <span class="fu">{</span></a>
+<a class="sourceLine" id="cb18-3" title="3">        <span class="dt">&quot;computer-control-mcp&quot;</span><span class="fu">:</span> <span class="fu">{</span></a>
+<a class="sourceLine" id="cb18-4" title="4">            <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;uvx&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb18-5" title="5">            <span class="dt">&quot;args&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;computer-control-mcp@latest&quot;</span><span class="ot">]</span></a>
+<a class="sourceLine" id="cb18-6" title="6">        <span class="fu">}</span></a>
+<a class="sourceLine" id="cb18-7" title="7">    <span class="fu">}</span></a>
+<a class="sourceLine" id="cb18-8" title="8"><span class="fu">}</span></a></code></pre></div>
+<p>BaoClaw 在 daemon 启动时自动发现、连接所有配置的 MCP 服务器，并将它们的工具注册到 <code>engine_tools</code> 中。</p>
+<h2 id="踩过的坑">5.5 踩过的坑</h2>
+<ol type="1">
+<li><strong>字段名不匹配</strong> —— MCP 用 <code>inputSchema</code>（camelCase），Rust struct 默认 snake_case，导致所有工具解析失败返回 0 个。解决：<code>#[serde(rename)]</code>。</li>
+<li><strong>结果截断</strong> —— 截图工具返回的 base64 数据超过 100K 字符被截断，JSON 不完整。解决：MCP 工具覆盖 <code>max_result_size_chars</code> 为 10MB。</li>
+<li><strong>base64 图片在对话历史中</strong> —— 一张 2560×1600 截图的 base64 约 5MB，直接撑爆上下文窗口。解决：<code>strip_base64_images</code> 在存入对话历史前移除图片数据。</li>
+</ol>
+<h2 id="小结-3">5.6 小结</h2>
+<p>MCP 是 Agent 能力扩展的关键协议。通过标准化的 JSON-RPC 接口，任何外部程序都能成为 Agent 的工具。BaoClaw 通过 <code>McpToolWrapper</code> 将 MCP 工具无缝集成到内置工具系统中。</p>
+
+<h1 id="第-6-章skills-可插拔的-agent-行为">第 6 章：Skills —— 可插拔的 Agent 行为</h1>
+<h2 id="问题工具-vs-指令">6.1 问题：工具 vs 指令</h2>
+<p>工具（Tool）给 Agent 行动能力，但有些能力不是“调用一个函数”能解决的。比如：</p>
+<ul>
+<li>“用 xdotool 截图分析桌面图标然后点击” —— 这是一个多步骤的工作流</li>
+<li>“模拟一场辩论，正方反方交替发言” —— 这是一种对话模式</li>
+</ul>
+<p>这些不是单个工具调用，而是<strong>行为指令</strong> —— 告诉 Agent “遇到这种场景时，按这个流程做”。</p>
+<h2 id="模式skill-系统提示词注入">6.2 模式：Skill = 系统提示词注入</h2>
+<p>BaoClaw 的 Skill 本质上是一段 Markdown 文本，在 daemon 启动时被注入到系统提示词中。AI 在每次对话时都能看到这些指令。</p>
+<p>Skill 文件格式（<code>~/.baoclaw/skills/desktop-launch-app/SKILL.md</code>）：</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode markdown"><code class="sourceCode markdown"><a class="sourceLine" id="cb19-1" title="1">---</a>
+<a class="sourceLine" id="cb19-2" title="2">name: desktop-launch-app</a>
+<a class="sourceLine" id="cb19-3" title="3">description: 在桌面上通过开始菜单启动应用程序</a>
+<a class="sourceLine" id="cb19-4" title="4">allowed-tools:</a>
+<a class="sourceLine" id="cb19-5" title="5">  - Bash</a>
+<a class="sourceLine" id="cb19-6" title="6">  - FileWrite</a>
+<a class="sourceLine" id="cb19-7" title="7">---</a>
+<a class="sourceLine" id="cb19-8" title="8"></a>
+<a class="sourceLine" id="cb19-9" title="9"><span class="fu"># 通过开始菜单启动桌面应用</span></a>
+<a class="sourceLine" id="cb19-10" title="10"></a>
+<a class="sourceLine" id="cb19-11" title="11">通过视觉截图分析 + 鼠标点击的方式，在桌面环境中打开开始菜单并启动指定应用程序。</a>
+<a class="sourceLine" id="cb19-12" title="12"></a>
+<a class="sourceLine" id="cb19-13" title="13"><span class="fu">## 步骤</span></a>
+<a class="sourceLine" id="cb19-14" title="14">1. <span class="fl">使用 xdotool 点击左下角启动器</span></a>
+<a class="sourceLine" id="cb19-15" title="15"><span class="fl">2. 等待菜单出现</span></a>
+<a class="sourceLine" id="cb19-16" title="16"><span class="fl">3. 截图分析菜单内容</span></a>
+<a class="sourceLine" id="cb19-17" title="17"><span class="fl">4. 找到目标应用图标并点击</span></a></code></pre></div>
+<p>YAML frontmatter 包含元数据（名称、描述、允许的工具），Markdown body 包含详细指令。</p>
+<h2 id="baoclaw-的实现">6.3 BaoClaw 的实现</h2>
+<h3 id="发现claude-coresrcdiscoveryskills.rs">发现（<code>claude-core/src/discovery/skills.rs</code>）</h3>
+<div class="sourceCode" id="cb20"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb20-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> discover_skills(cwd: &amp;<span class="dt">Path</span>) -&gt; <span class="dt">Vec</span>&lt;SkillInfo&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb20-2" title="2">    <span class="co">// 扫描三个位置：</span></a>
+<a class="sourceLine" id="cb20-3" title="3">    <span class="co">// 1. 项目级: &lt;cwd&gt;/.baoclaw/skills/</span></a>
+<a class="sourceLine" id="cb20-4" title="4">    <span class="co">// 2. 用户级: ~/.baoclaw/skills/</span></a>
+<a class="sourceLine" id="cb20-5" title="5">    <span class="co">// 3. 插件级: ~/.baoclaw/plugins/*/skills/</span></a>
+<a class="sourceLine" id="cb20-6" title="6"><span class="op">}</span></a></code></pre></div>
+<p>支持两种文件格式： - 目录格式：<code>skill-name/SKILL.md</code> - 单文件格式：<code>skill-name.md</code></p>
+<h3 id="加载与注入">加载与注入</h3>
+<div class="sourceCode" id="cb21"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb21-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> load_skills_for_prompt(cwd: &amp;<span class="dt">Path</span>) -&gt; <span class="dt">Option</span>&lt;<span class="dt">String</span>&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb21-2" title="2">    <span class="kw">let</span> skills = discover_skills(cwd).await;</a>
+<a class="sourceLine" id="cb21-3" title="3">    <span class="kw">if</span> skills.is_empty() <span class="op">{</span> <span class="kw">return</span> <span class="cn">None</span>; <span class="op">}</span></a>
+<a class="sourceLine" id="cb21-4" title="4">    </a>
+<a class="sourceLine" id="cb21-5" title="5">    <span class="kw">let</span> <span class="kw">mut</span> parts = <span class="pp">vec!</span><span class="op">[</span><span class="st">&quot;# Loaded Skills</span><span class="sc">\n\n</span><span class="st">...&quot;</span>.to_string()<span class="op">]</span>;</a>
+<a class="sourceLine" id="cb21-6" title="6">    <span class="kw">for</span> skill <span class="kw">in</span> &amp;skills <span class="op">{</span></a>
+<a class="sourceLine" id="cb21-7" title="7">        <span class="kw">let</span> content = <span class="pp">fs::</span>read_to_string(&amp;skill.path).await?;</a>
+<a class="sourceLine" id="cb21-8" title="8">        parts.push(<span class="pp">format!</span>(<span class="st">&quot;## Skill: {} [source: {}]</span><span class="sc">\n\n</span><span class="st">{}&quot;</span>, </a>
+<a class="sourceLine" id="cb21-9" title="9">            skill.name, skill.source, content));</a>
+<a class="sourceLine" id="cb21-10" title="10">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb21-11" title="11">    <span class="cn">Some</span>(parts.join(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">&quot;</span>))</a>
+<a class="sourceLine" id="cb21-12" title="12"><span class="op">}</span></a></code></pre></div>
+<p>加载后的内容通过 <code>append_system_prompt</code> 注入到 <code>build_system_prompt</code> 中，AI 在每次 API 调用时都能看到。</p>
+<h2 id="skill-vs-tool-的选择">6.4 Skill vs Tool 的选择</h2>
+<table>
+<thead>
+<tr class="header">
+<th>维度</th>
+<th>Skill</th>
+<th>Tool</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>本质</td>
+<td>文本指令</td>
+<td>可执行函数</td>
+</tr>
+<tr class="even">
+<td>注入方式</td>
+<td>系统提示词</td>
+<td>工具列表</td>
+</tr>
+<tr class="odd">
+<td>消耗</td>
+<td>占用上下文窗口</td>
+<td>不占用（直到被调用）</td>
+</tr>
+<tr class="even">
+<td>适用场景</td>
+<td>多步骤工作流、对话模式</td>
+<td>单一原子操作</td>
+</tr>
+<tr class="odd">
+<td>创建难度</td>
+<td>写 Markdown</td>
+<td>写 Rust 代码</td>
+</tr>
+</tbody>
+</table>
+<h2 id="小结-4">6.5 小结</h2>
+<p>Skill 是 Agent 的“说明书”，通过系统提示词注入让 AI 学会新的行为模式。它的优势是零代码 —— 任何人都可以用 Markdown 创建新的 Skill。</p>
+
+<h1 id="第-7-章plugins-打包分发的能力套件">第 7 章：Plugins —— 打包分发的能力套件</h1>
+<h2 id="问题能力的组合与分发">7.1 问题：能力的组合与分发</h2>
+<p>一个完整的 Agent 能力通常需要多个组件配合： - 一个 MCP 服务器提供底层工具 - 一个 Skill 提供使用指令 - 可能还需要配置文件</p>
+<p>如何把这些打包成一个可分发的单元？</p>
+<h2 id="模式plugin-skill-mcp-tools-的容器">7.2 模式：Plugin = Skill + MCP + Tools 的容器</h2>
+<p>BaoClaw 的 Plugin 是一个目录，可以包含：</p>
+<pre><code>~/.baoclaw/plugins/computer-control/
+├── plugin.json          # 清单文件
+├── skills/              # Skill 文件
+│   └── desktop-launch/
+│       └── SKILL.md
+├── mcp.json             # MCP 服务器配置
+└── tools/               # 自定义工具（未来）</code></pre>
+<h3 id="plugin.json-清单">plugin.json 清单</h3>
+<div class="sourceCode" id="cb23"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb23-1" title="1"><span class="fu">{</span></a>
+<a class="sourceLine" id="cb23-2" title="2">    <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;computer-control&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb23-3" title="3">    <span class="dt">&quot;version&quot;</span><span class="fu">:</span> <span class="st">&quot;1.0.0&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb23-4" title="4">    <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;桌面控制能力套件&quot;</span></a>
+<a class="sourceLine" id="cb23-5" title="5"><span class="fu">}</span></a></code></pre></div>
+<h2 id="baoclaw-的实现-1">7.3 BaoClaw 的实现</h2>
+<h3 id="发现claude-coresrcdiscoveryplugins.rs">发现（<code>claude-core/src/discovery/plugins.rs</code>）</h3>
+<div class="sourceCode" id="cb24"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb24-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> discover_plugins(cwd: &amp;<span class="dt">Path</span>) -&gt; <span class="dt">Vec</span>&lt;PluginInfo&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb24-2" title="2">    <span class="co">// 扫描 ~/.baoclaw/plugins/ 和 &lt;cwd&gt;/.baoclaw/plugins/</span></a>
+<a class="sourceLine" id="cb24-3" title="3">    <span class="co">// 检测子目录中的 plugin.json、skills/、mcp.json、tools/</span></a>
+<a class="sourceLine" id="cb24-4" title="4"><span class="op">}</span></a></code></pre></div>
+<h3 id="加载">加载</h3>
+<p>Plugin 的加载分散在各个发现模块中：</p>
+<ul>
+<li><strong>Skills 加载</strong>：<code>discover_skills</code> 会扫描 <code>plugins/*/skills/</code> 目录</li>
+<li><strong>MCP 加载</strong>：<code>discover_mcp_servers</code> 会扫描 <code>plugins/*/mcp.json</code></li>
+<li><strong>Tools 加载</strong>：暂未实现（需要动态加载机制）</li>
+</ul>
+<p>来源标记为 <code>plugin:&lt;name&gt;</code>，方便用户区分。</p>
+<h2 id="小结-5">7.4 小结</h2>
+<p>Plugin 是能力的打包单元。通过标准的目录结构，一个 Plugin 可以同时提供 Skill 指令和 MCP 工具，实现“安装即可用”的体验。</p>
+
+<h1 id="第-8-章上下文管理-系统提示词的构建">第 8 章：上下文管理 —— 系统提示词的构建</h1>
+<h2 id="问题ai-需要知道什么">8.1 问题：AI 需要知道什么</h2>
+<p>每次 API 调用，AI 看到的信息由三部分组成： 1. <strong>系统提示词（System Prompt）</strong> —— AI 的“身份”和“规则” 2. <strong>对话历史（Messages）</strong> —— 之前的对话内容 3. <strong>工具定义（Tools）</strong> —— 可用的工具列表</p>
+<p>系统提示词是最重要的 —— 它决定了 AI 的行为方式。</p>
+<h2 id="baoclaw-的系统提示词构建">8.2 BaoClaw 的系统提示词构建</h2>
+<p><code>build_system_prompt</code>（<code>query_engine.rs</code>）按顺序组装多个片段：</p>
+<div class="sourceCode" id="cb25"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb25-1" title="1"><span class="kw">pub</span> <span class="kw">fn</span> build_system_prompt(config: &amp;QueryLoopConfig) -&gt; <span class="dt">Option</span>&lt;<span class="dt">Vec</span>&lt;Value&gt;&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb25-2" title="2">    <span class="kw">let</span> <span class="kw">mut</span> parts: <span class="dt">Vec</span>&lt;<span class="dt">String</span>&gt; = <span class="dt">Vec</span>::new();</a>
+<a class="sourceLine" id="cb25-3" title="3"></a>
+<a class="sourceLine" id="cb25-4" title="4">    <span class="co">// 1. 基础身份</span></a>
+<a class="sourceLine" id="cb25-5" title="5">    parts.push(<span class="st">&quot;You are a helpful AI coding assistant.&quot;</span>);</a>
+<a class="sourceLine" id="cb25-6" title="6"></a>
+<a class="sourceLine" id="cb25-7" title="7">    <span class="co">// 2. 项目指令（BAOCLAW.md）</span></a>
+<a class="sourceLine" id="cb25-8" title="8">    <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Some</span>(instructions) = &amp;config.project_instructions <span class="op">{</span></a>
+<a class="sourceLine" id="cb25-9" title="9">        parts.push(<span class="pp">format!</span>(<span class="st">&quot;# Project Instructions</span><span class="sc">\n\n</span><span class="st">{}&quot;</span>, instructions));</a>
+<a class="sourceLine" id="cb25-10" title="10">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb25-11" title="11"></a>
+<a class="sourceLine" id="cb25-12" title="12">    <span class="co">// 3. Git 状态</span></a>
+<a class="sourceLine" id="cb25-13" title="13">    <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Some</span>(git_info) = &amp;config.git_info <span class="op">{</span></a>
+<a class="sourceLine" id="cb25-14" title="14">        parts.push(<span class="pp">format!</span>(<span class="st">&quot;# Git Status</span><span class="sc">\n\n</span><span class="st">Branch: {}</span><span class="sc">\n</span><span class="st">...&quot;</span>, git_info.branch));</a>
+<a class="sourceLine" id="cb25-15" title="15">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb25-16" title="16"></a>
+<a class="sourceLine" id="cb25-17" title="17">    <span class="co">// 4. Skills + 长期记忆（通过 append_system_prompt）</span></a>
+<a class="sourceLine" id="cb25-18" title="18">    <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Some</span>(append) = &amp;config.append_system_prompt <span class="op">{</span></a>
+<a class="sourceLine" id="cb25-19" title="19">        parts.push(append.clone());</a>
+<a class="sourceLine" id="cb25-20" title="20">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb25-21" title="21"></a>
+<a class="sourceLine" id="cb25-22" title="22">    <span class="cn">Some</span>(<span class="pp">vec!</span><span class="op">[</span><span class="pp">json!</span>(<span class="op">{</span> <span class="st">&quot;type&quot;</span>: <span class="st">&quot;text&quot;</span>, <span class="st">&quot;text&quot;</span>: parts.join(<span class="st">&quot;</span><span class="sc">\n\n</span><span class="st">&quot;</span>) <span class="op">}</span>)<span class="op">]</span>)</a>
+<a class="sourceLine" id="cb25-23" title="23"><span class="op">}</span></a></code></pre></div>
+<h3 id="各层内容来源">各层内容来源</h3>
+<table>
+<thead>
+<tr class="header">
+<th>层</th>
+<th>来源</th>
+<th>加载时机</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>基础身份</td>
+<td>硬编码</td>
+<td>每次调用</td>
+</tr>
+<tr class="even">
+<td>项目指令</td>
+<td><code>&lt;cwd&gt;/BAOCLAW.md</code></td>
+<td>每次调用时读取</td>
+</tr>
+<tr class="odd">
+<td>Git 状态</td>
+<td><code>git status</code></td>
+<td>每次调用时获取</td>
+</tr>
+<tr class="even">
+<td>Skills</td>
+<td><code>~/.baoclaw/skills/</code></td>
+<td>daemon 启动时加载</td>
+</tr>
+<tr class="odd">
+<td>长期记忆</td>
+<td><code>~/.baoclaw/memory.jsonl</code></td>
+<td>daemon 启动时加载</td>
+</tr>
+</tbody>
+</table>
+<h2 id="baoclaw.md-项目级指令">8.3 BAOCLAW.md —— 项目级指令</h2>
+<p>类似 Claude Code 的 <code>CLAUDE.md</code>，BaoClaw 支持项目级指令文件：</p>
+<div class="sourceCode" id="cb26"><pre class="sourceCode markdown"><code class="sourceCode markdown"><a class="sourceLine" id="cb26-1" title="1"><span class="fu"># 项目说明</span></a>
+<a class="sourceLine" id="cb26-2" title="2">- <span class="fl">回复使用中文</span></a>
+<a class="sourceLine" id="cb26-3" title="3"><span class="fl">- 代码注释使用中文</span></a>
+<a class="sourceLine" id="cb26-4" title="4"><span class="fl">- 优先使用 Rust 和 TypeScript</span></a>
+<a class="sourceLine" id="cb26-5" title="5"><span class="fl">- 测试框架使用 proptest</span></a></code></pre></div>
+<p>查找顺序：<code>&lt;cwd&gt;/.baoclaw/BAOCLAW.md</code> → <code>&lt;cwd&gt;/BAOCLAW.md</code></p>
+<p>AI 还可以通过 <code>ProjectNoteTool</code> 自动向 BAOCLAW.md 追加发现的项目规则。</p>
+<h2 id="上下文窗口预算">8.4 上下文窗口预算</h2>
+<p>系统提示词 + 对话历史 + 工具定义的总 token 数不能超过模型的上下文窗口。BaoClaw 的预算分配：</p>
+<pre><code>上下文窗口（200K tokens for GLM-5-Turbo）
+├── 系统提示词: ~5K tokens（基础 + 项目指令 + Skills + 记忆）
+├── 工具定义: ~3K tokens（15 个工具的 schema + description）
+├── 对话历史: ~190K tokens（动态，超出时自动 compact）
+└── 输出预留: ~2K tokens</code></pre>
+<h2 id="小结-6">8.5 小结</h2>
+<p>系统提示词是 Agent 行为的“宪法”。BaoClaw 通过分层组装（基础 → 项目 → Git → Skills → 记忆），让每次 API 调用都携带完整的上下文信息。</p>
+
+<h1 id="第-9-章短期记忆-对话历史与-compact">第 9 章：短期记忆 —— 对话历史与 Compact</h1>
+<h2 id="问题对话越来越长怎么办">9.1 问题：对话越来越长怎么办</h2>
+<p>Agent 的对话历史会不断增长。每次用户消息、AI 回复、工具调用和结果都会追加到历史中。当历史超过模型的上下文窗口时，API 调用会失败。</p>
+<h2 id="baoclaw-的短期记忆">9.2 BaoClaw 的短期记忆</h2>
+<p>对话历史存储在 <code>QueryEngine.messages: Vec&lt;Message&gt;</code> 中。每条消息有类型：</p>
+<div class="sourceCode" id="cb28"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb28-1" title="1"><span class="kw">pub</span> <span class="kw">enum</span> MessageContent <span class="op">{</span></a>
+<a class="sourceLine" id="cb28-2" title="2">    User <span class="op">{</span> message: ApiUserMessage <span class="op">}</span>,      <span class="co">// 用户消息</span></a>
+<a class="sourceLine" id="cb28-3" title="3">    Assistant <span class="op">{</span> message: ApiAssistantMessage <span class="op">}</span>, <span class="co">// AI 回复</span></a>
+<a class="sourceLine" id="cb28-4" title="4">    System <span class="op">{</span> subtype, content <span class="op">}</span>,           <span class="co">// 系统消息（compact 边界）</span></a>
+<a class="sourceLine" id="cb28-5" title="5"><span class="op">}</span></a></code></pre></div>
+<p>每次 API 调用时，完整的 <code>messages</code> 列表被转换为 API 格式发送给 LLM。</p>
+<h2 id="compact-机制">9.3 Compact 机制</h2>
+<p>当对话历史太长时，<code>compact</code> 方法将旧消息压缩为摘要：</p>
+<div class="sourceCode" id="cb29"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb29-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> compact(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="dt">Result</span>&lt;CompactResult, EngineError&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb29-2" title="2">    <span class="kw">let</span> keep_recent: <span class="dt">usize</span> = <span class="dv">4</span>;  <span class="co">// 保留最近 4 条消息</span></a>
+<a class="sourceLine" id="cb29-3" title="3">    <span class="kw">let</span> tokens_before = estimate_tokens(&amp;<span class="kw">self</span>.messages);</a>
+<a class="sourceLine" id="cb29-4" title="4">    </a>
+<a class="sourceLine" id="cb29-5" title="5">    <span class="kw">let</span> split = <span class="kw">self</span>.messages.len() - keep_recent;</a>
+<a class="sourceLine" id="cb29-6" title="6">    <span class="kw">let</span> old_messages = &amp;<span class="kw">self</span>.messages<span class="op">[</span>..split<span class="op">]</span>;</a>
+<a class="sourceLine" id="cb29-7" title="7">    </a>
+<a class="sourceLine" id="cb29-8" title="8">    <span class="co">// 调用 LLM 生成摘要</span></a>
+<a class="sourceLine" id="cb29-9" title="9">    <span class="kw">let</span> summary = <span class="kw">self</span>.call_api_for_summary(&amp;summary_prompt).await?;</a>
+<a class="sourceLine" id="cb29-10" title="10">    </a>
+<a class="sourceLine" id="cb29-11" title="11">    <span class="co">// 替换：[摘要边界] + 最近 4 条消息</span></a>
+<a class="sourceLine" id="cb29-12" title="12">    <span class="kw">self</span>.messages = <span class="pp">vec!</span><span class="op">[</span>boundary_message(summary)<span class="op">]</span>;</a>
+<a class="sourceLine" id="cb29-13" title="13">    <span class="kw">self</span>.messages.extend(recent_messages);</a>
+<a class="sourceLine" id="cb29-14" title="14">    </a>
+<a class="sourceLine" id="cb29-15" title="15">    <span class="kw">let</span> tokens_after = estimate_tokens(&amp;<span class="kw">self</span>.messages);</a>
+<a class="sourceLine" id="cb29-16" title="16">    <span class="cn">Ok</span>(CompactResult <span class="op">{</span> tokens_saved, summary_tokens, tokens_before, tokens_after <span class="op">}</span>)</a>
+<a class="sourceLine" id="cb29-17" title="17"><span class="op">}</span></a></code></pre></div>
+<h3 id="自动-compact">自动 Compact</h3>
+<p>当 LLM 返回 <code>stop_reason: &quot;model_context_window_exceeded&quot;</code> 时，BaoClaw 自动触发 compact：</p>
+<div class="sourceCode" id="cb30"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb30-1" title="1"><span class="kw">if</span> stop_reason == <span class="cn">Some</span>(<span class="st">&quot;model_context_window_exceeded&quot;</span>) <span class="op">{</span></a>
+<a class="sourceLine" id="cb30-2" title="2">    <span class="co">// 通知客户端</span></a>
+<a class="sourceLine" id="cb30-3" title="3">    tx.send(<span class="pp">EngineEvent::</span>AssistantChunk <span class="op">{</span> </a>
+<a class="sourceLine" id="cb30-4" title="4">        content: <span class="st">&quot;🗜️ 上下文窗口已满，正在自动压缩...&quot;</span> </a>
+<a class="sourceLine" id="cb30-5" title="5">    <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb30-6" title="6">    </a>
+<a class="sourceLine" id="cb30-7" title="7">    <span class="co">// 执行 compact</span></a>
+<a class="sourceLine" id="cb30-8" title="8">    <span class="co">// ... 生成摘要，替换旧消息 ...</span></a>
+<a class="sourceLine" id="cb30-9" title="9">    </a>
+<a class="sourceLine" id="cb30-10" title="10">    tx.send(<span class="pp">EngineEvent::</span>AssistantChunk <span class="op">{</span> </a>
+<a class="sourceLine" id="cb30-11" title="11">        content: <span class="st">&quot;✅ 压缩完成，正在重试...&quot;</span> </a>
+<a class="sourceLine" id="cb30-12" title="12">    <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb30-13" title="13">    </a>
+<a class="sourceLine" id="cb30-14" title="14">    <span class="kw">continue</span>; <span class="co">// 重试查询</span></a>
+<a class="sourceLine" id="cb30-15" title="15"><span class="op">}</span></a></code></pre></div>
+<h3 id="图片数据剥离">图片数据剥离</h3>
+<p>MCP 截图工具返回的 base64 图片数据（5-10MB）会撑爆上下文。BaoClaw 在工具结果存入对话历史前，自动剥离图片数据：</p>
+<div class="sourceCode" id="cb31"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb31-1" title="1"><span class="kw">fn</span> strip_base64_images(value: &amp;Value) -&gt; Value <span class="op">{</span></a>
+<a class="sourceLine" id="cb31-2" title="2">    <span class="co">// 检测 base64 图片数据，替换为 &quot;[image: base64 data removed]&quot;</span></a>
+<a class="sourceLine" id="cb31-3" title="3">    <span class="co">// 图片已经通过 tool_result 事件实时发送给客户端了</span></a>
+<a class="sourceLine" id="cb31-4" title="4"><span class="op">}</span></a></code></pre></div>
+<h2 id="小结-7">9.4 小结</h2>
+<p>短期记忆是 Agent 的“工作记忆”。Compact 机制通过摘要压缩保持对话历史在上下文窗口内，自动 compact 确保用户不会遇到“上下文超出”的错误。</p>
+
+<h1 id="第-10-章长期记忆-跨会话的知识持久化">第 10 章：长期记忆 —— 跨会话的知识持久化</h1>
+<h2 id="问题agent-的失忆症">10.1 问题：Agent 的“失忆症”</h2>
+<p>短期记忆只存在于 daemon 进程的生命周期内。重启 daemon 后，AI 不记得你是谁、你喜欢什么、之前做过什么决定。</p>
+<p>用户会反复告诉 AI 同样的信息：“我喜欢用中文”、“这个项目用 Rust”、“我的名字是小明”。这是糟糕的体验。</p>
+<h2 id="模式jsonl-文件-系统提示词注入">10.2 模式：JSONL 文件 + 系统提示词注入</h2>
+<p>BaoClaw 采用最简单的方案： 1. 记忆存储在 <code>~/.baoclaw/memory.jsonl</code>（一行一条记忆） 2. daemon 启动时加载所有记忆 3. 注入到系统提示词的 <code># Long-term Memory</code> 部分</p>
+<p>不用向量数据库、不用 RAG —— 对于 &lt;100 条记忆，直接全量注入最简单可靠。</p>
+<h2 id="baoclaw-的实现-2">10.3 BaoClaw 的实现</h2>
+<h3 id="数据模型claude-coresrcenginememory.rs">数据模型（<code>claude-core/src/engine/memory.rs</code>）</h3>
+<div class="sourceCode" id="cb32"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb32-1" title="1"><span class="kw">pub</span> <span class="kw">struct</span> MemoryEntry <span class="op">{</span></a>
+<a class="sourceLine" id="cb32-2" title="2">    <span class="kw">pub</span> id: <span class="dt">String</span>,           <span class="co">// 短 UUID（8 字符）</span></a>
+<a class="sourceLine" id="cb32-3" title="3">    <span class="kw">pub</span> content: <span class="dt">String</span>,      <span class="co">// 记忆内容</span></a>
+<a class="sourceLine" id="cb32-4" title="4">    <span class="kw">pub</span> category: MemoryCategory,  <span class="co">// fact / preference / decision</span></a>
+<a class="sourceLine" id="cb32-5" title="5">    <span class="kw">pub</span> created_at: <span class="dt">String</span>,   <span class="co">// ISO 8601 时间戳</span></a>
+<a class="sourceLine" id="cb32-6" title="6">    <span class="kw">pub</span> source: <span class="dt">String</span>,       <span class="co">// &quot;user&quot;（手动）或 &quot;auto&quot;（AI 自动）</span></a>
+<a class="sourceLine" id="cb32-7" title="7"><span class="op">}</span></a>
+<a class="sourceLine" id="cb32-8" title="8"></a>
+<a class="sourceLine" id="cb32-9" title="9"><span class="kw">pub</span> <span class="kw">enum</span> MemoryCategory <span class="op">{</span></a>
+<a class="sourceLine" id="cb32-10" title="10">    Fact,        <span class="co">// 事实：&quot;用户的名字是小明&quot;</span></a>
+<a class="sourceLine" id="cb32-11" title="11">    Preference,  <span class="co">// 偏好：&quot;用户喜欢用中文交流&quot;</span></a>
+<a class="sourceLine" id="cb32-12" title="12">    Decision,    <span class="co">// 决策：&quot;我们决定用 Rust 重写这个模块&quot;</span></a>
+<a class="sourceLine" id="cb32-13" title="13"><span class="op">}</span></a></code></pre></div>
+<h3 id="存储memorystore">存储（MemoryStore）</h3>
+<div class="sourceCode" id="cb33"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb33-1" title="1"><span class="kw">pub</span> <span class="kw">struct</span> MemoryStore <span class="op">{</span></a>
+<a class="sourceLine" id="cb33-2" title="2">    entries: Mutex&lt;<span class="dt">Vec</span>&lt;MemoryEntry&gt;&gt;,</a>
+<a class="sourceLine" id="cb33-3" title="3">    file_path: <span class="dt">PathBuf</span>,  <span class="co">// ~/.baoclaw/memory.jsonl</span></a>
+<a class="sourceLine" id="cb33-4" title="4"><span class="op">}</span></a>
+<a class="sourceLine" id="cb33-5" title="5"></a>
+<a class="sourceLine" id="cb33-6" title="6"><span class="kw">impl</span> MemoryStore <span class="op">{</span></a>
+<a class="sourceLine" id="cb33-7" title="7">    <span class="kw">pub</span> <span class="kw">fn</span> load() -&gt; <span class="kw">Self</span> <span class="op">{</span> <span class="co">/* 从磁盘读取 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb33-8" title="8">    <span class="kw">pub</span> async <span class="kw">fn</span> add(&amp;<span class="kw">self</span>, content, category, source) -&gt; MemoryEntry <span class="op">{</span> <span class="co">/* 追加写入 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb33-9" title="9">    <span class="kw">pub</span> async <span class="kw">fn</span> delete(&amp;<span class="kw">self</span>, id_prefix: &amp;<span class="dt">str</span>) -&gt; <span class="dt">bool</span> <span class="op">{</span> <span class="co">/* 删除并重写文件 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb33-10" title="10">    <span class="kw">pub</span> async <span class="kw">fn</span> build_prompt_fragment(&amp;<span class="kw">self</span>) -&gt; <span class="dt">Option</span>&lt;<span class="dt">String</span>&gt; <span class="op">{</span> <span class="co">/* 生成系统提示词片段 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb33-11" title="11"><span class="op">}</span></a></code></pre></div>
+<h3 id="注入到系统提示词">注入到系统提示词</h3>
+<div class="sourceCode" id="cb34"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb34-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> build_prompt_fragment(&amp;<span class="kw">self</span>) -&gt; <span class="dt">Option</span>&lt;<span class="dt">String</span>&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb34-2" title="2">    <span class="kw">let</span> entries = <span class="kw">self</span>.entries.lock().await;</a>
+<a class="sourceLine" id="cb34-3" title="3">    <span class="kw">if</span> entries.is_empty() <span class="op">{</span> <span class="kw">return</span> <span class="cn">None</span>; <span class="op">}</span></a>
+<a class="sourceLine" id="cb34-4" title="4">    </a>
+<a class="sourceLine" id="cb34-5" title="5">    <span class="co">// 按分类组织</span></a>
+<a class="sourceLine" id="cb34-6" title="6">    <span class="kw">let</span> <span class="kw">mut</span> parts = <span class="pp">vec!</span><span class="op">[</span><span class="st">&quot;# Long-term Memory</span><span class="sc">\n\n</span><span class="st">...&quot;</span><span class="op">]</span>;</a>
+<a class="sourceLine" id="cb34-7" title="7">    parts.push(<span class="st">&quot;## Facts&quot;</span>);</a>
+<a class="sourceLine" id="cb34-8" title="8">    <span class="kw">for</span> e <span class="kw">in</span> facts <span class="op">{</span> parts.push(<span class="pp">format!</span>(<span class="st">&quot;- {}&quot;</span>, e.content)); <span class="op">}</span></a>
+<a class="sourceLine" id="cb34-9" title="9">    parts.push(<span class="st">&quot;## Preferences&quot;</span>);</a>
+<a class="sourceLine" id="cb34-10" title="10">    <span class="kw">for</span> e <span class="kw">in</span> prefs <span class="op">{</span> parts.push(<span class="pp">format!</span>(<span class="st">&quot;- {}&quot;</span>, e.content)); <span class="op">}</span></a>
+<a class="sourceLine" id="cb34-11" title="11">    parts.push(<span class="st">&quot;## Decisions&quot;</span>);</a>
+<a class="sourceLine" id="cb34-12" title="12">    <span class="kw">for</span> e <span class="kw">in</span> decisions <span class="op">{</span> parts.push(<span class="pp">format!</span>(<span class="st">&quot;- {}&quot;</span>, e.content)); <span class="op">}</span></a>
+<a class="sourceLine" id="cb34-13" title="13">    </a>
+<a class="sourceLine" id="cb34-14" title="14">    <span class="cn">Some</span>(parts.join(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">&quot;</span>))</a>
+<a class="sourceLine" id="cb34-15" title="15"><span class="op">}</span></a></code></pre></div>
+<h2 id="两种写入方式">10.4 两种写入方式</h2>
+<h3 id="手动memory-命令">手动：<code>/memory</code> 命令</h3>
+<pre><code>/memory add preference 我喜欢用中文交流
+/memory add fact 我的项目使用 Rust + TypeScript
+/memory list
+/memory delete abc123</code></pre>
+<p>终端和 Telegram 都支持。</p>
+<h3 id="自动memorytool">自动：MemoryTool</h3>
+<p>AI 可以主动调用 <code>MemoryTool</code> 保存发现的信息：</p>
+<div class="sourceCode" id="cb36"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb36-1" title="1"><span class="kw">pub</span> <span class="kw">struct</span> MemoryTool;</a>
+<a class="sourceLine" id="cb36-2" title="2"></a>
+<a class="sourceLine" id="cb36-3" title="3"><span class="kw">impl</span> Tool <span class="kw">for</span> MemoryTool <span class="op">{</span></a>
+<a class="sourceLine" id="cb36-4" title="4">    <span class="kw">fn</span> prompt(&amp;<span class="kw">self</span>) -&gt; <span class="dt">String</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb36-5" title="5">        <span class="st">&quot;Save important information to long-term memory. Use this when you discover </span></a>
+<a class="sourceLine" id="cb36-6" title="6"><span class="st">         user preferences, important facts, or decisions...&quot;</span></a>
+<a class="sourceLine" id="cb36-7" title="7">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb36-8" title="8">    </a>
+<a class="sourceLine" id="cb36-9" title="9">    async <span class="kw">fn</span> call(&amp;<span class="kw">self</span>, input: Value, ...) -&gt; <span class="dt">Result</span>&lt;ToolResult, ToolError&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb36-10" title="10">        <span class="co">// 直接追加到 ~/.baoclaw/memory.jsonl</span></a>
+<a class="sourceLine" id="cb36-11" title="11">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb36-12" title="12"><span class="op">}</span></a></code></pre></div>
+<p>AI 在对话中发现“用户总是要求用中文回复”时，会自动调用这个工具保存偏好。</p>
+<h2 id="小结-8">10.5 小结</h2>
+<p>长期记忆让 Agent 真正“认识”用户。JSONL + 全量注入的方案虽然简单，但对于个人使用场景完全够用。当记忆量增长到上千条时，可以考虑引入向量检索做相关性过滤。</p>
+
+<h1 id="第-11-章会话设计-共享恢复与多客户端">第 11 章：会话设计 —— 共享、恢复与多客户端</h1>
+<h2 id="问题多个入口一个大脑">11.1 问题：多个入口，一个大脑</h2>
+<p>用户可能在终端写代码，同时在手机 Telegram 上查看进度。两个客户端需要看到同一个对话上下文 —— 在终端说的话，Telegram 要能接着聊。</p>
+<h2 id="会话模式">11.2 会话模式</h2>
+<p>BaoClaw 支持两种会话模式：</p>
+<h3 id="独立模式independent">独立模式（Independent）</h3>
+<p>每个客户端连接创建独立的 QueryEngine，对话历史完全隔离。这是传统模式。</p>
+<pre><code>Client A → QueryEngine A (独立历史)
+Client B → QueryEngine B (独立历史)</code></pre>
+<h3 id="共享模式shared">共享模式（Shared）</h3>
+<p>多个客户端通过 <code>shared_session_id</code> 连接到同一个 QueryEngine。</p>
+<pre><code>Client A ─┐
+           ├→ SharedSession → QueryEngine (共享历史)
+Client B ─┘</code></pre>
+<h2 id="sharedsession-的设计claude-coresrcengineshared_session.rs">11.3 SharedSession 的设计（<code>claude-core/src/engine/shared_session.rs</code>）</h2>
+<div class="sourceCode" id="cb39"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb39-1" title="1"><span class="kw">pub</span> <span class="kw">struct</span> SharedSession <span class="op">{</span></a>
+<a class="sourceLine" id="cb39-2" title="2">    engine: Arc&lt;RwLock&lt;QueryEngine&gt;&gt;,           <span class="co">// 共享的引擎</span></a>
+<a class="sourceLine" id="cb39-3" title="3">    active_submitter: Mutex&lt;<span class="dt">Option</span>&lt;ClientId&gt;&gt;,  <span class="co">// 当前提交者锁</span></a>
+<a class="sourceLine" id="cb39-4" title="4">    event_tx: <span class="pp">broadcast::</span>Sender&lt;EngineEvent&gt;,   <span class="co">// 事件广播</span></a>
+<a class="sourceLine" id="cb39-5" title="5">    connected_clients: Mutex&lt;HashSet&lt;ClientId&gt;&gt;, <span class="co">// 已连接客户端</span></a>
+<a class="sourceLine" id="cb39-6" title="6"><span class="op">}</span></a></code></pre></div>
+<h3 id="并发控制activesubmitter-锁">并发控制：ActiveSubmitter 锁</h3>
+<p>同一时间只有一个客户端能提交消息，避免对话上下文混乱：</p>
+<div class="sourceCode" id="cb40"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb40-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> try_acquire_submitter(&amp;<span class="kw">self</span>, client_id: ClientId) -&gt; <span class="dt">bool</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb40-2" title="2">    <span class="kw">let</span> <span class="kw">mut</span> submitter = <span class="kw">self</span>.active_submitter.lock().await;</a>
+<a class="sourceLine" id="cb40-3" title="3">    <span class="kw">if</span> submitter.is_none() <span class="op">{</span></a>
+<a class="sourceLine" id="cb40-4" title="4">        *submitter = <span class="cn">Some</span>(client_id);</a>
+<a class="sourceLine" id="cb40-5" title="5">        <span class="cn">true</span>  <span class="co">// 获取成功</span></a>
+<a class="sourceLine" id="cb40-6" title="6">    <span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb40-7" title="7">        <span class="cn">false</span> <span class="co">// 已有其他客户端在提交</span></a>
+<a class="sourceLine" id="cb40-8" title="8">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb40-9" title="9"><span class="op">}</span></a></code></pre></div>
+<p>其他客户端尝试提交时收到 <code>-32001 session busy</code> 错误。</p>
+<h3 id="事件广播">事件广播</h3>
+<p>提交者的 QueryEngine 产生的事件通过 <code>broadcast::channel</code> 广播给所有客户端：</p>
+<div class="sourceCode" id="cb41"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb41-1" title="1"><span class="co">// 提交者发送事件</span></a>
+<a class="sourceLine" id="cb41-2" title="2">session.broadcast(event.clone());</a>
+<a class="sourceLine" id="cb41-3" title="3"></a>
+<a class="sourceLine" id="cb41-4" title="4"><span class="co">// 其他客户端的后台任务接收</span></a>
+<a class="sourceLine" id="cb41-5" title="5"><span class="kw">loop</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb41-6" title="6">    <span class="kw">match</span> rx.recv().await <span class="op">{</span></a>
+<a class="sourceLine" id="cb41-7" title="7">        <span class="cn">Ok</span>(event) =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb41-8" title="8">            <span class="kw">if</span> !session.is_active_submitter(client_id).await <span class="op">{</span></a>
+<a class="sourceLine" id="cb41-9" title="9">                conn.send_notification(<span class="st">&quot;stream/event&quot;</span>, event).await;</a>
+<a class="sourceLine" id="cb41-10" title="10">            <span class="op">}</span></a>
+<a class="sourceLine" id="cb41-11" title="11">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb41-12" title="12">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb41-13" title="13"><span class="op">}</span></a></code></pre></div>
+<p>提交者自己通过直接发送接收事件（不走广播），避免重复。</p>
+<h3 id="生命周期">生命周期</h3>
+<div class="sourceCode" id="cb42"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb42-1" title="1"><span class="co">// 客户端断开</span></a>
+<a class="sourceLine" id="cb42-2" title="2"><span class="kw">let</span> is_last = session.remove_client(client_id).await;</a>
+<a class="sourceLine" id="cb42-3" title="3"><span class="kw">if</span> is_last <span class="op">{</span></a>
+<a class="sourceLine" id="cb42-4" title="4">    <span class="co">// 最后一个客户端断开，清理 SharedSession</span></a>
+<a class="sourceLine" id="cb42-5" title="5">    session_registry.remove(&amp;session_id).await;</a>
+<a class="sourceLine" id="cb42-6" title="6"><span class="op">}</span></a></code></pre></div>
+<h2 id="会话持久化transcript">11.4 会话持久化（Transcript）</h2>
+<p><code>TranscriptWriter</code> 将每条消息写入 <code>~/.baoclaw/sessions/&lt;session_id&gt;.jsonl</code>：</p>
+<div class="sourceCode" id="cb43"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb43-1" title="1"><span class="co">// 每次用户消息、AI 回复、工具调用都追加到文件</span></a>
+<a class="sourceLine" id="cb43-2" title="2">append_transcript(&amp;<span class="kw">mut</span> writer, &amp;TranscriptEntry <span class="op">{</span></a>
+<a class="sourceLine" id="cb43-3" title="3">    timestamp: <span class="st">&quot;2026-04-07T...&quot;</span>,</a>
+<a class="sourceLine" id="cb43-4" title="4">    entry_type: <span class="pp">TranscriptEntryType::</span>UserMessage,</a>
+<a class="sourceLine" id="cb43-5" title="5">    data: <span class="pp">serde_json::</span>to_value(&amp;msg),</a>
+<a class="sourceLine" id="cb43-6" title="6"><span class="op">}</span>);</a></code></pre></div>
+<h3 id="会话恢复">会话恢复</h3>
+<p>daemon 重启后，通过 <code>resume_session_id</code> 从磁盘恢复：</p>
+<div class="sourceCode" id="cb44"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb44-1" title="1"><span class="kw">let</span> entries = <span class="pp">TranscriptWriter::</span>load(resume_id)?;</a>
+<a class="sourceLine" id="cb44-2" title="2"><span class="kw">let</span> messages = rebuild_messages_from_transcript(&amp;entries);</a>
+<a class="sourceLine" id="cb44-3" title="3">engine.set_messages(messages);</a></code></pre></div>
+<h2 id="baoclaw-的客户端连接流程">11.5 BaoClaw 的客户端连接流程</h2>
+<pre><code>CLI 启动 → initialize { shared_session_id: &quot;default&quot; }
+                                    ↓
+Daemon: SessionRegistry.get_or_create(&quot;default&quot;)
+  → 不存在: 创建新 QueryEngine + SharedSession
+  → 已存在: 加入现有 SharedSession
+                                    ↓
+返回 { shared: true, message_count: N }
+                                    ↓
+Telegram 启动 → initialize { shared_session_id: &quot;default&quot; }
+                                    ↓
+Daemon: 加入同一个 SharedSession</code></pre>
+<p>CLI 和 Telegram 都用 <code>shared_session_id: &quot;default&quot;</code>，自动共享同一个会话。</p>
+<h2 id="小结-9">11.6 小结</h2>
+<p>会话设计是多客户端 Agent 系统的核心挑战。BaoClaw 通过 SharedSession + ActiveSubmitter 锁 + broadcast 广播，实现了安全的多客户端实时共享。</p>
+
+<h1 id="第-12-章守护进程架构-daemon-模式">第 12 章：守护进程架构 —— Daemon 模式</h1>
+<h2 id="问题agent-进程的生命周期">12.1 问题：Agent 进程的生命周期</h2>
+<p>如果 Agent 和 CLI 在同一个进程里，CLI 退出 Agent 就死了。MCP 服务器连接断开、对话历史丢失、Telegram 无法接入。</p>
+<h2 id="模式daemon-客户端分离">12.2 模式：Daemon + 客户端分离</h2>
+<p>BaoClaw 将 Agent Core 作为独立的守护进程运行：</p>
+<pre><code>baoclaw (CLI)
+  └→ spawn: claude-core --daemon --cwd /path/to/project
+       ├→ 绑定 UDS socket
+       ├→ 连接 MCP 服务器
+       ├→ 加载 Skills、Memory
+       └→ 等待客户端连接（accept loop）</code></pre>
+<h3 id="启动流程">启动流程</h3>
+<ol type="1">
+<li>CLI 检查是否有运行中的 daemon（扫描 <code>/tmp/baoclaw-sockets/</code>）</li>
+<li>如果有：直接连接</li>
+<li>如果没有：spawn 新的 daemon 进程</li>
+<li>Daemon 输出 <code>SOCKET:/tmp/baoclaw-sockets/baoclaw-xxx.sock</code></li>
+<li>CLI 连接到该 socket</li>
+</ol>
+<h3 id="发现机制">发现机制</h3>
+<p>Daemon 在 socket 旁边写一个 metadata JSON 文件：</p>
+<div class="sourceCode" id="cb47"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb47-1" title="1"><span class="fu">{</span></a>
+<a class="sourceLine" id="cb47-2" title="2">    <span class="dt">&quot;pid&quot;</span><span class="fu">:</span> <span class="dv">12345</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb47-3" title="3">    <span class="dt">&quot;cwd&quot;</span><span class="fu">:</span> <span class="st">&quot;/home/user/project&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb47-4" title="4">    <span class="dt">&quot;session_id&quot;</span><span class="fu">:</span> <span class="st">&quot;abc-def-123&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb47-5" title="5">    <span class="dt">&quot;socket&quot;</span><span class="fu">:</span> <span class="st">&quot;/tmp/baoclaw-sockets/baoclaw-e102213c-12345.sock&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb47-6" title="6">    <span class="dt">&quot;started_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-04-07T10:00:00Z&quot;</span></a>
+<a class="sourceLine" id="cb47-7" title="7"><span class="fu">}</span></a></code></pre></div>
+<p>客户端通过扫描这个目录发现可用的 daemon 实例。</p>
+<h3 id="进程存活检查">进程存活检查</h3>
+<div class="sourceCode" id="cb48"><pre class="sourceCode typescript"><code class="sourceCode typescript"><a class="sourceLine" id="cb48-1" title="1"><span class="kw">function</span> <span class="fu">discoverDaemons</span>()<span class="op">:</span> DaemonInfo<span class="op">[]</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb48-2" title="2">    <span class="fu">for</span> (<span class="kw">const</span> file <span class="kw">of</span> <span class="va">fs</span><span class="op">.</span><span class="fu">readdirSync</span>(socketDir)) <span class="op">{</span></a>
+<a class="sourceLine" id="cb48-3" title="3">        <span class="kw">const</span> meta <span class="op">=</span> <span class="bu">JSON</span><span class="op">.</span><span class="fu">parse</span>(<span class="va">fs</span><span class="op">.</span><span class="fu">readFileSync</span>(file))<span class="op">;</span></a>
+<a class="sourceLine" id="cb48-4" title="4">        <span class="cf">try</span> <span class="op">{</span> <span class="bu">process</span><span class="op">.</span><span class="fu">kill</span>(<span class="va">meta</span><span class="op">.</span><span class="at">pid</span><span class="op">,</span> <span class="dv">0</span>)<span class="op">;</span> <span class="op">}</span> <span class="cf">catch</span> <span class="op">{</span> <span class="cf">continue</span><span class="op">;</span> <span class="op">}</span> <span class="co">// 进程已死</span></a>
+<a class="sourceLine" id="cb48-5" title="5">        <span class="fu">if</span> (<span class="op">!</span><span class="va">fs</span><span class="op">.</span><span class="fu">existsSync</span>(<span class="va">meta</span><span class="op">.</span><span class="at">socket</span>)) <span class="cf">continue</span><span class="op">;</span> <span class="co">// socket 不存在</span></a>
+<a class="sourceLine" id="cb48-6" title="6">        <span class="va">daemons</span><span class="op">.</span><span class="fu">push</span>(meta)<span class="op">;</span></a>
+<a class="sourceLine" id="cb48-7" title="7">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb48-8" title="8"><span class="op">}</span></a></code></pre></div>
+<h3 id="shutdown">Shutdown</h3>
+<div class="sourceCode" id="cb49"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb49-1" title="1"><span class="co">// accept loop 使用 tokio::select! 竞争 accept 和 should_exit 检查</span></a>
+<a class="sourceLine" id="cb49-2" title="2"><span class="kw">let</span> accept_result = <span class="pp">tokio::select!</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb49-3" title="3">    result = server.accept() =&gt; <span class="cn">Some</span>(result),</a>
+<a class="sourceLine" id="cb49-4" title="4">    _ = async <span class="op">{</span></a>
+<a class="sourceLine" id="cb49-5" title="5">        <span class="kw">loop</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb49-6" title="6">            <span class="pp">tokio::time::</span>sleep(<span class="pp">Duration::</span>from_millis(<span class="dv">500</span>)).await;</a>
+<a class="sourceLine" id="cb49-7" title="7">            <span class="kw">if</span> should_exit.load(<span class="pp">Ordering::</span>Relaxed) <span class="op">{</span> <span class="kw">break</span>; <span class="op">}</span></a>
+<a class="sourceLine" id="cb49-8" title="8">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb49-9" title="9">    <span class="op">}</span> =&gt; <span class="cn">None</span>,</a>
+<a class="sourceLine" id="cb49-10" title="10"><span class="op">}</span>;</a></code></pre></div>
+<p><code>/shutdown</code> 设置 <code>should_exit = true</code>，accept loop 在 500ms 内退出，执行 <code>cleanup_meta</code> 清理 socket 和 metadata 文件。</p>
+<h2 id="小结-10">12.3 小结</h2>
+<p>Daemon 模式让 Agent Core 独立于任何客户端运行，是多客户端架构的基础。</p>
+
+<h1 id="第-13-章ipc-协议-json-rpc-over-uds">第 13 章：IPC 协议 —— JSON-RPC over UDS</h1>
+<h2 id="协议选择">13.1 协议选择</h2>
+<p>BaoClaw 使用 JSON-RPC 2.0 over Unix Domain Socket（UDS），NDJSON 分帧（每行一个 JSON 消息）。</p>
+<p>为什么不用 HTTP/WebSocket？ - UDS 是本地通信，零网络开销 - 不需要端口管理，不会端口冲突 - 文件系统权限天然提供安全隔离</p>
+<h2 id="消息类型">13.2 消息类型</h2>
+<h3 id="请求request">请求（Request）</h3>
+<div class="sourceCode" id="cb50"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb50-1" title="1"><span class="fu">{</span><span class="dt">&quot;jsonrpc&quot;</span><span class="fu">:</span><span class="st">&quot;2.0&quot;</span><span class="fu">,</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="dv">1</span><span class="fu">,</span><span class="dt">&quot;method&quot;</span><span class="fu">:</span><span class="st">&quot;submitMessage&quot;</span><span class="fu">,</span><span class="dt">&quot;params&quot;</span><span class="fu">:{</span><span class="dt">&quot;prompt&quot;</span><span class="fu">:</span><span class="st">&quot;hello&quot;</span><span class="fu">}}</span></a></code></pre></div>
+<h3 id="响应response">响应（Response）</h3>
+<div class="sourceCode" id="cb51"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb51-1" title="1"><span class="fu">{</span><span class="dt">&quot;jsonrpc&quot;</span><span class="fu">:</span><span class="st">&quot;2.0&quot;</span><span class="fu">,</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="dv">1</span><span class="fu">,</span><span class="dt">&quot;result&quot;</span><span class="fu">:{</span><span class="dt">&quot;status&quot;</span><span class="fu">:</span><span class="st">&quot;complete&quot;</span><span class="fu">}}</span></a></code></pre></div>
+<h3 id="通知notification-无-id无需响应">通知（Notification）—— 无 id，无需响应</h3>
+<div class="sourceCode" id="cb52"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb52-1" title="1"><span class="fu">{</span><span class="dt">&quot;jsonrpc&quot;</span><span class="fu">:</span><span class="st">&quot;2.0&quot;</span><span class="fu">,</span><span class="dt">&quot;method&quot;</span><span class="fu">:</span><span class="st">&quot;stream/event&quot;</span><span class="fu">,</span><span class="dt">&quot;params&quot;</span><span class="fu">:{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span><span class="st">&quot;assistant_chunk&quot;</span><span class="fu">,</span><span class="dt">&quot;content&quot;</span><span class="fu">:</span><span class="st">&quot;Hi&quot;</span><span class="fu">}}</span></a></code></pre></div>
+<h2 id="方法列表claude-coresrcipcrouter.rs">13.3 方法列表（<code>claude-core/src/ipc/router.rs</code>）</h2>
+<div class="sourceCode" id="cb53"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb53-1" title="1"><span class="kw">pub</span> <span class="kw">enum</span> ClientMethod <span class="op">{</span></a>
+<a class="sourceLine" id="cb53-2" title="2">    Initialize <span class="op">{</span> cwd, model, settings, resume_session_id, shared_session_id <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-3" title="3">    SubmitMessage <span class="op">{</span> prompt <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-4" title="4">    Abort,</a>
+<a class="sourceLine" id="cb53-5" title="5">    Shutdown,</a>
+<a class="sourceLine" id="cb53-6" title="6">    UpdateSettings <span class="op">{</span> settings <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-7" title="7">    PermissionResponse <span class="op">{</span> tool_use_id, decision, rule <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-8" title="8">    ListTools,</a>
+<a class="sourceLine" id="cb53-9" title="9">    ListMcpServers,</a>
+<a class="sourceLine" id="cb53-10" title="10">    ListSkills,</a>
+<a class="sourceLine" id="cb53-11" title="11">    ListPlugins,</a>
+<a class="sourceLine" id="cb53-12" title="12">    Compact,</a>
+<a class="sourceLine" id="cb53-13" title="13">    SwitchModel <span class="op">{</span> model <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-14" title="14">    GitDiff,</a>
+<a class="sourceLine" id="cb53-15" title="15">    GitCommit <span class="op">{</span> message <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-16" title="16">    GitStatus,</a>
+<a class="sourceLine" id="cb53-17" title="17">    MemoryList,</a>
+<a class="sourceLine" id="cb53-18" title="18">    MemoryAdd <span class="op">{</span> content, category <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-19" title="19">    MemoryDelete <span class="op">{</span> id <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-20" title="20">    MemoryClear,</a>
+<a class="sourceLine" id="cb53-21" title="21">    TaskCreate <span class="op">{</span> description, prompt <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-22" title="22">    TaskList,</a>
+<a class="sourceLine" id="cb53-23" title="23">    TaskStatus <span class="op">{</span> task_id <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-24" title="24">    TaskStop <span class="op">{</span> task_id <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb53-25" title="25"><span class="op">}</span></a></code></pre></div>
+<h2 id="流式事件">13.4 流式事件</h2>
+<p>Agent 的回复通过 <code>stream/event</code> 通知实时推送：</p>
+<pre><code>Client → submitMessage
+Daemon → stream/event { type: &quot;assistant_chunk&quot;, content: &quot;你&quot; }
+Daemon → stream/event { type: &quot;assistant_chunk&quot;, content: &quot;好&quot; }
+Daemon → stream/event { type: &quot;tool_use&quot;, tool_name: &quot;Bash&quot;, ... }
+Daemon → stream/event { type: &quot;tool_result&quot;, output: &quot;...&quot;, ... }
+Daemon → stream/event { type: &quot;result&quot;, status: &quot;complete&quot;, ... }
+Daemon → response { id: 1, result: { status: &quot;complete&quot; } }</code></pre>
+<p>客户端收到 <code>assistant_chunk</code> 就实时渲染，收到 <code>result</code> 就知道本轮结束。</p>
+<h2 id="小结-11">13.5 小结</h2>
+<p>JSON-RPC 2.0 + UDS + NDJSON 是一个简单高效的本地 IPC 方案。请求-响应模式处理命令，通知模式处理流式事件。</p>
+
+<h1 id="第-14-章多客户端接入-终端telegram更多">第 14 章：多客户端接入 —— 终端、Telegram、更多</h1>
+<h2 id="客户端是薄的">14.1 客户端是“薄”的</h2>
+<p>BaoClaw 的客户端只负责两件事：用户输入和结果展示。所有业务逻辑在 Daemon 端。</p>
+<h2 id="终端-clits-ipccli.ts">14.2 终端 CLI（<code>ts-ipc/cli.ts</code>）</h2>
+<p>富文本终端界面，功能包括： - ANSI 彩色输出、Markdown 渲染 - Spinner 动画（等待 AI 回复时） - 斜杠命令（<code>/tools</code>、<code>/memory</code>、<code>/compact</code> 等） - Tab 补全（命令和文件路径） - 权限交互（工具执行前询问用户）</p>
+<h3 id="命令路由">命令路由</h3>
+<div class="sourceCode" id="cb55"><pre class="sourceCode typescript"><code class="sourceCode typescript"><a class="sourceLine" id="cb55-1" title="1"><span class="fu">if</span> (input <span class="op">===</span> <span class="st">&#39;/tools&#39;</span>) <span class="op">{</span> <span class="co">/* 调用 listTools RPC */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb55-2" title="2"><span class="fu">if</span> (input <span class="op">===</span> <span class="st">&#39;/compact&#39;</span>) <span class="op">{</span> <span class="co">/* 调用 compact RPC */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb55-3" title="3"><span class="fu">if</span> (<span class="va">input</span><span class="op">.</span><span class="fu">startsWith</span>(<span class="st">&#39;/memory&#39;</span>)) <span class="op">{</span> <span class="co">/* 调用 memory* RPC */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb55-4" title="4"><span class="co">// 其他输入 → submitMessage RPC</span></a></code></pre></div>
+<h2 id="telegram-网关baoclaw-telegramsrcgateway.ts">14.3 Telegram 网关（<code>baoclaw-telegram/src/gateway.ts</code>）</h2>
+<p>Telegram Bot 作为另一个客户端连接到同一个 Daemon。</p>
+<h3 id="架构">架构</h3>
+<pre><code>Telegram API ←→ Gateway 进程 ←→ Daemon (UDS)</code></pre>
+<h3 id="命令路由-1">命令路由</h3>
+<p>Gateway 本地拦截斜杠命令，调用 Daemon RPC，格式化为纯文本/HTML 返回：</p>
+<div class="sourceCode" id="cb57"><pre class="sourceCode typescript"><code class="sourceCode typescript"><a class="sourceLine" id="cb57-1" title="1"><span class="kw">const</span> commandHandlers <span class="op">=</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb57-2" title="2">    <span class="st">&#39;/tools&#39;</span><span class="op">:</span>   () <span class="kw">=&gt;</span> <span class="fu">handleTools</span>()<span class="op">,</span>    <span class="co">// listTools RPC → formatTools()</span></a>
+<a class="sourceLine" id="cb57-3" title="3">    <span class="st">&#39;/skills&#39;</span><span class="op">:</span>  () <span class="kw">=&gt;</span> <span class="fu">handleSkills</span>()<span class="op">,</span>   <span class="co">// listSkills RPC → formatSkills()</span></a>
+<a class="sourceLine" id="cb57-4" title="4">    <span class="st">&#39;/memory&#39;</span><span class="op">:</span>  (args) <span class="kw">=&gt;</span> <span class="fu">handleMemory</span>(args)<span class="op">,</span> <span class="co">// memory* RPC</span></a>
+<a class="sourceLine" id="cb57-5" title="5">    <span class="st">&#39;/shutdown&#39;</span><span class="op">:</span> () <span class="kw">=&gt;</span> <span class="fu">handleShutdown</span>()<span class="op">,</span> <span class="co">// shutdown RPC</span></a>
+<a class="sourceLine" id="cb57-6" title="6">    <span class="st">&#39;/quit&#39;</span><span class="op">:</span>    () <span class="kw">=&gt;</span> <span class="fu">handleQuit</span>()<span class="op">,</span>     <span class="co">// 断开 gateway</span></a>
+<a class="sourceLine" id="cb57-7" title="7"><span class="op">};</span></a></code></pre></div>
+<p>未注册的命令和普通消息通过 <code>submitMessage</code> 转发给 AI。</p>
+<h3 id="消息格式化">消息格式化</h3>
+<ul>
+<li>文本：Markdown → Telegram HTML（<code>markdownToTelegramHtml</code>），失败降级纯文本</li>
+<li>图片：base64 → 临时文件 → <code>bot.sendPhoto()</code></li>
+<li>工具调用：显示 <code>⚡ ToolName</code></li>
+<li>错误：显示 <code>❌ 错误信息</code></li>
+</ul>
+<h3 id="session-busy-处理">Session Busy 处理</h3>
+<p>共享模式下，如果终端正在提交消息，Telegram 用户会收到友好提示：</p>
+<div class="sourceCode" id="cb58"><pre class="sourceCode typescript"><code class="sourceCode typescript"><a class="sourceLine" id="cb58-1" title="1"><span class="fu">if</span> (<span class="va">msg</span><span class="op">.</span><span class="fu">includes</span>(<span class="st">&#39;session busy&#39;</span>)) <span class="op">{</span></a>
+<a class="sourceLine" id="cb58-2" title="2">    <span class="va">bot</span><span class="op">.</span><span class="fu">sendMessage</span>(chatId<span class="op">,</span> <span class="st">&#39;⏳ 会话正忙，另一个客户端正在提交消息，请稍后再试。&#39;</span>)<span class="op">;</span></a>
+<a class="sourceLine" id="cb58-3" title="3"><span class="op">}</span></a></code></pre></div>
+<h2 id="添加新客户端">14.4 添加新客户端</h2>
+<p>要添加一个新客户端（比如 WhatsApp、Web UI），只需要：</p>
+<ol type="1">
+<li>实现 IPC 客户端（JSON-RPC over UDS）</li>
+<li>发送 <code>initialize</code> 请求（带 <code>shared_session_id: &quot;default&quot;</code>）</li>
+<li>监听 <code>stream/event</code> 通知</li>
+<li>实现命令路由和消息格式化</li>
+</ol>
+<p>核心逻辑全在 Daemon 端，客户端只是“皮肤”。</p>
+<h2 id="小结-12">14.5 小结</h2>
+<p>多客户端架构的关键是 Daemon 端集中处理所有业务逻辑，客户端只负责 UI。这让添加新的接入方式变得非常简单。</p>
+
+<h1 id="第-15-章共享会话-sharedqueryengine-的设计">第 15 章：共享会话 —— SharedQueryEngine 的设计</h1>
+<h2 id="问题从各自独立到实时共享">15.1 问题：从“各自独立”到“实时共享”</h2>
+<p>最初 BaoClaw 的每个客户端连接都创建独立的 QueryEngine。<code>resume_session_id</code> 只能在连接时从磁盘加载一次历史快照，之后两端完全隔离。</p>
+<p>用户在终端说“小明22:00睡，小王晚一个小时”，然后在 Telegram 问“小王几点睡”—— AI 不知道，因为两个 QueryEngine 的对话历史是独立的。</p>
+<h2 id="设计sessionregistry-sharedsession">15.2 设计：SessionRegistry + SharedSession</h2>
+<div class="sourceCode" id="cb59"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb59-1" title="1"><span class="co">// 全局注册表</span></a>
+<a class="sourceLine" id="cb59-2" title="2"><span class="kw">pub</span> <span class="kw">struct</span> SessionRegistry <span class="op">{</span></a>
+<a class="sourceLine" id="cb59-3" title="3">    sessions: Mutex&lt;HashMap&lt;<span class="dt">String</span>, Arc&lt;SharedSession&gt;&gt;&gt;,</a>
+<a class="sourceLine" id="cb59-4" title="4"><span class="op">}</span></a>
+<a class="sourceLine" id="cb59-5" title="5"></a>
+<a class="sourceLine" id="cb59-6" title="6"><span class="co">// 共享会话</span></a>
+<a class="sourceLine" id="cb59-7" title="7"><span class="kw">pub</span> <span class="kw">struct</span> SharedSession <span class="op">{</span></a>
+<a class="sourceLine" id="cb59-8" title="8">    engine: Arc&lt;RwLock&lt;QueryEngine&gt;&gt;,           <span class="co">// 共享引擎</span></a>
+<a class="sourceLine" id="cb59-9" title="9">    active_submitter: Mutex&lt;<span class="dt">Option</span>&lt;ClientId&gt;&gt;,  <span class="co">// 并发锁</span></a>
+<a class="sourceLine" id="cb59-10" title="10">    event_tx: <span class="pp">broadcast::</span>Sender&lt;EngineEvent&gt;,   <span class="co">// 事件广播</span></a>
+<a class="sourceLine" id="cb59-11" title="11">    connected_clients: Mutex&lt;HashSet&lt;ClientId&gt;&gt;, <span class="co">// 客户端集合</span></a>
+<a class="sourceLine" id="cb59-12" title="12"><span class="op">}</span></a></code></pre></div>
+<h3 id="查找或创建">查找或创建</h3>
+<div class="sourceCode" id="cb60"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb60-1" title="1"><span class="kw">pub</span> async <span class="kw">fn</span> get_or_create(&amp;<span class="kw">self</span>, session_id: &amp;<span class="dt">str</span>, factory: <span class="kw">impl</span> <span class="bu">FnOnce</span>() -&gt; QueryEngine) </a>
+<a class="sourceLine" id="cb60-2" title="2">    -&gt; (Arc&lt;SharedSession&gt;, <span class="dt">bool</span>) </a>
+<a class="sourceLine" id="cb60-3" title="3"><span class="op">{</span></a>
+<a class="sourceLine" id="cb60-4" title="4">    <span class="kw">let</span> <span class="kw">mut</span> sessions = <span class="kw">self</span>.sessions.lock().await;</a>
+<a class="sourceLine" id="cb60-5" title="5">    <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Some</span>(existing) = sessions.get(session_id) <span class="op">{</span></a>
+<a class="sourceLine" id="cb60-6" title="6">        (<span class="pp">Arc::</span>clone(existing), <span class="cn">false</span>)  <span class="co">// 加入已有会话</span></a>
+<a class="sourceLine" id="cb60-7" title="7">    <span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb60-8" title="8">        <span class="kw">let</span> session = <span class="pp">Arc::</span>new(<span class="pp">SharedSession::</span>new(factory(), <span class="dv">256</span>));</a>
+<a class="sourceLine" id="cb60-9" title="9">        sessions.insert(session_id.to_string(), <span class="pp">Arc::</span>clone(&amp;session));</a>
+<a class="sourceLine" id="cb60-10" title="10">        (session, <span class="cn">true</span>)  <span class="co">// 创建新会话</span></a>
+<a class="sourceLine" id="cb60-11" title="11">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb60-12" title="12"><span class="op">}</span></a></code></pre></div>
+<h2 id="并发控制的三个层次">15.3 并发控制的三个层次</h2>
+<h3 id="层次-1activesubmitter-锁">层次 1：ActiveSubmitter 锁</h3>
+<p>同一时间只有一个客户端能 <code>submitMessage</code>。其他客户端收到 <code>-32001 session busy</code>。</p>
+<h3 id="层次-2rwlock-读写分离">层次 2：RwLock 读写分离</h3>
+<ul>
+<li>读操作（<code>get_messages</code>、<code>abort</code>）：多个客户端可以并发</li>
+<li>写操作（<code>submit_message</code>、<code>compact</code>）：独占</li>
+</ul>
+<h3 id="层次-3操作分类">层次 3：操作分类</h3>
+<table>
+<thead>
+<tr class="header">
+<th>操作</th>
+<th>有 ActiveSubmitter 时</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>listTools/listSkills/gitStatus</td>
+<td>✅ 正常执行</td>
+</tr>
+<tr class="even">
+<td>compact/switchModel</td>
+<td>❌ 返回 -32002</td>
+</tr>
+<tr class="odd">
+<td>abort</td>
+<td>✅ 任何客户端都可以中止</td>
+</tr>
+<tr class="even">
+<td>submitMessage</td>
+<td>❌ 返回 -32001</td>
+</tr>
+</tbody>
+</table>
+<h2 id="事件广播-1">15.4 事件广播</h2>
+<p>提交者产生的事件通过 <code>tokio::sync::broadcast</code> 广播给所有客户端：</p>
+<pre><code>Client A (提交者): submitMessage → QueryEngine → events
+                                                    ↓
+                                              broadcast channel
+                                              ↙            ↘
+                                    Client A          Client B
+                                    (直接发送)        (广播接收)</code></pre>
+<p>提交者通过直接发送接收事件（避免重复），其他客户端通过广播接收。</p>
+<h2 id="小结-13">15.5 小结</h2>
+<p>共享会话是多客户端 Agent 系统的核心。通过 SessionRegistry 管理会话生命周期，SharedSession 提供并发安全的 QueryEngine 访问，broadcast channel 实现实时事件同步。</p>
+
+<h1 id="第-16-章错误处理与恢复-从-fallback-到自动-compact">第 16 章：错误处理与恢复 —— 从 Fallback 到自动 Compact</h1>
+<h2 id="问题生产环境中什么都会出错">16.1 问题：生产环境中什么都会出错</h2>
+<p>API 会限流、网络会断开、上下文会超出、工具会执行失败。一个生产级 Agent 系统必须优雅地处理每一种错误。</p>
+<h2 id="错误分类与处理策略">16.2 错误分类与处理策略</h2>
+<h3 id="api-错误">API 错误</h3>
+<p>BaoClaw 在 <code>run_query_loop</code> 中处理 API 调用错误：</p>
+<div class="sourceCode" id="cb62"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb62-1" title="1"><span class="kw">match</span> api_client.create_message_stream(request).await <span class="op">{</span></a>
+<a class="sourceLine" id="cb62-2" title="2">    <span class="cn">Ok</span>(stream) =&gt; <span class="op">{</span> <span class="co">/* 正常处理 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb62-3" title="3">    <span class="cn">Err</span>(<span class="pp">ApiError::</span>RateLimited) =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb62-4" title="4">        <span class="co">// 限流 → Fallback 控制器决定重试还是切换模型</span></a>
+<a class="sourceLine" id="cb62-5" title="5">        <span class="kw">match</span> fallback_controller.on_rate_limit() <span class="op">{</span></a>
+<a class="sourceLine" id="cb62-6" title="6">            <span class="pp">FallbackAction::</span>Retry <span class="op">{</span> delay, .. <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb62-7" title="7">                <span class="pp">tokio::time::</span>sleep(delay).await;</a>
+<a class="sourceLine" id="cb62-8" title="8">                <span class="kw">continue</span>;</a>
+<a class="sourceLine" id="cb62-9" title="9">            <span class="op">}</span></a>
+<a class="sourceLine" id="cb62-10" title="10">            <span class="pp">FallbackAction::</span>Fallback <span class="op">{</span> from, to <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb62-11" title="11">                tx.send(<span class="pp">EngineEvent::</span>ModelFallback <span class="op">{</span> from, to <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb62-12" title="12">                <span class="kw">continue</span>;</a>
+<a class="sourceLine" id="cb62-13" title="13">            <span class="op">}</span></a>
+<a class="sourceLine" id="cb62-14" title="14">            <span class="pp">FallbackAction::</span>Exhausted <span class="op">{</span> .. <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb62-15" title="15">                tx.send(<span class="pp">EngineEvent::</span>Error(...)).await;</a>
+<a class="sourceLine" id="cb62-16" title="16">                <span class="kw">return</span>;</a>
+<a class="sourceLine" id="cb62-17" title="17">            <span class="op">}</span></a>
+<a class="sourceLine" id="cb62-18" title="18">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb62-19" title="19">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb62-20" title="20">    <span class="cn">Err</span>(e) =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb62-21" title="21">        tx.send(<span class="pp">EngineEvent::</span>Error(...)).await;</a>
+<a class="sourceLine" id="cb62-22" title="22">        <span class="kw">return</span>;</a>
+<a class="sourceLine" id="cb62-23" title="23">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb62-24" title="24"><span class="op">}</span></a></code></pre></div>
+<h3 id="上下文窗口超出">上下文窗口超出</h3>
+<p>当 LLM 返回 <code>stop_reason: &quot;model_context_window_exceeded&quot;</code> 时：</p>
+<div class="sourceCode" id="cb63"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb63-1" title="1"><span class="kw">if</span> stop_reason == <span class="cn">Some</span>(<span class="st">&quot;model_context_window_exceeded&quot;</span>) <span class="op">{</span></a>
+<a class="sourceLine" id="cb63-2" title="2">    <span class="co">// 1. 通知客户端</span></a>
+<a class="sourceLine" id="cb63-3" title="3">    tx.send(AssistantChunk <span class="op">{</span> content: <span class="st">&quot;🗜️ 上下文窗口已满，正在自动压缩...&quot;</span> <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb63-4" title="4">    </a>
+<a class="sourceLine" id="cb63-5" title="5">    <span class="co">// 2. 移除空的 assistant 回复</span></a>
+<a class="sourceLine" id="cb63-6" title="6">    messages.pop(); <span class="co">// empty assistant</span></a>
+<a class="sourceLine" id="cb63-7" title="7">    <span class="kw">let</span> user_msg = messages.pop(); <span class="co">// 保存用户消息</span></a>
+<a class="sourceLine" id="cb63-8" title="8">    </a>
+<a class="sourceLine" id="cb63-9" title="9">    <span class="co">// 3. 内联 compact：保留最近 4 条，摘要其余</span></a>
+<a class="sourceLine" id="cb63-10" title="10">    <span class="kw">let</span> summary = call_api_for_summary(&amp;old_messages).await;</a>
+<a class="sourceLine" id="cb63-11" title="11">    messages = <span class="pp">vec!</span><span class="op">[</span>boundary(summary)<span class="op">]</span> + recent;</a>
+<a class="sourceLine" id="cb63-12" title="12">    </a>
+<a class="sourceLine" id="cb63-13" title="13">    <span class="co">// 4. 恢复用户消息</span></a>
+<a class="sourceLine" id="cb63-14" title="14">    messages.push(user_msg);</a>
+<a class="sourceLine" id="cb63-15" title="15">    </a>
+<a class="sourceLine" id="cb63-16" title="16">    <span class="co">// 5. 通知并重试</span></a>
+<a class="sourceLine" id="cb63-17" title="17">    tx.send(AssistantChunk <span class="op">{</span> content: <span class="st">&quot;✅ 压缩完成，正在重试...&quot;</span> <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb63-18" title="18">    <span class="kw">continue</span>;</a>
+<a class="sourceLine" id="cb63-19" title="19"><span class="op">}</span></a></code></pre></div>
+<p>用户看到的效果：AI 短暂停顿，显示压缩提示，然后正常回复。</p>
+<h3 id="工具执行失败">工具执行失败</h3>
+<p>工具返回 <code>ToolError</code> 时，结果以 <code>is_error: true</code> 传回 LLM，让 AI 自己决定如何处理（重试、换方法、或告知用户）。</p>
+<h3 id="mcp-服务器连接失败">MCP 服务器连接失败</h3>
+<div class="sourceCode" id="cb64"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb64-1" title="1"><span class="kw">match</span> connect_result <span class="op">{</span></a>
+<a class="sourceLine" id="cb64-2" title="2">    <span class="cn">Ok</span>(<span class="cn">Ok</span>(())) =&gt; <span class="op">{</span> <span class="co">/* 注册工具 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb64-3" title="3">    <span class="cn">Ok</span>(<span class="cn">Err</span>(e)) =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb64-4" title="4">        <span class="pp">eprintln!</span>(<span class="st">&quot;Warning: MCP server &#39;{}&#39; failed: {}&quot;</span>, name, e);</a>
+<a class="sourceLine" id="cb64-5" title="5">        <span class="co">// 跳过，不影响其他功能</span></a>
+<a class="sourceLine" id="cb64-6" title="6">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb64-7" title="7">    <span class="cn">Err</span>(_) =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb64-8" title="8">        <span class="pp">eprintln!</span>(<span class="st">&quot;Warning: MCP server &#39;{}&#39; timed out (30s)&quot;</span>, name);</a>
+<a class="sourceLine" id="cb64-9" title="9">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb64-10" title="10"><span class="op">}</span></a></code></pre></div>
+<p>MCP 连接失败不会阻止 daemon 启动，只是该 MCP 的工具不可用。</p>
+<h2 id="设计原则">16.3 设计原则</h2>
+<ol type="1">
+<li><strong>降级而非崩溃</strong> —— 能降级就降级，不要让一个错误杀死整个系统</li>
+<li><strong>通知用户</strong> —— 自动恢复时告诉用户发生了什么</li>
+<li><strong>让 AI 决策</strong> —— 工具失败时把错误信息传给 AI，让它决定下一步</li>
+<li><strong>超时保护</strong> —— MCP 连接 30s 超时，避免无限等待</li>
+</ol>
+<h2 id="小结-14">16.4 小结</h2>
+<p>错误处理是生产系统的生命线。BaoClaw 通过模型 Fallback、自动 Compact、优雅降级三层防护，确保用户几乎不会遇到无法恢复的错误。</p>
+
+<h1 id="第-17-章流式输出-sse-事件与广播">第 17 章：流式输出 —— SSE 事件与广播</h1>
+<h2 id="问题用户不想等">17.1 问题：用户不想等</h2>
+<p>AI 生成一段长回复可能需要 10-30 秒。如果等全部生成完再显示，用户体验很差。流式输出让用户看到 AI “一个字一个字地打”。</p>
+<h2 id="两层流式架构">17.2 两层流式架构</h2>
+<pre><code>LLM API (SSE) → QueryEngine (mpsc) → IPC (notification) → Client (渲染)</code></pre>
+<h3 id="第一层llm-api-queryengine">第一层：LLM API → QueryEngine</h3>
+<p>LLM API 返回 SSE 流，QueryEngine 逐事件处理：</p>
+<div class="sourceCode" id="cb66"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb66-1" title="1"><span class="kw">while</span> <span class="kw">let</span> <span class="cn">Some</span>(event) = stream.next().await <span class="op">{</span></a>
+<a class="sourceLine" id="cb66-2" title="2">    <span class="kw">match</span> event <span class="op">{</span></a>
+<a class="sourceLine" id="cb66-3" title="3">        ContentBlockDelta <span class="op">{</span> delta, .. <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb66-4" title="4">            <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Some</span>(text) = delta.get(<span class="st">&quot;text&quot;</span>) <span class="op">{</span></a>
+<a class="sourceLine" id="cb66-5" title="5">                <span class="co">// 立即发送给客户端</span></a>
+<a class="sourceLine" id="cb66-6" title="6">                tx.send(<span class="pp">EngineEvent::</span>AssistantChunk <span class="op">{</span> content: text <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb66-7" title="7">            <span class="op">}</span></a>
+<a class="sourceLine" id="cb66-8" title="8">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb66-9" title="9">        ContentBlockStop <span class="op">{</span> .. <span class="op">}</span> =&gt; <span class="op">{</span> <span class="co">/* 一个 block 结束 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb66-10" title="10">        MessageStop =&gt; <span class="kw">break</span>,</a>
+<a class="sourceLine" id="cb66-11" title="11">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb66-12" title="12"><span class="op">}</span></a></code></pre></div>
+<h3 id="第二层queryengine-client">第二层：QueryEngine → Client</h3>
+<p>通过 <code>mpsc::channel</code> 发送 <code>EngineEvent</code>，IPC 层转换为 JSON-RPC notification：</p>
+<div class="sourceCode" id="cb67"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb67-1" title="1"><span class="kw">pub</span> <span class="kw">fn</span> engine_event_to_notification(event: &amp;EngineEvent) -&gt; JsonRpcNotification <span class="op">{</span></a>
+<a class="sourceLine" id="cb67-2" title="2">    <span class="pp">JsonRpcNotification::</span>new(<span class="st">&quot;stream/event&quot;</span>, <span class="pp">serde_json::</span>to_value(event))</a>
+<a class="sourceLine" id="cb67-3" title="3"><span class="op">}</span></a></code></pre></div>
+<h2 id="事件类型engineevent">17.3 事件类型（<code>EngineEvent</code>）</h2>
+<div class="sourceCode" id="cb68"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb68-1" title="1"><span class="kw">pub</span> <span class="kw">enum</span> EngineEvent <span class="op">{</span></a>
+<a class="sourceLine" id="cb68-2" title="2">    AssistantChunk <span class="op">{</span> content: <span class="dt">String</span>, tool_use_id: <span class="dt">Option</span>&lt;<span class="dt">String</span>&gt; <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-3" title="3">    ThinkingChunk <span class="op">{</span> content: <span class="dt">String</span> <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-4" title="4">    ToolUse <span class="op">{</span> tool_name: <span class="dt">String</span>, input: Value, tool_use_id: <span class="dt">String</span> <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-5" title="5">    ToolResult <span class="op">{</span> tool_use_id: <span class="dt">String</span>, output: Value, is_error: <span class="dt">bool</span> <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-6" title="6">    PermissionRequest <span class="op">{</span> tool_name: <span class="dt">String</span>, input: Value, tool_use_id: <span class="dt">String</span> <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-7" title="7">    Progress <span class="op">{</span> tool_use_id: <span class="dt">String</span>, data: Value <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-8" title="8">    StateUpdate <span class="op">{</span> patch: Value <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-9" title="9">    <span class="dt">Result</span>(QueryResult),</a>
+<a class="sourceLine" id="cb68-10" title="10">    Error(EngineError),</a>
+<a class="sourceLine" id="cb68-11" title="11">    ModelFallback <span class="op">{</span> from_model: <span class="dt">String</span>, to_model: <span class="dt">String</span> <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb68-12" title="12"><span class="op">}</span></a></code></pre></div>
+<p>每种事件类型对应 Agent 执行过程中的一个关键时刻。客户端根据事件类型决定如何渲染。</p>
+<h2 id="共享模式下的广播">17.4 共享模式下的广播</h2>
+<p>独立模式下，事件通过 <code>mpsc</code> 直接发送给唯一的客户端。共享模式下，需要广播给所有客户端：</p>
+<div class="sourceCode" id="cb69"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb69-1" title="1"><span class="co">// 提交者产生事件时</span></a>
+<a class="sourceLine" id="cb69-2" title="2">session.broadcast(event.clone());  <span class="co">// broadcast::Sender</span></a>
+<a class="sourceLine" id="cb69-3" title="3"></a>
+<a class="sourceLine" id="cb69-4" title="4"><span class="co">// 每个客户端的后台任务</span></a>
+<a class="sourceLine" id="cb69-5" title="5"><span class="kw">loop</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb69-6" title="6">    <span class="kw">match</span> broadcast_rx.recv().await <span class="op">{</span></a>
+<a class="sourceLine" id="cb69-7" title="7">        <span class="cn">Ok</span>(event) =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb69-8" title="8">            <span class="co">// 跳过提交者自己（避免重复）</span></a>
+<a class="sourceLine" id="cb69-9" title="9">            <span class="kw">if</span> session.is_active_submitter(client_id).await <span class="op">{</span> <span class="kw">continue</span>; <span class="op">}</span></a>
+<a class="sourceLine" id="cb69-10" title="10">            conn.send_notification(<span class="st">&quot;stream/event&quot;</span>, event).await;</a>
+<a class="sourceLine" id="cb69-11" title="11">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb69-12" title="12">        <span class="cn">Err</span>(<span class="pp">RecvError::</span>Lagged(n)) =&gt; <span class="op">{</span> <span class="co">/* 客户端太慢，跳过 n 个事件 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb69-13" title="13">        <span class="cn">Err</span>(<span class="pp">RecvError::</span>Closed) =&gt; <span class="kw">break</span>,</a>
+<a class="sourceLine" id="cb69-14" title="14">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb69-15" title="15"><span class="op">}</span></a></code></pre></div>
+<p><code>tokio::sync::broadcast</code> 的 <code>Lagged</code> 错误处理很重要 —— 如果某个客户端处理太慢（比如 Telegram 网络延迟），不会阻塞其他客户端。</p>
+<h2 id="客户端渲染">17.5 客户端渲染</h2>
+<h3 id="终端-cli">终端 CLI</h3>
+<div class="sourceCode" id="cb70"><pre class="sourceCode typescript"><code class="sourceCode typescript"><a class="sourceLine" id="cb70-1" title="1"><span class="cf">case</span> <span class="st">&#39;assistant_chunk&#39;</span><span class="op">:</span></a>
+<a class="sourceLine" id="cb70-2" title="2">    currentText <span class="op">+=</span> content<span class="op">;</span></a>
+<a class="sourceLine" id="cb70-3" title="3">    <span class="co">// 累积文本，最后通过 Markdown 渲染器输出</span></a>
+<a class="sourceLine" id="cb70-4" title="4">    <span class="cf">break</span><span class="op">;</span></a>
+<a class="sourceLine" id="cb70-5" title="5"><span class="cf">case</span> <span class="st">&#39;tool_use&#39;</span><span class="op">:</span></a>
+<a class="sourceLine" id="cb70-6" title="6">    <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`⚡ </span><span class="sc">${</span>toolName<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></a>
+<a class="sourceLine" id="cb70-7" title="7">    <span class="fu">startSpinner</span>(<span class="vs">`Running </span><span class="sc">${</span>toolName<span class="sc">}</span><span class="vs">...`</span>)<span class="op">;</span></a>
+<a class="sourceLine" id="cb70-8" title="8">    <span class="cf">break</span><span class="op">;</span></a></code></pre></div>
+<h3 id="telegram">Telegram</h3>
+<div class="sourceCode" id="cb71"><pre class="sourceCode typescript"><code class="sourceCode typescript"><a class="sourceLine" id="cb71-1" title="1"><span class="cf">case</span> <span class="st">&#39;assistant_chunk&#39;</span><span class="op">:</span></a>
+<a class="sourceLine" id="cb71-2" title="2">    <span class="va">accumulators</span><span class="op">.</span><span class="fu">set</span>(chatId<span class="op">,</span> current <span class="op">+</span> content)<span class="op">;</span></a>
+<a class="sourceLine" id="cb71-3" title="3">    <span class="co">// 累积，等 result 事件时一次性发送</span></a>
+<a class="sourceLine" id="cb71-4" title="4">    <span class="cf">break</span><span class="op">;</span></a>
+<a class="sourceLine" id="cb71-5" title="5"><span class="cf">case</span> <span class="st">&#39;result&#39;</span><span class="op">:</span></a>
+<a class="sourceLine" id="cb71-6" title="6">    <span class="kw">const</span> text <span class="op">=</span> <span class="va">accumulators</span><span class="op">.</span><span class="fu">get</span>(chatId)<span class="op">;</span></a>
+<a class="sourceLine" id="cb71-7" title="7">    <span class="va">bot</span><span class="op">.</span><span class="fu">sendMessage</span>(chatId<span class="op">,</span> <span class="fu">markdownToTelegramHtml</span>(text)<span class="op">,</span> <span class="op">{</span> parse_mode<span class="op">:</span> <span class="st">&#39;HTML&#39;</span> <span class="op">}</span>)<span class="op">;</span></a>
+<a class="sourceLine" id="cb71-8" title="8">    <span class="cf">break</span><span class="op">;</span></a></code></pre></div>
+<p>Telegram 不能逐字发送（API 限制），所以累积全部文本后一次性发送。</p>
+<h2 id="小结-15">17.6 小结</h2>
+<p>流式输出是 Agent 用户体验的关键。BaoClaw 通过 SSE → mpsc → IPC notification 的三层管道，实现了从 LLM 到客户端的实时事件流。共享模式下通过 broadcast channel 扩展到多客户端。</p>
+
+<h1 id="第-18-章权限控制-permissiongate-模式">第 18 章：权限控制 —— PermissionGate 模式</h1>
+<h2 id="问题ai-不应该无限制地行动">18.1 问题：AI 不应该无限制地行动</h2>
+<p>Agent 可以执行 shell 命令、写文件、删文件。如果不加控制，一个错误的 AI 决策可能造成不可逆的损害。</p>
+<h2 id="模式请求-授权-执行">18.2 模式：请求-授权-执行</h2>
+<p>BaoClaw 的权限控制采用“请求-授权-执行”三步模式：</p>
+<ol type="1">
+<li>AI 决定调用一个危险工具（如 <code>BashTool</code>）</li>
+<li>Daemon 发送 <code>permission_request</code> 事件给客户端</li>
+<li>用户选择：允许（Allow）/ 始终允许（Always Allow）/ 拒绝（Deny）</li>
+<li>Daemon 根据用户决策执行或跳过</li>
+</ol>
+<h2 id="baoclaw-的实现-3">18.3 BaoClaw 的实现</h2>
+<h3 id="permissiongateclaude-coresrcpermissionsgate.rs">PermissionGate（<code>claude-core/src/permissions/gate.rs</code>）</h3>
+<div class="sourceCode" id="cb72"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb72-1" title="1"><span class="kw">pub</span> <span class="kw">struct</span> PermissionGate <span class="op">{</span></a>
+<a class="sourceLine" id="cb72-2" title="2">    pending: Mutex&lt;HashMap&lt;<span class="dt">String</span>, <span class="pp">oneshot::</span>Sender&lt;PermissionDecision&gt;&gt;&gt;,</a>
+<a class="sourceLine" id="cb72-3" title="3"><span class="op">}</span></a>
+<a class="sourceLine" id="cb72-4" title="4"></a>
+<a class="sourceLine" id="cb72-5" title="5"><span class="kw">pub</span> <span class="kw">enum</span> PermissionDecision <span class="op">{</span></a>
+<a class="sourceLine" id="cb72-6" title="6">    Allow,</a>
+<a class="sourceLine" id="cb72-7" title="7">    AllowAlways <span class="op">{</span> rule: <span class="dt">Option</span>&lt;<span class="dt">String</span>&gt; <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb72-8" title="8">    Deny,</a>
+<a class="sourceLine" id="cb72-9" title="9"><span class="op">}</span></a></code></pre></div>
+<p>工作流程：</p>
+<div class="sourceCode" id="cb73"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb73-1" title="1"><span class="co">// 1. QueryEngine 遇到需要授权的工具</span></a>
+<a class="sourceLine" id="cb73-2" title="2"><span class="kw">let</span> (tx, rx) = <span class="pp">oneshot::</span>channel();</a>
+<a class="sourceLine" id="cb73-3" title="3">permission_gate.pending.insert(tool_use_id, tx);</a>
+<a class="sourceLine" id="cb73-4" title="4"></a>
+<a class="sourceLine" id="cb73-5" title="5"><span class="co">// 2. 发送 permission_request 事件给客户端</span></a>
+<a class="sourceLine" id="cb73-6" title="6">send_event(<span class="pp">EngineEvent::</span>PermissionRequest <span class="op">{</span> tool_name, input, tool_use_id <span class="op">}</span>);</a>
+<a class="sourceLine" id="cb73-7" title="7"></a>
+<a class="sourceLine" id="cb73-8" title="8"><span class="co">// 3. 等待用户响应</span></a>
+<a class="sourceLine" id="cb73-9" title="9"><span class="kw">let</span> decision = rx.await;</a>
+<a class="sourceLine" id="cb73-10" title="10"></a>
+<a class="sourceLine" id="cb73-11" title="11"><span class="co">// 4. 根据决策执行</span></a>
+<a class="sourceLine" id="cb73-12" title="12"><span class="kw">match</span> decision <span class="op">{</span></a>
+<a class="sourceLine" id="cb73-13" title="13">    Allow | AllowAlways =&gt; execute_tool(),</a>
+<a class="sourceLine" id="cb73-14" title="14">    Deny =&gt; skip_tool(),</a>
+<a class="sourceLine" id="cb73-15" title="15"><span class="op">}</span></a></code></pre></div>
+<h3 id="客户端交互">客户端交互</h3>
+<p>终端 CLI 显示权限请求：</p>
+<pre><code>⚠ Permission Required
+  Tool: Bash
+  Input: {&quot;command&quot;: &quot;rm -rf /tmp/test&quot;}
+  [y] Allow  [a] Always Allow  [n] Deny
+&gt;</code></pre>
+<p>用户输入 <code>y</code>/<code>a</code>/<code>n</code>，CLI 发送 <code>permissionResponse</code> RPC 给 Daemon。</p>
+<h3 id="always-allow-规则">Always Allow 规则</h3>
+<p>选择 “Always Allow” 后，该工具的后续调用自动通过，不再询问。规则存储在内存中（当前 session 有效）。</p>
+<h2 id="哪些工具需要授权">18.4 哪些工具需要授权</h2>
+<table>
+<thead>
+<tr class="header">
+<th>工具</th>
+<th>是否需要授权</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>BashTool</td>
+<td>✅</td>
+<td>可执行任意命令</td>
+</tr>
+<tr class="even">
+<td>FileWriteTool</td>
+<td>✅</td>
+<td>可覆盖任意文件</td>
+</tr>
+<tr class="odd">
+<td>FileEditTool</td>
+<td>✅</td>
+<td>可修改任意文件</td>
+</tr>
+<tr class="even">
+<td>FileReadTool</td>
+<td>❌</td>
+<td>只读，无副作用</td>
+</tr>
+<tr class="odd">
+<td>GrepTool</td>
+<td>❌</td>
+<td>只读</td>
+</tr>
+<tr class="even">
+<td>WebFetchTool</td>
+<td>❌</td>
+<td>只读</td>
+</tr>
+<tr class="odd">
+<td>MemoryTool</td>
+<td>❌</td>
+<td>写入用户自己的记忆文件</td>
+</tr>
+</tbody>
+</table>
+<h2 id="小结-16">18.5 小结</h2>
+<p>权限控制是 Agent 安全的最后一道防线。PermissionGate 通过 oneshot channel 实现异步的请求-等待-响应模式，让用户对 AI 的危险操作保持控制权。</p>
+
+<h1 id="第-19-章成本追踪-token-计量与预算">第 19 章：成本追踪 —— Token 计量与预算</h1>
+<h2 id="问题ai-调用不是免费的">19.1 问题：AI 调用不是免费的</h2>
+<p>每次 LLM API 调用都消耗 token，token 就是钱。一个复杂的多轮工具调用可能消耗数万 token。用户需要知道花了多少钱。</p>
+<h2 id="baoclaw-的成本追踪">19.2 BaoClaw 的成本追踪</h2>
+<h3 id="costtrackerclaude-coresrcenginecost_tracker.rs">CostTracker（<code>claude-core/src/engine/cost_tracker.rs</code>）</h3>
+<div class="sourceCode" id="cb75"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb75-1" title="1"><span class="kw">pub</span> <span class="kw">struct</span> CostTracker <span class="op">{</span></a>
+<a class="sourceLine" id="cb75-2" title="2">    total_input_tokens: <span class="dt">u64</span>,</a>
+<a class="sourceLine" id="cb75-3" title="3">    total_output_tokens: <span class="dt">u64</span>,</a>
+<a class="sourceLine" id="cb75-4" title="4">    query_input_tokens: <span class="dt">u64</span>,   <span class="co">// 当前查询的 token</span></a>
+<a class="sourceLine" id="cb75-5" title="5">    query_output_tokens: <span class="dt">u64</span>,</a>
+<a class="sourceLine" id="cb75-6" title="6"><span class="op">}</span></a>
+<a class="sourceLine" id="cb75-7" title="7"></a>
+<a class="sourceLine" id="cb75-8" title="8"><span class="kw">impl</span> CostTracker <span class="op">{</span></a>
+<a class="sourceLine" id="cb75-9" title="9">    <span class="kw">pub</span> <span class="kw">fn</span> accumulate(&amp;<span class="kw">mut</span> <span class="kw">self</span>, usage: &amp;Usage, model: &amp;<span class="dt">str</span>) <span class="op">{</span></a>
+<a class="sourceLine" id="cb75-10" title="10">        <span class="kw">self</span>.total_input_tokens += usage.input_tokens;</a>
+<a class="sourceLine" id="cb75-11" title="11">        <span class="kw">self</span>.total_output_tokens += usage.output_tokens;</a>
+<a class="sourceLine" id="cb75-12" title="12">        <span class="co">// ... 按模型计算美元成本</span></a>
+<a class="sourceLine" id="cb75-13" title="13">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb75-14" title="14">    </a>
+<a class="sourceLine" id="cb75-15" title="15">    <span class="kw">pub</span> <span class="kw">fn</span> total_cost(&amp;<span class="kw">self</span>) -&gt; <span class="dt">f64</span> <span class="op">{</span> <span class="co">/* 总成本 USD */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb75-16" title="16">    <span class="kw">pub</span> <span class="kw">fn</span> current_query_cost(&amp;<span class="kw">self</span>) -&gt; <span class="dt">f64</span> <span class="op">{</span> <span class="co">/* 当前查询成本 */</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb75-17" title="17"><span class="op">}</span></a></code></pre></div>
+<h3 id="token-来源">Token 来源</h3>
+<p>每次 API 调用返回 usage 信息：</p>
+<div class="sourceCode" id="cb76"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb76-1" title="1"><span class="pp">ApiStreamEvent::</span>MessageStart <span class="op">{</span> message <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb76-2" title="2">    <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Some</span>(usage) = message.get(<span class="st">&quot;usage&quot;</span>) <span class="op">{</span></a>
+<a class="sourceLine" id="cb76-3" title="3">        cost_tracker.accumulate(&amp;usage, &amp;config.model);</a>
+<a class="sourceLine" id="cb76-4" title="4">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb76-5" title="5"><span class="op">}</span></a>
+<a class="sourceLine" id="cb76-6" title="6"><span class="pp">ApiStreamEvent::</span>MessageDelta <span class="op">{</span> usage, .. <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb76-7" title="7">    cost_tracker.accumulate(&amp;usage, &amp;config.model);</a>
+<a class="sourceLine" id="cb76-8" title="8"><span class="op">}</span></a></code></pre></div>
+<h3 id="展示给用户">展示给用户</h3>
+<p>每次查询完成后，CLI 显示 token 统计：</p>
+<pre><code>2 tools · 6141→2164 tokens · 58.5s</code></pre>
+<p>格式：<code>工具数 · 输入→输出 tokens · 耗时</code></p>
+<h3 id="缓存-token">缓存 Token</h3>
+<p>Anthropic API 支持 prompt caching，BaoClaw 追踪缓存相关的 token：</p>
+<div class="sourceCode" id="cb78"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb78-1" title="1"><span class="kw">pub</span> <span class="kw">struct</span> Usage <span class="op">{</span></a>
+<a class="sourceLine" id="cb78-2" title="2">    <span class="kw">pub</span> input_tokens: <span class="dt">u64</span>,</a>
+<a class="sourceLine" id="cb78-3" title="3">    <span class="kw">pub</span> output_tokens: <span class="dt">u64</span>,</a>
+<a class="sourceLine" id="cb78-4" title="4">    <span class="kw">pub</span> cache_creation_input_tokens: <span class="dt">Option</span>&lt;<span class="dt">u64</span>&gt;,  <span class="co">// 创建缓存的 token</span></a>
+<a class="sourceLine" id="cb78-5" title="5">    <span class="kw">pub</span> cache_read_input_tokens: <span class="dt">Option</span>&lt;<span class="dt">u64</span>&gt;,      <span class="co">// 从缓存读取的 token</span></a>
+<a class="sourceLine" id="cb78-6" title="6"><span class="op">}</span></a></code></pre></div>
+<p>缓存命中时，<code>cache_read_input_tokens</code> 的成本远低于普通 <code>input_tokens</code>。</p>
+<h2 id="成本优化策略">19.3 成本优化策略</h2>
+<ol type="1">
+<li><strong>Compact</strong> —— 压缩对话历史减少每次调用的 input tokens</li>
+<li><strong>结果截断</strong> —— <code>max_result_size_chars</code> 防止工具返回过大的结果</li>
+<li><strong>图片剥离</strong> —— <code>strip_base64_images</code> 从对话历史中移除图片数据</li>
+<li><strong>模型选择</strong> —— 不同模型价格差异巨大（GLM-5-Turbo 比 Claude 便宜很多）</li>
+</ol>
+<h2 id="小结-17">19.4 小结</h2>
+<p>成本追踪让用户对 AI 消耗保持可见性。通过 token 计量 + 多种优化策略，BaoClaw 帮助用户在功能和成本之间找到平衡。</p>
+
+<h1 id="第-20-章computer-use-桌面控制-agent">第 20 章：Computer Use —— 桌面控制 Agent</h1>
+<h2 id="从代码到桌面">20.1 从代码到桌面</h2>
+<p>传统 Agent 操作的是文件和命令行。Computer Use 让 Agent 能操作图形界面 —— 截图、识别 UI 元素、点击、输入文字。</p>
+<h2 id="baoclaw-的-computer-use-实现">20.2 BaoClaw 的 Computer Use 实现</h2>
+<p>BaoClaw 通过两种方式实现桌面控制：</p>
+<h3 id="方式一mcp-工具computer-control-mcp">方式一：MCP 工具（computer-control-mcp）</h3>
+<div class="sourceCode" id="cb79"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb79-1" title="1"><span class="er">//</span> <span class="er">~/.baoclaw/mcp.json</span></a>
+<a class="sourceLine" id="cb79-2" title="2"><span class="fu">{</span></a>
+<a class="sourceLine" id="cb79-3" title="3">    <span class="dt">&quot;mcpServers&quot;</span><span class="fu">:</span> <span class="fu">{</span></a>
+<a class="sourceLine" id="cb79-4" title="4">        <span class="dt">&quot;computer-control-mcp&quot;</span><span class="fu">:</span> <span class="fu">{</span></a>
+<a class="sourceLine" id="cb79-5" title="5">            <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;uvx&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb79-6" title="6">            <span class="dt">&quot;args&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;computer-control-mcp@latest&quot;</span><span class="ot">]</span></a>
+<a class="sourceLine" id="cb79-7" title="7">        <span class="fu">}</span></a>
+<a class="sourceLine" id="cb79-8" title="8">    <span class="fu">}</span></a>
+<a class="sourceLine" id="cb79-9" title="9"><span class="fu">}</span></a></code></pre></div>
+<p>提供 15 个工具：<code>take_screenshot</code>、<code>click_screen</code>、<code>type_text</code>、<code>move_mouse</code>、<code>press_keys</code>、<code>list_windows</code>、<code>activate_window</code> 等。</p>
+<h3 id="方式二skill-bash无-mcp-依赖">方式二：Skill + Bash（无 MCP 依赖）</h3>
+<div class="sourceCode" id="cb80"><pre class="sourceCode markdown"><code class="sourceCode markdown"><a class="sourceLine" id="cb80-1" title="1"><span class="fu"># desktop-launch-app Skill</span></a>
+<a class="sourceLine" id="cb80-2" title="2">通过 xdotool + 截图分析的方式操作桌面：</a>
+<a class="sourceLine" id="cb80-3" title="3">1. <span class="fl">xdotool 获取屏幕信息</span></a>
+<a class="sourceLine" id="cb80-4" title="4"><span class="fl">2. Python + PIL 截图并分析像素</span></a>
+<a class="sourceLine" id="cb80-5" title="5"><span class="fl">3. xdotool 移动鼠标并点击</span></a></code></pre></div>
+<p>Skill 方式不需要额外的 MCP 服务器，但需要系统安装 <code>xdotool</code> 和 <code>python3</code>。</p>
+<h2 id="图片处理的挑战">20.3 图片处理的挑战</h2>
+<p>桌面截图是 Computer Use 的核心，但也带来了独特的工程挑战：</p>
+<h3 id="挑战-1图片数据太大">挑战 1：图片数据太大</h3>
+<p>2560×1600 的 PNG 截图，base64 编码后约 5-10MB。直接存入对话历史会撑爆上下文窗口。</p>
+<p>解决：<code>strip_base64_images</code> 在存入对话历史前移除图片数据。</p>
+<h3 id="挑战-2mcp-返回的图片格式">挑战 2：MCP 返回的图片格式</h3>
+<p>MCP 工具返回 JSON 格式的图片：</p>
+<div class="sourceCode" id="cb81"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb81-1" title="1"><span class="fu">{</span><span class="dt">&quot;content&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;image&quot;</span><span class="fu">,</span> <span class="dt">&quot;data&quot;</span><span class="fu">:</span> <span class="st">&quot;iVBOR...&quot;</span><span class="fu">,</span> <span class="dt">&quot;mimeType&quot;</span><span class="fu">:</span> <span class="st">&quot;image/png&quot;</span><span class="fu">}</span><span class="ot">]</span><span class="fu">}</span></a></code></pre></div>
+<p>但这个 JSON 被序列化为字符串传输，且可能被 <code>truncate_if_needed</code> 截断导致 JSON 不完整。</p>
+<p>解决：MCP 工具的 <code>max_result_size_chars</code> 设为 10MB。</p>
+<h3 id="挑战-3telegram-显示图片">挑战 3：Telegram 显示图片</h3>
+<p>Telegram 不能显示 base64 文本。需要： 1. 从 tool_result 中提取 base64 数据 2. 解码为二进制 3. 写入临时文件 4. 通过 <code>bot.sendPhoto(chatId, tmpFile)</code> 发送 5. 删除临时文件</p>
+<div class="sourceCode" id="cb82"><pre class="sourceCode typescript"><code class="sourceCode typescript"><a class="sourceLine" id="cb82-1" title="1"><span class="cf">case</span> <span class="st">&#39;tool_result&#39;</span><span class="op">:</span></a>
+<a class="sourceLine" id="cb82-2" title="2">    <span class="kw">let</span> outputObj <span class="op">=</span> <span class="bu">JSON</span><span class="op">.</span><span class="fu">parse</span>(<span class="va">tr</span><span class="op">.</span><span class="at">output</span>)<span class="op">;</span> <span class="co">// 可能因截断失败</span></a>
+<a class="sourceLine" id="cb82-3" title="3">    <span class="fu">for</span> (<span class="kw">const</span> item <span class="kw">of</span> <span class="va">outputObj</span><span class="op">.</span><span class="at">content</span>) <span class="op">{</span></a>
+<a class="sourceLine" id="cb82-4" title="4">        <span class="fu">if</span> (<span class="va">item</span><span class="op">.</span><span class="at">type</span> <span class="op">===</span> <span class="st">&#39;image&#39;</span>) <span class="op">{</span></a>
+<a class="sourceLine" id="cb82-5" title="5">            <span class="kw">const</span> tmpFile <span class="op">=</span> <span class="va">path</span><span class="op">.</span><span class="fu">join</span>(<span class="va">os</span><span class="op">.</span><span class="fu">tmpdir</span>()<span class="op">,</span> <span class="vs">`baoclaw-img-</span><span class="sc">${</span><span class="bu">Date</span>.<span class="fu">now</span>()<span class="sc">}</span><span class="vs">.png`</span>)<span class="op">;</span></a>
+<a class="sourceLine" id="cb82-6" title="6">            <span class="va">fs</span><span class="op">.</span><span class="fu">writeFileSync</span>(tmpFile<span class="op">,</span> <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(<span class="va">item</span><span class="op">.</span><span class="at">data</span><span class="op">,</span> <span class="st">&#39;base64&#39;</span>))<span class="op">;</span></a>
+<a class="sourceLine" id="cb82-7" title="7">            <span class="cf">await</span> <span class="va">bot</span><span class="op">.</span><span class="fu">sendPhoto</span>(chatId<span class="op">,</span> tmpFile)<span class="op">;</span></a>
+<a class="sourceLine" id="cb82-8" title="8">            <span class="va">fs</span><span class="op">.</span><span class="fu">unlinkSync</span>(tmpFile)<span class="op">;</span></a>
+<a class="sourceLine" id="cb82-9" title="9">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb82-10" title="10">    <span class="op">}</span></a></code></pre></div>
+<h2 id="工作流示例">20.4 工作流示例</h2>
+<p>用户说“帮我打开微信”：</p>
+<pre><code>1. AI 调用 take_screenshot → 获取桌面截图
+2. AI 分析截图，找到任务栏图标位置
+3. AI 调用 click_screen(x, y) → 点击微信图标
+4. AI 调用 take_screenshot → 验证微信是否打开
+5. AI 回复&quot;微信已打开&quot;</code></pre>
+<p>整个过程是 ReAct 循环的自然延伸 —— 只是工具从“读写文件”变成了“截图点击”。</p>
+<h2 id="小结-18">20.5 小结</h2>
+<p>Computer Use 是 Agent 能力的重大扩展。通过 MCP 协议接入桌面控制工具，Agent 可以操作任何图形界面应用。工程上的主要挑战在于大图片数据的处理和跨客户端的图片传输。</p>
+
+<h1 id="第-22-章多模型支持-fallback-与模型切换">第 22 章：多模型支持 —— Fallback 与模型切换</h1>
+<h2 id="问题不要把鸡蛋放在一个篮子里">22.1 问题：不要把鸡蛋放在一个篮子里</h2>
+<p>依赖单一模型有风险：限流、宕机、价格变动。生产系统需要多模型支持。</p>
+<h2 id="baoclaw-的多模型架构">22.2 BaoClaw 的多模型架构</h2>
+<h3 id="配置.baoclawconfig.json">配置（<code>~/.baoclaw/config.json</code>）</h3>
+<div class="sourceCode" id="cb84"><pre class="sourceCode json"><code class="sourceCode json"><a class="sourceLine" id="cb84-1" title="1"><span class="fu">{</span></a>
+<a class="sourceLine" id="cb84-2" title="2">    <span class="dt">&quot;model&quot;</span><span class="fu">:</span> <span class="st">&quot;GLM-5-Turbo&quot;</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb84-3" title="3">    <span class="dt">&quot;fallback_models&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;GLM-5.1&quot;</span><span class="ot">,</span> <span class="st">&quot;GLM-5&quot;</span><span class="ot">]</span><span class="fu">,</span></a>
+<a class="sourceLine" id="cb84-4" title="4">    <span class="dt">&quot;max_retries_per_model&quot;</span><span class="fu">:</span> <span class="dv">2</span></a>
+<a class="sourceLine" id="cb84-5" title="5"><span class="fu">}</span></a></code></pre></div>
+<h3 id="fallbackcontroller">FallbackController</h3>
+<p>当主模型限流时，自动切换到备用模型：</p>
+<div class="sourceCode" id="cb85"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb85-1" title="1"><span class="kw">pub</span> <span class="kw">enum</span> FallbackAction <span class="op">{</span></a>
+<a class="sourceLine" id="cb85-2" title="2">    Retry <span class="op">{</span> model: <span class="dt">String</span>, attempt: <span class="dt">u32</span>, delay: Duration <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb85-3" title="3">    Fallback <span class="op">{</span> from: <span class="dt">String</span>, to: <span class="dt">String</span> <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb85-4" title="4">    Exhausted <span class="op">{</span> models_tried: <span class="dt">Vec</span>&lt;<span class="dt">String</span>&gt;, total_retries: <span class="dt">u32</span> <span class="op">}</span>,</a>
+<a class="sourceLine" id="cb85-5" title="5"><span class="op">}</span></a>
+<a class="sourceLine" id="cb85-6" title="6"></a>
+<a class="sourceLine" id="cb85-7" title="7"><span class="kw">impl</span> FallbackController <span class="op">{</span></a>
+<a class="sourceLine" id="cb85-8" title="8">    <span class="kw">pub</span> <span class="kw">fn</span> on_rate_limit(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; FallbackAction <span class="op">{</span></a>
+<a class="sourceLine" id="cb85-9" title="9">        <span class="kw">self</span>.retry_count += <span class="dv">1</span>;</a>
+<a class="sourceLine" id="cb85-10" title="10">        <span class="kw">if</span> <span class="kw">self</span>.retry_count &lt;= <span class="kw">self</span>.max_retries <span class="op">{</span></a>
+<a class="sourceLine" id="cb85-11" title="11">            <span class="co">// 同一模型重试（带退避延迟）</span></a>
+<a class="sourceLine" id="cb85-12" title="12">            <span class="pp">FallbackAction::</span>Retry <span class="op">{</span> delay: backoff_delay() <span class="op">}</span></a>
+<a class="sourceLine" id="cb85-13" title="13">        <span class="op">}</span> <span class="kw">else</span> <span class="kw">if</span> <span class="kw">self</span>.has_next_model() <span class="op">{</span></a>
+<a class="sourceLine" id="cb85-14" title="14">            <span class="co">// 切换到下一个模型</span></a>
+<a class="sourceLine" id="cb85-15" title="15">            <span class="kw">self</span>.advance_model();</a>
+<a class="sourceLine" id="cb85-16" title="16">            <span class="pp">FallbackAction::</span>Fallback <span class="op">{</span> from: old, to: new <span class="op">}</span></a>
+<a class="sourceLine" id="cb85-17" title="17">        <span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></a>
+<a class="sourceLine" id="cb85-18" title="18">            <span class="co">// 所有模型都用完了</span></a>
+<a class="sourceLine" id="cb85-19" title="19">            <span class="pp">FallbackAction::</span>Exhausted <span class="op">{</span> ... <span class="op">}</span></a>
+<a class="sourceLine" id="cb85-20" title="20">        <span class="op">}</span></a>
+<a class="sourceLine" id="cb85-21" title="21">    <span class="op">}</span></a>
+<a class="sourceLine" id="cb85-22" title="22"><span class="op">}</span></a></code></pre></div>
+<h3 id="用户通知">用户通知</h3>
+<p>模型切换时通知客户端：</p>
+<div class="sourceCode" id="cb86"><pre class="sourceCode rust"><code class="sourceCode rust"><a class="sourceLine" id="cb86-1" title="1"><span class="pp">FallbackAction::</span>Fallback <span class="op">{</span> from, to <span class="op">}</span> =&gt; <span class="op">{</span></a>
+<a class="sourceLine" id="cb86-2" title="2">    tx.send(<span class="pp">EngineEvent::</span>ModelFallback <span class="op">{</span> from_model: from, to_model: to <span class="op">}</span>).await;</a>
+<a class="sourceLine" id="cb86-3" title="3">    <span class="kw">continue</span>; <span class="co">// 用新模型重试</span></a>
+<a class="sourceLine" id="cb86-4" title="4"><span class="op">}</span></a></code></pre></div>
+<h3 id="手动切换">手动切换</h3>
+<p>用户可以通过 <code>/model</code> 命令查看和切换模型：</p>
+<pre><code>/model              → 显示当前模型和回退链
+/model GLM-5.1      → 切换到 GLM-5.1</code></pre>
+<h2 id="兼容不同-api">22.3 兼容不同 API</h2>
+<p>BaoClaw 通过 <code>ANTHROPIC_BASE_URL</code> 环境变量支持不同的 API 端点：</p>
+<div class="sourceCode" id="cb88"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb88-1" title="1"><span class="bu">export</span> <span class="va">ANTHROPIC_BASE_URL=</span>https://your-proxy.com</a></code></pre></div>
+<p>这让 BaoClaw 可以连接到任何兼容 Anthropic API 格式的服务（包括 GLM 的兼容接口）。</p>
+<h2 id="小结-19">22.4 小结</h2>
+<p>多模型支持通过 FallbackController 实现自动降级，通过 <code>/model</code> 命令实现手动切换，通过环境变量实现 API 端点配置。这让 BaoClaw 不绑定任何特定的模型提供商。</p>
+
+<h1 id="附录-abaoclaw-完整架构图">附录 A：BaoClaw 完整架构图</h1>
+<h2 id="系统架构">系统架构</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│                      Client Layer                            │
+│                                                              │
+│  ┌──────────────┐  ┌────────────────┐  ┌─────────────────┐ │
+│  │  Terminal CLI │  │   Telegram     │  │  Future Clients │ │
+│  │  (TypeScript) │  │   Gateway      │  │  (WhatsApp,     │ │
+│  │              │  │  (TypeScript)   │  │   Web UI, ...)  │ │
+│  │  - TUI 渲染   │  │  - Bot API     │  │                 │ │
+│  │  - 命令路由   │  │  - HTML 格式化  │  │                 │ │
+│  │  - 权限交互   │  │  - 图片发送    │  │                 │ │
+│  └──────┬───────┘  └───────┬────────┘  └────────┬────────┘ │
+│         │                  │                     │           │
+│         └──────────────────┼─────────────────────┘           │
+│                            │                                 │
+│              IPC: JSON-RPC 2.0 / Unix Domain Socket          │
+│                            │                                 │
+├────────────────────────────┼─────────────────────────────────┤
+│                            ▼                                 │
+│                    Daemon (Rust)                              │
+│                                                              │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                    SharedState                         │  │
+│  │                                                        │  │
+│  │  ┌──────────────┐  ┌───────────────┐  ┌────────────┐ │  │
+│  │  │ engine_tools │  │ SessionRegistry│  │ MemoryStore│ │  │
+│  │  │ (14 builtin  │  │ (shared mode) │  │ (JSONL)    │ │  │
+│  │  │  + MCP tools)│  └───────────────┘  └────────────┘ │  │
+│  │  └──────────────┘  ┌───────────────┐  ┌────────────┐ │  │
+│  │  ┌──────────────┐  │PermissionGate │  │ TaskManager│ │  │
+│  │  │ skill_prompt │  └───────────────┘  └────────────┘ │  │
+│  │  │ (Skills +    │  ┌───────────────┐  ┌────────────┐ │  │
+│  │  │  Memory)     │  │ StateManager  │  │ CostTracker│ │  │
+│  │  └──────────────┘  └───────────────┘  └────────────┘ │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                            │                                 │
+│                            ▼                                 │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                   QueryEngine                          │  │
+│  │                                                        │  │
+│  │  messages: Vec&lt;Message&gt;  ←→  LLM API (streaming)      │  │
+│  │                          ←→  Tool Executor             │  │
+│  │                          ←→  TranscriptWriter          │  │
+│  │                                                        │  │
+│  │  ReAct Loop:                                           │  │
+│  │  [思考 → 工具调用 → 观察结果 → 再思考]*  → 最终回复    │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                              │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                   External Services                    │  │
+│  │                                                        │  │
+│  │  ┌──────────┐  ┌──────────────────┐  ┌─────────────┐ │  │
+│  │  │ LLM API  │  │ MCP Servers      │  │ Git         │ │  │
+│  │  │ (GLM-5,  │  │ (computer-ctrl,  │  │ (diff,      │ │  │
+│  │  │  Claude)  │  │  custom, ...)    │  │  commit)    │ │  │
+│  │  └──────────┘  └──────────────────┘  └─────────────┘ │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘</code></pre>
+<h2 id="文件系统布局">文件系统布局</h2>
+<pre><code>~/.baoclaw/
+├── bin/claude-core          # Rust daemon 二进制
+├── config.json              # 全局配置（model, fallback_models）
+├── mcp.json                 # MCP 服务器配置
+├── memory.jsonl             # 长期记忆
+├── skills/                  # 全局 Skills
+│   ├── desktop-launch-app/SKILL.md
+│   └── debate-competition/SKILL.md
+├── plugins/                 # 全局 Plugins
+│   └── test-plugin/
+│       ├── plugin.json
+│       ├── skills/
+│       └── mcp.json
+├── sessions/                # 会话 Transcript
+│   └── &lt;session-id&gt;.jsonl
+├── ts-ipc/                  # CLI 客户端
+│   ├── cli.ts
+│   └── markdownRenderer.ts
+└── baoclaw-telegram/        # Telegram 网关
+    └── src/
+        ├── gateway.ts
+        └── commands.ts
+
+&lt;project&gt;/
+├── BAOCLAW.md               # 项目级指令
+└── .baoclaw/
+    ├── mcp.json             # 项目级 MCP
+    ├── skills/              # 项目级 Skills
+    └── todo.json            # TODO 列表</code></pre>
+
+<h1 id="附录-b从零搭建-agent-harness">附录 B：从零搭建 Agent Harness</h1>
+<h2 id="最小可行-agent">最小可行 Agent</h2>
+<p>如果你想从零搭建一个类似 BaoClaw 的 Agent Harness，以下是最小实现路径：</p>
+<h3 id="第-1-步react-循环1-天">第 1 步：ReAct 循环（1 天）</h3>
+<div class="sourceCode" id="cb91"><pre class="sourceCode python"><code class="sourceCode python"><a class="sourceLine" id="cb91-1" title="1"><span class="co"># 最简单的 ReAct 循环</span></a>
+<a class="sourceLine" id="cb91-2" title="2"><span class="cf">while</span> <span class="va">True</span>:</a>
+<a class="sourceLine" id="cb91-3" title="3">    response <span class="op">=</span> llm.call(messages, tools)</a>
+<a class="sourceLine" id="cb91-4" title="4">    <span class="cf">if</span> response.has_tool_calls():</a>
+<a class="sourceLine" id="cb91-5" title="5">        <span class="cf">for</span> tool_call <span class="kw">in</span> response.tool_calls:</a>
+<a class="sourceLine" id="cb91-6" title="6">            result <span class="op">=</span> execute_tool(tool_call)</a>
+<a class="sourceLine" id="cb91-7" title="7">            messages.append(tool_result(result))</a>
+<a class="sourceLine" id="cb91-8" title="8">    <span class="cf">else</span>:</a>
+<a class="sourceLine" id="cb91-9" title="9">        <span class="bu">print</span>(response.text)</a>
+<a class="sourceLine" id="cb91-10" title="10">        <span class="cf">break</span></a></code></pre></div>
+<h3 id="第-2-步工具系统1-天">第 2 步：工具系统（1 天）</h3>
+<p>定义 Tool 接口，实现 BashTool 和 FileReadTool。</p>
+<h3 id="第-3-步daemon-化2-天">第 3 步：Daemon 化（2 天）</h3>
+<p>把 Agent 放到后台进程，通过 UDS + JSON-RPC 通信。</p>
+<h3 id="第-4-步cli-客户端1-天">第 4 步：CLI 客户端（1 天）</h3>
+<p>连接 Daemon，发送消息，渲染流式输出。</p>
+<h3 id="第-5-步记忆系统1-天">第 5 步：记忆系统（1 天）</h3>
+<p>JSONL 文件存储记忆，注入系统提示词。</p>
+<h3 id="第-6-步mcp-支持2-天">第 6 步：MCP 支持（2 天）</h3>
+<p>实现 MCP stdio transport，连接外部工具服务器。</p>
+<h3 id="第-7-步多客户端2-天">第 7 步：多客户端（2 天）</h3>
+<p>添加 Telegram 网关，实现共享会话。</p>
+<p>总计约 10 天，你就有了一个功能完整的 Agent Harness。</p>
+<h2 id="技术选型建议">技术选型建议</h2>
+<table>
+<thead>
+<tr class="header">
+<th>组件</th>
+<th>推荐</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Daemon</td>
+<td>Rust / Go</td>
+<td>性能、并发、内存安全</td>
+</tr>
+<tr class="even">
+<td>CLI</td>
+<td>TypeScript</td>
+<td>生态丰富、readline 支持好</td>
+</tr>
+<tr class="odd">
+<td>IPC</td>
+<td>JSON-RPC + UDS</td>
+<td>简单、高效、无端口冲突</td>
+</tr>
+<tr class="even">
+<td>存储</td>
+<td>JSONL 文件</td>
+<td>零依赖、易调试</td>
+</tr>
+<tr class="odd">
+<td>MCP</td>
+<td>stdio transport</td>
+<td>MCP 标准，生态丰富</td>
+</tr>
+</tbody>
+</table>
+
+<h1 id="附录-c与其他框架的对比">附录 C：与其他框架的对比</h1>
+<h2 id="agent-harness-框架对比">Agent Harness 框架对比</h2>
+<table>
+<thead>
+<tr class="header">
+<th>特性</th>
+<th>BaoClaw</th>
+<th>Claude Code</th>
+<th>OpenClaw</th>
+<th>Shannon</th>
+<th>LangGraph</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>语言</td>
+<td>Rust + TS</td>
+<td>TypeScript</td>
+<td>TypeScript</td>
+<td>Rust + Go + Python</td>
+<td>Python</td>
+</tr>
+<tr class="even">
+<td>架构</td>
+<td>Daemon + IPC</td>
+<td>单进程</td>
+<td>Daemon + IPC</td>
+<td>三层微服务</td>
+<td>库</td>
+</tr>
+<tr class="odd">
+<td>多客户端</td>
+<td>✅ CLI + Telegram</td>
+<td>❌ CLI only</td>
+<td>✅ CLI + Telegram</td>
+<td>✅ API</td>
+<td>❌</td>
+</tr>
+<tr class="even">
+<td>共享会话</td>
+<td>✅ SharedSession</td>
+<td>❌</td>
+<td>✅</td>
+<td>✅</td>
+<td>❌</td>
+</tr>
+<tr class="odd">
+<td>MCP 支持</td>
+<td>✅</td>
+<td>✅</td>
+<td>✅</td>
+<td>✅</td>
+<td>❌</td>
+</tr>
+<tr class="even">
+<td>Skills</td>
+<td>✅ 系统提示词注入</td>
+<td>❌</td>
+<td>✅</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr class="odd">
+<td>长期记忆</td>
+<td>✅ JSONL</td>
+<td>❌</td>
+<td>✅</td>
+<td>✅ 向量数据库</td>
+<td>❌</td>
+</tr>
+<tr class="even">
+<td>模型 Fallback</td>
+<td>✅</td>
+<td>❌</td>
+<td>✅</td>
+<td>✅</td>
+<td>❌</td>
+</tr>
+<tr class="odd">
+<td>自动 Compact</td>
+<td>✅</td>
+<td>❌</td>
+<td>✅</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr class="even">
+<td>Computer Use</td>
+<td>✅ via MCP</td>
+<td>✅ 内置</td>
+<td>✅ via MCP</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr class="odd">
+<td>权限控制</td>
+<td>✅ PermissionGate</td>
+<td>✅</td>
+<td>✅</td>
+<td>✅ OPA</td>
+<td>❌</td>
+</tr>
+<tr class="even">
+<td>成本追踪</td>
+<td>✅</td>
+<td>✅</td>
+<td>✅</td>
+<td>✅</td>
+<td>❌</td>
+</tr>
+<tr class="odd">
+<td>多 Agent 编排</td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+<td>✅ Temporal</td>
+<td>✅ DAG</td>
+</tr>
+<tr class="even">
+<td>沙箱隔离</td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+<td>✅ WASI</td>
+<td>❌</td>
+</tr>
+</tbody>
+</table>
+<h2 id="选型建议">选型建议</h2>
+<ul>
+<li><strong>个人开发者</strong>：BaoClaw / Claude Code —— 轻量、快速上手</li>
+<li><strong>团队协作</strong>：Shannon —— 企业级治理、多租户</li>
+<li><strong>快速原型</strong>：LangGraph —— Python 生态、灵活</li>
+<li><strong>多客户端需求</strong>：BaoClaw / OpenClaw —— Daemon 架构天然支持</li>
+</ul>
+<h2 id="baoclaw-的独特之处">BaoClaw 的独特之处</h2>
+<ol type="1">
+<li><strong>Rust Daemon</strong> —— 高性能、低内存、长时间运行稳定</li>
+<li><strong>真正的多客户端共享</strong> —— 终端和 Telegram 实时共享同一个对话</li>
+<li><strong>Skill 系统</strong> —— 零代码扩展 Agent 行为</li>
+<li><strong>自动记忆</strong> —— AI 主动保存用户偏好和项目规则</li>
+<li><strong>图片处理</strong> —— MCP 截图 → base64 剥离 → Telegram 图片发送的完整链路</li>
+</ol>
+</body>
+</html>

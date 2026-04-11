@@ -13,7 +13,7 @@ echo ""
 
 # 1. Build Rust core
 echo "🔨 Building Rust core (release)..."
-cd "$SCRIPT_DIR/claude-core"
+cd "$SCRIPT_DIR/baoclaw-core"
 cargo build --release 2>&1 | tail -3
 cd "$SCRIPT_DIR"
 echo "✓ Rust core built"
@@ -25,12 +25,19 @@ npm install --silent 2>&1
 cd "$SCRIPT_DIR"
 echo "✓ Dependencies installed"
 
+# 2b. Install Telegram gateway dependencies
+echo "📦 Installing Telegram gateway dependencies..."
+cd "$SCRIPT_DIR/baoclaw-telegram"
+npm install --silent 2>&1
+cd "$SCRIPT_DIR"
+echo "✓ Telegram gateway dependencies installed"
+
 # 3. Create install directory
 mkdir -p "$INSTALL_DIR/bin"
 mkdir -p "$BIN_DIR"
 
 # 4. Copy Rust binary
-cp "$SCRIPT_DIR/claude-core/target/release/claude-core" "$INSTALL_DIR/bin/claude-core"
+cp "$SCRIPT_DIR/baoclaw-core/target/release/claude-core" "$INSTALL_DIR/bin/claude-core"
 echo "✓ Rust binary installed to $INSTALL_DIR/bin/"
 
 # 5. Copy TS-IPC files
@@ -48,6 +55,21 @@ cd "$INSTALL_DIR/ts-ipc"
 npm install --silent 2>&1
 cd "$SCRIPT_DIR"
 echo "✓ TypeScript files installed to $INSTALL_DIR/ts-ipc/"
+
+# 5b. Copy Telegram gateway files
+mkdir -p "$INSTALL_DIR/baoclaw-telegram/src"
+for f in "$SCRIPT_DIR"/baoclaw-telegram/src/*.ts; do
+  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/baoclaw-telegram/src/"
+done
+cp "$SCRIPT_DIR/baoclaw-telegram/package.json" "$INSTALL_DIR/baoclaw-telegram/"
+cp "$SCRIPT_DIR/baoclaw-telegram/package-lock.json" "$INSTALL_DIR/baoclaw-telegram/" 2>/dev/null || true
+cp "$SCRIPT_DIR/baoclaw-telegram/tsconfig.json" "$INSTALL_DIR/baoclaw-telegram/"
+
+# Install Telegram gateway deps in install dir
+cd "$INSTALL_DIR/baoclaw-telegram"
+npm install --silent 2>&1
+cd "$SCRIPT_DIR"
+echo "✓ Telegram gateway installed to $INSTALL_DIR/baoclaw-telegram/"
 
 # 6. Create the launcher script
 cat > "$BIN_DIR/baoclaw" << 'LAUNCHER'

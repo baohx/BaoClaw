@@ -1,10 +1,14 @@
 # Rust
 claude-core/target/
+baoclaw-core/target/
 **/*.rs.bk
 
 # Node
+node_modules/
 ts-ipc/node_modules/
 ts-ipc/dist/
+baoclaw-telegram/node_modules/
+baoclaw-whatsapp/node_modules/
 
 # OS
 .DS_Store
@@ -17,7 +21,7 @@ Thumbs.db
 *.swo
 
 # Original Claude Code source (reference only, not part of BaoClaw)
-src/
+/src/
 
 # Kiro specs (local dev artifacts)
 .kiro/
@@ -25,9 +29,6 @@ src/
 # Environment
 .env
 .env.local
-
-# Test artifacts
-fibonacci.py
 
 # BaoClaw local config
 .baoclaw/mcp.local.json
