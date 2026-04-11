@@ -10,9 +10,9 @@ import { spawn, ChildProcess } from 'child_process';
 import { renderMarkdown } from './markdownRenderer.js';
 import * as fs from 'fs';
 import * as os from 'os';
-// @ts-ignore — pdf-parse has inconsistent ESM exports
-import pdf from 'pdf-parse';
-import mammoth from 'mammoth';
+// @ts-ignore — pdf-parse and mammoth loaded dynamically for CJS compat
+let pdf: any;
+let mammoth: any;
 
 // ═══════════════════════════════════════════════════════════════
 // ANSI helpers
@@ -1511,6 +1511,7 @@ async function main() {
           } else if (ext === 'pdf') {
             // PDF — Route A: extract text for prompt; Route B: also send as document block
             try {
+              if (!pdf) { pdf = (await import('pdf-parse')).default; }
               const pdfData = await pdf(fileData);
               const pdfText = pdfData.text || '';
               if (pdfText.trim()) {
@@ -1537,6 +1538,7 @@ async function main() {
           } else if (ext === 'docx') {
             // DOCX — Route A: extract text via mammoth
             try {
+              if (!mammoth) { mammoth = (await import('mammoth')).default; }
               const result = await mammoth.extractRawText({ buffer: fileData });
               const docText = result.value || '';
               if (docText.trim()) {
