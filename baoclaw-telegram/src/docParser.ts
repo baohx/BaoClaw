@@ -2,9 +2,10 @@
  * Document parser — extracts text from PDF and DOCX files.
  * Used for Route A (client-side text extraction).
  */
-// @ts-ignore — pdf-parse has inconsistent ESM exports
-import pdf from 'pdf-parse';
-import mammoth from 'mammoth';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
+const mammoth = require('mammoth');
 
 export interface ParsedDocument {
   text: string;
