@@ -114,7 +114,7 @@ async fn handle_shared_client(
     session: Arc<SharedSession>,
     client_id: ClientId,
     broadcast_rx: tokio::sync::broadcast::Receiver<EngineEvent>,
-    work_cwd: PathBuf,
+    mut work_cwd: PathBuf,
     _session_id: String,
 ) {
     // Wrap conn in Arc<TokioMutex> so the broadcast receiver task can also send
@@ -441,10 +441,16 @@ async fn handle_shared_client(
                                     }
                                     drop(engine); // release write lock before memory switch
                                     shared.memory_store.switch_project(&abs_cwd).await;
+                                    work_cwd = abs_cwd.clone();
                                     let mut conn_guard = conn.lock().await;
+                                    let msg_count_shared = {
+                                        let eng = session.engine_read().await;
+                                        eng.get_messages().len()
+                                    };
                                     let _ = conn_guard.send_response(id, serde_json::json!({
                                         "cwd": abs_cwd.display().to_string(),
-                                        "scaffold_created": created
+                                        "scaffold_created": created,
+                                        "message_count": msg_count_shared
                                     })).await;
                                 }
                             }
