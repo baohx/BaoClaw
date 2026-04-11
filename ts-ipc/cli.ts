@@ -10,6 +10,9 @@ import { spawn, ChildProcess } from 'child_process';
 import { renderMarkdown } from './markdownRenderer.js';
 import * as fs from 'fs';
 import * as os from 'os';
+// @ts-ignore — pdf-parse has inconsistent ESM exports
+import pdf from 'pdf-parse';
+import mammoth from 'mammoth';
 
 // ═══════════════════════════════════════════════════════════════
 // ANSI helpers
@@ -1506,22 +1509,48 @@ async function main() {
               source: { type: 'base64', media_type: mediaType, data: fileData.toString('base64') },
             });
           } else if (ext === 'pdf') {
-            // PDF — send as native document block (Route B)
-            attachments.push({
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: fileData.toString('base64') },
-            });
+            // PDF — Route A: extract text for prompt; Route B: also send as document block
+            try {
+              const pdfData = await pdf(fileData);
+              const pdfText = pdfData.text || '';
+              if (pdfText.trim()) {
+                const maxChars = 100_000;
+                const truncated = pdfText.length > maxChars
+                  ? pdfText.slice(0, maxChars) + `\n\n[... 文档已截断，共 ${pdfText.length} 字符]`
+                  : pdfText;
+                // Prepend extracted text to the prompt
+                textPart = `[文件: ${filePath} (${pdfData.numpages}页)]\n\n${truncated}\n\n---\n${textPart}`;
+              } else {
+                // Text extraction failed, fall back to document block
+                attachments.push({
+                  type: 'document',
+                  source: { type: 'base64', media_type: 'application/pdf', data: fileData.toString('base64') },
+                });
+              }
+            } catch {
+              // pdf-parse failed, fall back to document block
+              attachments.push({
+                type: 'document',
+                source: { type: 'base64', media_type: 'application/pdf', data: fileData.toString('base64') },
+              });
+            }
           } else if (ext === 'docx') {
-            // DOCX — extract text inline (Route A), mammoth not available in CLI so read raw
-            // For CLI we send as document block; core will handle it
-            attachments.push({
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                data: fileData.toString('base64'),
-              },
-            });
+            // DOCX — Route A: extract text via mammoth
+            try {
+              const result = await mammoth.extractRawText({ buffer: fileData });
+              const docText = result.value || '';
+              if (docText.trim()) {
+                const maxChars = 100_000;
+                const truncated = docText.length > maxChars
+                  ? docText.slice(0, maxChars) + `\n\n[... 文档已截断，共 ${docText.length} 字符]`
+                  : docText;
+                textPart = `[文件: ${filePath}]\n\n${truncated}\n\n---\n${textPart}`;
+              } else {
+                console.log(`${FG_YELLOW}Warning: DOCX file is empty or text extraction failed${RESET}`);
+              }
+            } catch (e: any) {
+              console.log(`${FG_YELLOW}Warning: Failed to extract DOCX text: ${e.message}${RESET}`);
+            }
           } else if (ext === 'doc') {
             console.log(`${FG_YELLOW}Warning: .doc format not supported, please convert to .docx${RESET}`);
           }
@@ -1533,6 +1562,10 @@ async function main() {
       if (attachments.length > 0) {
         submitPayload = { prompt: textPart || '请分析这个文件', attachments };
         console.log(`${DIM}  📎 ${attachments.length} attachment(s)${RESET}`);
+      } else if (textPart !== input) {
+        // Text was extracted from documents and prepended to prompt
+        submitPayload = { prompt: textPart };
+        console.log(`${DIM}  📄 Document text extracted${RESET}`);
       }
     }
 

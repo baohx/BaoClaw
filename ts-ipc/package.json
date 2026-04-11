@@ -7,6 +7,8 @@
     "build:rust": "cd ../claude-core && cargo build --release"
   },
   "dependencies": {
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
     "tsx": "^4.19.0"
   },
   "devDependencies": {
