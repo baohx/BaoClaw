@@ -928,10 +928,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
     };
 
-    // Session ID: cwd-hash prefix + short UUID for uniqueness
-    // This ties sessions to projects so they can be auto-resumed per-project.
+    // Session ID: reuse existing project session or create new one.
+    // One project directory = one session file, daemon restarts append to it.
     let cwd_hash = &format!("{:x}", md5_simple(&cwd_str))[..8];
-    let session_id = format!("{}-{}", cwd_hash, &uuid::Uuid::new_v4().to_string()[..8]);
+    let session_id = engine::transcript::find_latest_session_for_cwd(&cwd_str)
+        .unwrap_or_else(|| format!("{}-{}", cwd_hash, &uuid::Uuid::new_v4().to_string()[..8]));
+    eprintln!("Session ID: {} (cwd: {})", session_id, cwd_str);
 
     // Write metadata file for discovery by CLI
     write_meta(&socket_path, &cwd_str, &session_id);
