@@ -392,6 +392,43 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, serde_json::json!({"model": new_model})).await;
                             }
 
+                            ClientMethod::SwitchCwd { cwd: new_cwd } => {
+                                if session.has_active_submitter().await {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_error(Some(id), -32002,
+                                        "session busy: cannot switch cwd while a message is being processed".into()).await;
+                                    continue;
+                                }
+                                let abs_cwd = if new_cwd.is_absolute() {
+                                    new_cwd
+                                } else {
+                                    std::path::PathBuf::from(&work_cwd).join(&new_cwd)
+                                };
+                                if !abs_cwd.is_dir() {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_error(Some(id), -32000,
+                                        format!("Directory does not exist: {}", abs_cwd.display())).await;
+                                } else {
+                                    let baoclaw_dir = abs_cwd.join(".baoclaw");
+                                    let created = if !baoclaw_dir.exists() {
+                                        let _ = std::fs::create_dir_all(&baoclaw_dir);
+                                        let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
+                                        let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
+                                        let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
+                                        true
+                                    } else {
+                                        false
+                                    };
+                                    let mut engine = session.engine_write().await;
+                                    engine.update_cwd(abs_cwd.clone());
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_response(id, serde_json::json!({
+                                        "cwd": abs_cwd.display().to_string(),
+                                        "scaffold_created": created
+                                    })).await;
+                                }
+                            }
+
                             ClientMethod::GitCommit { message } => {
                                 let add_result = tokio::process::Command::new("git")
                                     .args(["add", "-A"])
@@ -560,7 +597,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
     let model = init_model
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
         .unwrap_or_else(|| shared.baoclaw_config.model.clone());
-    let work_cwd = init_cwd;
+    let mut work_cwd = init_cwd;
 
     // ── Shared mode branch ──
     if let Some(ref shared_session_id) = init_shared_session_id {
@@ -785,6 +822,34 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                                 engine.update_model(new_model.clone());
                                 shared.state_manager.update(|s| { s.model = new_model.clone(); });
                                 let _ = conn.send_response(id, serde_json::json!({"model": new_model})).await;
+                            }
+                            ClientMethod::SwitchCwd { cwd: new_cwd } => {
+                                let abs_cwd = if new_cwd.is_absolute() {
+                                    new_cwd
+                                } else {
+                                    work_cwd.join(&new_cwd)
+                                };
+                                if !abs_cwd.is_dir() {
+                                    let _ = conn.send_error(Some(id), -32000,
+                                        format!("Directory does not exist: {}", abs_cwd.display())).await;
+                                } else {
+                                    let baoclaw_dir = abs_cwd.join(".baoclaw");
+                                    let created = if !baoclaw_dir.exists() {
+                                        let _ = std::fs::create_dir_all(&baoclaw_dir);
+                                        let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
+                                        let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
+                                        let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
+                                        true
+                                    } else {
+                                        false
+                                    };
+                                    engine.update_cwd(abs_cwd.clone());
+                                    work_cwd = abs_cwd.clone();
+                                    let _ = conn.send_response(id, serde_json::json!({
+                                        "cwd": abs_cwd.display().to_string(),
+                                        "scaffold_created": created
+                                    })).await;
+                                }
                             }
                             ClientMethod::GitDiff => {
                                 let output = tokio::process::Command::new("git")

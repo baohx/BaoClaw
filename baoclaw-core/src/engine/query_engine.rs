@@ -207,6 +207,11 @@ impl QueryEngine {
         self.config.model = model;
     }
 
+    /// Update the working directory at runtime.
+    pub fn update_cwd(&mut self, cwd: std::path::PathBuf) {
+        self.config.cwd = cwd;
+    }
+
     /// Get the current model name.
     pub fn get_model(&self) -> &str {
         &self.config.model

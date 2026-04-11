@@ -391,6 +391,7 @@ const COMMANDS = [
   '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory',
+  '/cd',
 ];
 
 /**
@@ -931,6 +932,33 @@ async function main() {
       return;
     }
 
+    if (input.startsWith('/cd')) {
+      const targetDir = input.slice('/cd'.length).trim();
+      if (!targetDir) {
+        console.log(`\n\${FG_WHITE}Current directory:\${RESET} \${process.cwd()}`);
+        console.log(`\${DIM}Usage: /cd <path>\${RESET}\n`);
+        rl.prompt();
+        return;
+      }
+      startSpinner('Switching directory...');
+      try {
+        const result = await client.request<{ cwd: string; scaffold_created: boolean }>('switchCwd', { cwd: targetDir });
+        stopSpinner();
+        // Also change the Node process cwd for @file resolution
+        try { process.chdir(result.cwd); } catch {}
+        console.log(`\n\${FG_GREEN}\${BOLD}Switched to\${RESET} \${result.cwd}`);
+        if (result.scaffold_created) {
+          console.log(`\${DIM}  Created .baoclaw/ scaffold (BAOCLAW.md, mcp.json, skills/)\${RESET}`);
+        }
+        console.log();
+      } catch (err) {
+        stopSpinner();
+        console.error(`\${FG_RED}\${err}\${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
     if (input === '/compact') {
       startSpinner('Compacting conversation...');
       try {
@@ -1457,6 +1485,7 @@ async function main() {
       console.log(`  ${FG_WHITE}/skills${RESET}     ${DIM}List discovered skills${RESET}`);
       console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
       console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
+      console.log(`  ${FG_WHITE}/cd${RESET}         ${DIM}Switch working directory: /cd <path>${RESET}`);
       console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
       console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model: /model [name]${RESET}`);
       console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Show git diff summary${RESET}`);
