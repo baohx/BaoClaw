@@ -106,11 +106,70 @@ impl TranscriptWriter {
 /// ToolUse and ToolResult entries are skipped since they are embedded in the
 /// assistant/user messages.
 pub fn rebuild_messages_from_transcript(entries: &[TranscriptEntry]) -> Vec<crate::models::message::Message> {
-    entries
-        .iter()
-        .filter(|e| matches!(e.entry_type, TranscriptEntryType::UserMessage | TranscriptEntryType::AssistantMessage))
-        .filter_map(|e| serde_json::from_value::<crate::models::message::Message>(e.data.clone()).ok())
-        .collect()
+    use crate::models::message::{Message, MessageContent, ApiUserMessage};
+
+    let mut messages: Vec<Message> = Vec::new();
+    let mut pending_tool_results: Vec<serde_json::Value> = Vec::new();
+
+    for entry in entries {
+        match entry.entry_type {
+            TranscriptEntryType::UserMessage | TranscriptEntryType::AssistantMessage => {
+                // Flush any pending tool results as a user message first
+                if !pending_tool_results.is_empty() {
+                    messages.push(Message {
+                        uuid: uuid::Uuid::new_v4().to_string(),
+                        timestamp: entry.timestamp.clone(),
+                        content: MessageContent::User {
+                            message: ApiUserMessage {
+                                role: "user".to_string(),
+                                content: serde_json::Value::Array(pending_tool_results.drain(..).collect()),
+                            },
+                            is_meta: false,
+                            tool_use_result: None,
+                        },
+                    });
+                }
+                // Add the actual message
+                if let Ok(msg) = serde_json::from_value::<Message>(entry.data.clone()) {
+                    messages.push(msg);
+                }
+            }
+            TranscriptEntryType::ToolResult => {
+                // Accumulate tool results to be flushed as a user message
+                let tool_use_id = entry.data.get("tool_use_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let output = entry.data.get("output").cloned().unwrap_or(serde_json::Value::Null);
+                let is_error = entry.data.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                pending_tool_results.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": output,
+                    "is_error": is_error,
+                }));
+            }
+            _ => {} // Skip ToolUse, SystemEvent
+        }
+    }
+
+    // Flush any remaining tool results
+    if !pending_tool_results.is_empty() {
+        messages.push(Message {
+            uuid: uuid::Uuid::new_v4().to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            content: MessageContent::User {
+                message: ApiUserMessage {
+                    role: "user".to_string(),
+                    content: serde_json::Value::Array(pending_tool_results),
+                },
+                is_meta: false,
+                tool_use_result: None,
+            },
+        });
+    }
+
+    messages
 }
 
 
