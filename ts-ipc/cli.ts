@@ -671,8 +671,6 @@ async function main() {
         console.log(`\n${FG_RED}${BOLD}Error${RESET}${FG_RED} [${err.code}]: ${err.message}${RESET}\n`);
         break;
       }
-    }
-
       case 'cron_result': {
         const cr = event as { job_id: string; job_name: string; text: string; timestamp: string };
         console.log(`\n${FG_CYAN}${BOLD}\u23F0 Cron: ${cr.job_name}${RESET} ${DIM}[${cr.job_id}]${RESET}`);
@@ -682,6 +680,8 @@ async function main() {
         rl.prompt();
         break;
       }
+    }
+
   });
 
   // ── REPL ──
