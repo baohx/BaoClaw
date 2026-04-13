@@ -391,7 +391,7 @@ const COMMANDS = [
   '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory',
-  '/cd',
+  '/cd', '/cron',
 ];
 
 /**
@@ -672,6 +672,16 @@ async function main() {
         break;
       }
     }
+
+      case 'cron_result': {
+        const cr = event as { job_id: string; job_name: string; text: string; timestamp: string };
+        console.log(`\n${FG_CYAN}${BOLD}\u23F0 Cron: ${cr.job_name}${RESET} ${DIM}[${cr.job_id}]${RESET}`);
+        const preview = cr.text.length > 500 ? cr.text.slice(0, 500) + '...' : cr.text;
+        console.log(preview);
+        console.log();
+        rl.prompt();
+        break;
+      }
   });
 
   // ── REPL ──
@@ -963,6 +973,69 @@ async function main() {
       } catch (err) {
         stopSpinner();
         console.error(`${FG_RED}${err}${RESET}`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input.startsWith('/cron')) {
+      const cronArgs = input.slice('/cron'.length).trim();
+      const parts = cronArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'add') {
+        // /cron add "name" "every 1h" prompt text here
+        const nameMatch = cronArgs.match(/add\s+"([^"]+)"\s+"([^"]+)"\s+(.+)/);
+        if (!nameMatch) {
+          console.log(`\n${FG_YELLOW}Usage: /cron add "job name" "every 1h" <prompt>${RESET}`);
+          console.log(`${DIM}  Schedules: every 30m, every 2h, daily 09:00, weekly mon 09:00${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ job: any }>('cronAdd', {
+            name: nameMatch[1], schedule: nameMatch[2], prompt: nameMatch[3],
+          });
+          console.log(`\n${FG_GREEN}\u2713 Cron job created${RESET} ${DIM}[${result.job.id}] ${result.job.name} (${result.job.schedule})${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else if (subCmd === 'list' || subCmd === '') {
+        try {
+          const result = await client.request<{ jobs: any[]; count: number }>('cronList');
+          if (result.count === 0) {
+            console.log(`\n${DIM}No cron jobs. Use /cron add to create one.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Cron Jobs${RESET} ${DIM}(${result.count})${RESET}\n`);
+            for (const j of result.jobs) {
+              const status = j.enabled ? `${FG_GREEN}on${RESET}` : `${FG_RED}off${RESET}`;
+              const last = j.last_run ? `last: ${j.last_run.slice(0, 19)}` : 'never run';
+              console.log(`  ${FG_WHITE}${BOLD}${j.id}${RESET} ${status} ${DIM}${j.schedule}${RESET} ${j.name}`);
+              console.log(`    ${DIM}${last}${RESET}`);
+              console.log(`    ${DIM}${j.prompt.slice(0, 80)}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else if (subCmd === 'remove' || subCmd === 'rm') {
+        const jobId = parts[1];
+        if (!jobId) { console.log(`${FG_YELLOW}Usage: /cron remove <id>${RESET}`); rl.prompt(); return; }
+        try {
+          const result = await client.request<{ removed: boolean }>('cronRemove', { id: jobId });
+          console.log(result.removed ? `\n${FG_GREEN}\u2713 Removed${RESET}\n` : `\n${FG_YELLOW}Not found${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else if (subCmd === 'toggle') {
+        const jobId = parts[1];
+        if (!jobId) { console.log(`${FG_YELLOW}Usage: /cron toggle <id>${RESET}`); rl.prompt(); return; }
+        try {
+          const result = await client.request<{ enabled: boolean }>('cronToggle', { id: jobId });
+          console.log(`\n${result.enabled ? FG_GREEN + 'Enabled' : FG_YELLOW + 'Disabled'}${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else {
+        console.log(`\n${FG_ORANGE}${BOLD}Cron Commands${RESET}\n`);
+        console.log(`  ${FG_WHITE}/cron list${RESET}                              ${DIM}List all jobs${RESET}`);
+        console.log(`  ${FG_WHITE}/cron add "name" "schedule" prompt${RESET}     ${DIM}Create a job${RESET}`);
+        console.log(`  ${FG_WHITE}/cron remove <id>${RESET}                      ${DIM}Delete a job${RESET}`);
+        console.log(`  ${FG_WHITE}/cron toggle <id>${RESET}                      ${DIM}Enable/disable${RESET}`);
+        console.log(`\n${DIM}  Schedules: every 30m, every 2h, daily 09:00, weekly mon 09:00${RESET}\n`);
       }
       rl.prompt();
       return;

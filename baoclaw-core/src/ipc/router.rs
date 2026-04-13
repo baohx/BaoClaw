@@ -104,6 +104,20 @@ pub enum ClientMethod {
     SwitchCwd {
         cwd: PathBuf,
     },
+    #[serde(rename = "cronAdd")]
+    CronAdd {
+        name: String,
+        prompt: String,
+        schedule: String,
+        #[serde(default)]
+        cwd: Option<String>,
+    },
+    #[serde(rename = "cronRemove")]
+    CronRemove { id: String },
+    #[serde(rename = "cronToggle")]
+    CronToggle { id: String },
+    #[serde(rename = "cronList")]
+    CronList,
 }
 
 fn default_category() -> String { "fact".to_string() }
