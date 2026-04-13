@@ -140,12 +140,18 @@ pub fn rebuild_messages_from_transcript(entries: &[TranscriptEntry]) -> Vec<crat
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let output = entry.data.get("output").cloned().unwrap_or(serde_json::Value::Null);
+                let raw_output = entry.data.get("output").cloned().unwrap_or(serde_json::Value::Null);
+                // API requires content to be a string or array of content blocks, not an object
+                let output_str = match &raw_output {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Null => String::new(),
+                    other => serde_json::to_string(other).unwrap_or_default(),
+                };
                 let is_error = entry.data.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
                 pending_tool_results.push(serde_json::json!({
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,
-                    "content": output,
+                    "content": output_str,
                     "is_error": is_error,
                 }));
             }
