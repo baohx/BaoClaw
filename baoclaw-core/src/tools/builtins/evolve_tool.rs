@@ -54,6 +54,11 @@ impl Tool for EvolveTool {
                 "reason": {
                     "type": "string",
                     "description": "Why this skill is being created or how it's being improved"
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["personal", "project"],
+                    "description": "Where to save the skill: 'personal' (default, ~/.baoclaw/skills/, cross-project) or 'project' (<cwd>/.baoclaw/skills/, project-specific)"
                 }
             })),
             required: Some(vec!["operation".to_string()]),
@@ -111,7 +116,15 @@ Guidelines for skill creation:
                     .and_then(|v| v.as_str())
                     .unwrap_or("Auto-created by evolution engine");
 
-                let skills_dir = context.cwd.join(".baoclaw").join("skills");
+                let scope = input.get("scope")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("personal");
+                let skills_dir = if scope == "project" {
+                    context.cwd.join(".baoclaw").join("skills")
+                } else {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                    std::path::PathBuf::from(home).join(".baoclaw").join("skills")
+                };
                 let _ = std::fs::create_dir_all(&skills_dir);
                 let skill_path = skills_dir.join(format!("{}.md", name));
 
@@ -147,7 +160,16 @@ Guidelines for skill creation:
                     .and_then(|v| v.as_str())
                     .unwrap_or("Improved based on usage");
 
-                let skill_path = context.cwd.join(".baoclaw").join("skills").join(format!("{}.md", name));
+                let scope = input.get("scope")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("personal");
+                let skills_dir = if scope == "project" {
+                    context.cwd.join(".baoclaw").join("skills")
+                } else {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                    std::path::PathBuf::from(home).join(".baoclaw").join("skills")
+                };
+                let skill_path = skills_dir.join(format!("{}.md", name));
 
                 // Read existing to get version
                 let version = if let Ok(existing) = std::fs::read_to_string(&skill_path) {

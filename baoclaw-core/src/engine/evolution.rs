@@ -92,19 +92,19 @@ pub struct EvolutionEngine {
 }
 
 impl EvolutionEngine {
-    /// Create a new evolution engine for a project directory.
-    pub fn new(cwd: &Path) -> Self {
-        let base_dir = cwd.join(".baoclaw").join(EVOLUTION_DIR);
+    /// Create a new evolution engine.
+    /// Uses global ~/.baoclaw/evolution/ for personal cross-project learning.
+    pub fn new(_cwd: &Path) -> Self {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let base_dir = PathBuf::from(home).join(".baoclaw").join(EVOLUTION_DIR);
         Self {
             base_dir: Mutex::new(base_dir),
             task_count: Mutex::new(0),
         }
     }
 
-    /// Switch to a new project directory.
-    pub async fn switch_project(&self, cwd: &Path) {
-        let mut dir = self.base_dir.lock().await;
-        *dir = cwd.join(".baoclaw").join(EVOLUTION_DIR);
+    /// Switch project — evolution data stays global, only resets task counter.
+    pub async fn switch_project(&self, _cwd: &Path) {
         let mut count = self.task_count.lock().await;
         *count = 0;
     }
@@ -196,10 +196,11 @@ impl EvolutionEngine {
     }
 
     /// Promote a skill candidate to an actual skill file.
-    /// Called by the LLM during self-evaluation or by user command.
-    pub async fn promote_skill(&self, cwd: &Path, candidate_name: &str, 
+    /// Skills go to ~/.baoclaw/skills/ (personal, cross-project) by default.
+    pub async fn promote_skill(&self, _cwd: &Path, candidate_name: &str, 
                                 skill_content: &str) -> Result<String, String> {
-        let skills_dir = cwd.join(".baoclaw").join("skills");
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let skills_dir = PathBuf::from(home).join(".baoclaw").join("skills");
         let _ = std::fs::create_dir_all(&skills_dir);
 
         let skill_path = skills_dir.join(format!("{}.md", candidate_name));
