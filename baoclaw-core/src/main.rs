@@ -37,7 +37,7 @@ use mcp::tool_wrapper::McpToolWrapper;
 #[derive(Clone)]
 struct SharedState {
     engine_tools: Vec<Arc<dyn tools::Tool>>,
-    api_client: Arc<AnthropicClient>,
+    api_client: Arc<UnifiedClient>,
     permission_gate: PermissionGate,
     task_manager: Arc<TaskManager>,
     state_manager: Arc<StateManager>,
@@ -49,6 +49,7 @@ struct SharedState {
     session_registry: Arc<SessionRegistry>,
     skill_prompt: Option<String>,
     memory_store: Arc<engine::memory::MemoryStore>,
+    evolution_engine: Arc<engine::evolution::EvolutionEngine>,
 }
 
 /// Socket directory for all BaoClaw daemon instances
@@ -592,7 +593,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
     let model = init_model
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
         .unwrap_or_else(|| shared.baoclaw_config.model.clone());
-    let work_cwd = init_cwd;
+    let mut work_cwd = init_cwd;
 
     // ── Shared mode branch ──
     if let Some(ref shared_session_id) = init_shared_session_id {
@@ -838,7 +839,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                                         let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
                                     }
                                     engine.update_cwd(abs_cwd.clone());
-                                    work_cwd = abs_cwd.to_string_lossy().to_string();
+                                    work_cwd = abs_cwd.clone();
                                     let _ = conn.send_response(id, serde_json::json!({
                                         "cwd": abs_cwd.display().to_string(),
                                         "scaffold_created": !baoclaw_dir.join("BAOCLAW.md").exists()
@@ -1115,6 +1116,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(WebFetchTool::new()),
     ];
 
+    // Create evolution engine for self-improvement
+    let evolution_engine = Arc::new(engine::evolution::EvolutionEngine::new(std::path::Path::new(&cwd_str)));
+
     let engine_tools: Vec<Arc<dyn tools::Tool>> = vec![
         Arc::new(BashTool::new()),
         Arc::new(FileReadTool::new(vec![])),
@@ -1127,6 +1131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(MemoryTool::new()),
         Arc::new(ProjectNoteTool::new()),
         Arc::new(AgentTool::new(Arc::clone(&api_client), read_only_tools)),
+        Arc::new(tools::builtins::EvolveTool::new(Arc::clone(&evolution_engine))),
     ];
 
     // ToolSearchTool needs the full tool list, so register it last
@@ -1256,6 +1261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_registry: Arc::new(SessionRegistry::new()),
         skill_prompt: combined_append_prompt,
         memory_store,
+        evolution_engine,
     };
 
     // ══════════════════════════════════════════════════════════
