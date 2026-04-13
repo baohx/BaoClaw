@@ -29,9 +29,37 @@ pub async fn discover_skills(cwd: &Path) -> Vec<SkillInfo> {
         if let Ok(entries) = scan_skills_dir(&user_skills, "user").await {
             skills.extend(entries);
         }
+
+        // Plugin skills: scan ~/.baoclaw/plugins/*/skills/
+        let user_plugins = home.join(".baoclaw").join("plugins");
+        if let Ok(plugin_skills) = scan_plugin_skills(&user_plugins).await {
+            skills.extend(plugin_skills);
+        }
+    }
+
+    // Project plugin skills: <cwd>/.baoclaw/plugins/*/skills/
+    let project_plugins = cwd.join(".baoclaw").join("plugins");
+    if let Ok(plugin_skills) = scan_plugin_skills(&project_plugins).await {
+        skills.extend(plugin_skills);
     }
 
     skills
+}
+
+/// Scan all plugins in a plugins directory for skills subdirectories.
+async fn scan_plugin_skills(plugins_dir: &Path) -> Result<Vec<SkillInfo>, std::io::Error> {
+    let mut skills = Vec::new();
+    let mut entries = fs::read_dir(plugins_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        if !entry.file_type().await?.is_dir() { continue; }
+        let plugin_name = entry.file_name().to_string_lossy().to_string();
+        let skills_subdir = entry.path().join("skills");
+        let source = format!("plugin:{}", plugin_name);
+        if let Ok(plugin_skills) = scan_skills_dir(&skills_subdir, &source).await {
+            skills.extend(plugin_skills);
+        }
+    }
+    Ok(skills)
 }
 
 /// Scan a single skills directory for skill files.
@@ -108,4 +136,37 @@ async fn read_skill_description(path: &Path) -> Option<String> {
 
 fn dirs_path() -> Option<PathBuf> {
     std::env::var("HOME").ok().map(PathBuf::from)
+}
+
+
+/// Load all discovered skills and concatenate their full content into a system prompt fragment.
+/// Returns None if no skills are found.
+pub async fn load_skills_for_prompt(cwd: &Path) -> Option<String> {
+    let skills = discover_skills(cwd).await;
+    if skills.is_empty() {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    parts.push("# Loaded Skills\n\nThe following skills are available. Follow their instructions when the user requests the corresponding functionality.\n".to_string());
+
+    for skill in &skills {
+        match fs::read_to_string(&skill.path).await {
+            Ok(content) => {
+                parts.push(format!(
+                    "## Skill: {} [source: {}]\n\n{}\n",
+                    skill.name, skill.source, content
+                ));
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to read skill '{}': {}", skill.name, e);
+            }
+        }
+    }
+
+    if parts.len() <= 1 {
+        return None; // Only header, no actual skills loaded
+    }
+
+    Some(parts.join("\n"))
 }

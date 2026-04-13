@@ -89,6 +89,8 @@ pub enum ContentBlock {
     Thinking { thinking: String },
     #[serde(rename = "image")]
     Image { source: ImageSource },
+    #[serde(rename = "document")]
+    Document { source: DocumentSource },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,6 +98,14 @@ pub struct ImageSource {
     #[serde(rename = "type")]
     pub source_type: String, // "base64"
     pub media_type: String,  // "image/png", "image/jpeg", etc.
+    pub data: String,        // base64 encoded
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentSource {
+    #[serde(rename = "type")]
+    pub source_type: String, // "base64"
+    pub media_type: String,  // "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     pub data: String,        // base64 encoded
 }
 

@@ -52,12 +52,22 @@ pub async fn discover_mcp_servers(cwd: &Path) -> Vec<McpServerInfo> {
         if let Ok(entries) = load_mcp_config(&user_config, "user").await {
             servers.extend(entries);
         }
+
+        // Plugin MCP configs: ~/.baoclaw/plugins/*/mcp.json
+        if let Ok(plugin_servers) = scan_plugin_mcp(&home.join(".baoclaw").join("plugins")).await {
+            servers.extend(plugin_servers);
+        }
     }
 
     // Project-level config: <cwd>/.baoclaw/mcp.json
     let project_config = cwd.join(".baoclaw").join("mcp.json");
     if let Ok(entries) = load_mcp_config(&project_config, "project").await {
         servers.extend(entries);
+    }
+
+    // Project plugin MCP configs: <cwd>/.baoclaw/plugins/*/mcp.json
+    if let Ok(plugin_servers) = scan_plugin_mcp(&cwd.join(".baoclaw").join("plugins")).await {
+        servers.extend(plugin_servers);
     }
 
     // Local config (gitignored): <cwd>/.baoclaw/mcp.local.json
@@ -67,6 +77,22 @@ pub async fn discover_mcp_servers(cwd: &Path) -> Vec<McpServerInfo> {
     }
 
     servers
+}
+
+/// Scan all plugins in a plugins directory for mcp.json configs.
+async fn scan_plugin_mcp(plugins_dir: &Path) -> Result<Vec<McpServerInfo>, Box<dyn std::error::Error>> {
+    let mut servers = Vec::new();
+    let mut entries = fs::read_dir(plugins_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        if !entry.file_type().await?.is_dir() { continue; }
+        let plugin_name = entry.file_name().to_string_lossy().to_string();
+        let mcp_config = entry.path().join("mcp.json");
+        let source = format!("plugin:{}", plugin_name);
+        if let Ok(plugin_servers) = load_mcp_config(&mcp_config, &source).await {
+            servers.extend(plugin_servers);
+        }
+    }
+    Ok(servers)
 }
 
 async fn load_mcp_config(

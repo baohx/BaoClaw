@@ -106,7 +106,7 @@ function printWelcome(sessionId: string, model: string, cwd: string) {
   const cols = process.stdout.columns || 80;
   const line = '─'.repeat(Math.min(cols - 2, 70));
 
-  console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v0.3.0${RESET}`);
+  console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v0.4.0${RESET}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log(`${DIM}  Session: ${sessionId}${RESET}`);
   console.log(`${DIM}  cwd: ${cwd}${RESET}`);

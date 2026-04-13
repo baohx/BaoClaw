@@ -37,7 +37,7 @@ use mcp::tool_wrapper::McpToolWrapper;
 #[derive(Clone)]
 struct SharedState {
     engine_tools: Vec<Arc<dyn tools::Tool>>,
-    api_client: Arc<UnifiedClient>,
+    api_client: Arc<AnthropicClient>,
     permission_gate: PermissionGate,
     task_manager: Arc<TaskManager>,
     state_manager: Arc<StateManager>,
@@ -114,7 +114,7 @@ async fn handle_shared_client(
     session: Arc<SharedSession>,
     client_id: ClientId,
     broadcast_rx: tokio::sync::broadcast::Receiver<EngineEvent>,
-    mut work_cwd: PathBuf,
+    work_cwd: PathBuf,
     _session_id: String,
 ) {
     // Wrap conn in Arc<TokioMutex> so the broadcast receiver task can also send
@@ -391,7 +391,6 @@ async fn handle_shared_client(
                                 let mut conn_guard = conn.lock().await;
                                 let _ = conn_guard.send_response(id, serde_json::json!({"model": new_model})).await;
                             }
-
                             ClientMethod::SwitchCwd { cwd: new_cwd } => {
                                 if session.has_active_submitter().await {
                                     let mut conn_guard = conn.lock().await;
@@ -410,47 +409,17 @@ async fn handle_shared_client(
                                         format!("Directory does not exist: {}", abs_cwd.display())).await;
                                 } else {
                                     let baoclaw_dir = abs_cwd.join(".baoclaw");
-                                    let created = if !baoclaw_dir.exists() {
+                                    if !baoclaw_dir.exists() {
                                         let _ = std::fs::create_dir_all(&baoclaw_dir);
                                         let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
                                         let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
                                         let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
-                                        true
-                                    } else {
-                                        false
-                                    };
+                                    }
                                     let mut engine = session.engine_write().await;
                                     engine.update_cwd(abs_cwd.clone());
-                                    // Try to resume latest session for the new project
-                                    let new_cwd_str = abs_cwd.to_string_lossy().to_string();
-                                    if let Some(prev_session) = engine::transcript::find_latest_session_for_cwd(&new_cwd_str) {
-                                        match TranscriptWriter::load(&prev_session) {
-                                            Ok(entries) => {
-                                                let messages = rebuild_messages_from_transcript(&entries);
-                                                if !messages.is_empty() {
-                                                    engine.set_messages(messages);
-                                                    eprintln!("Resumed project session {} ({} messages)", prev_session, engine.get_messages().len());
-                                                } else {
-                                                    engine.set_messages(vec![]);
-                                                }
-                                            }
-                                            Err(_) => { engine.set_messages(vec![]); }
-                                        }
-                                    } else {
-                                        engine.set_messages(vec![]); // no previous session
-                                    }
-                                    drop(engine); // release write lock before memory switch
-                                    shared.memory_store.switch_project(&abs_cwd).await;
-                                    work_cwd = abs_cwd.clone();
                                     let mut conn_guard = conn.lock().await;
-                                    let msg_count_shared = {
-                                        let eng = session.engine_read().await;
-                                        eng.get_messages().len()
-                                    };
                                     let _ = conn_guard.send_response(id, serde_json::json!({
-                                        "cwd": abs_cwd.display().to_string(),
-                                        "scaffold_created": created,
-                                        "message_count": msg_count_shared
+                                        "cwd": abs_cwd.display().to_string()
                                     })).await;
                                 }
                             }
@@ -623,7 +592,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
     let model = init_model
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
         .unwrap_or_else(|| shared.baoclaw_config.model.clone());
-    let mut work_cwd = init_cwd;
+    let work_cwd = init_cwd;
 
     // ── Shared mode branch ──
     if let Some(ref shared_session_id) = init_shared_session_id {
@@ -632,14 +601,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         let model_clone = model.clone();
         let work_cwd_clone = work_cwd.clone();
 
-        let resume_for_shared = init_resume_session_id.clone()
-            .or(shared.cli_resume_session_id.clone())
-            .or_else(|| {
-                let cwd_str = work_cwd.to_string_lossy().to_string();
-                engine::transcript::find_latest_session_for_cwd(&cwd_str)
-            });
-
-        let (session, is_new) = shared.session_registry.get_or_create(
+        let (session, _is_new) = shared.session_registry.get_or_create(
             &session_id_clone,
             || {
                 QueryEngine::new(QueryEngineConfig {
@@ -659,30 +621,6 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                 })
             },
         ).await;
-
-        // Resume session history if session is new OR has no messages
-        // (e.g., after /cd cleared history, or reconnecting to a daemon that was restarted)
-        let current_msg_count = session.engine_read().await.get_messages().len();
-        let needs_resume = is_new || current_msg_count == 0;
-        eprintln!("Shared session '{}': is_new={}, messages={}, needs_resume={}, resume_id={:?}",
-            session_id_clone, is_new, current_msg_count, needs_resume, resume_for_shared);
-        if needs_resume {
-            if let Some(ref rid) = resume_for_shared {
-                match TranscriptWriter::load(rid) {
-                    Ok(entries) => {
-                        let messages = rebuild_messages_from_transcript(&entries);
-                        if !messages.is_empty() {
-                            let mut engine = session.engine_write().await;
-                            engine.set_messages(messages);
-                            eprintln!("Shared session: resumed {} ({} messages)", rid, engine.get_messages().len());
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Shared session: failed to resume {}: {}", rid, e);
-                    }
-                }
-            }
-        }
 
         let (client_id, broadcast_rx) = session.add_client().await;
         let msg_count = session.engine_read().await.get_messages().len();
@@ -711,11 +649,354 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         return;
     }
 
-    // All clients use shared mode (shared_session_id is always set).
-    // If somehow we get here, it means no shared_session_id was provided.
-    eprintln!("Client disconnected: no shared_session_id provided");
-    let _ = conn.send_error(Some(init_id), -32600,
-        "shared_session_id is required".into()).await;
+    // ── Independent mode (existing behavior) ──
+    let mut engine = QueryEngine::new(QueryEngineConfig {
+        cwd: work_cwd.clone(),
+        tools: shared.engine_tools.clone(),
+        api_client: Arc::clone(&shared.api_client),
+        model: model.clone(),
+        thinking_config: shared.cli_thinking_config.clone(),
+        max_turns: None,
+        max_budget_usd: None,
+        verbose: false,
+        custom_system_prompt: None,
+        append_system_prompt: shared.skill_prompt.clone(),
+        session_id: Some(shared.session_id.clone()),
+        fallback_models: shared.baoclaw_config.fallback_models.clone(),
+        max_retries_per_model: shared.baoclaw_config.max_retries_per_model,
+    });
+
+    // Handle session resume if requested (from RPC or CLI arg)
+    let resume_id = init_resume_session_id.or(shared.cli_resume_session_id.clone());
+    let mut resumed = false;
+    if let Some(ref resume_id) = resume_id {
+        match TranscriptWriter::load(resume_id) {
+            Ok(entries) => {
+                let messages = rebuild_messages_from_transcript(&entries);
+                if !messages.is_empty() {
+                    engine.set_messages(messages);
+                    resumed = true;
+                    eprintln!("Resumed session {} ({} messages)", resume_id, engine.get_messages().len());
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to load transcript for session {}: {}", resume_id, e);
+            }
+        }
+    }
+
+    let msg_count = engine.get_messages().len();
+
+    // Send init response
+    let _ = conn.send_response(init_id, serde_json::json!({
+        "capabilities": { "tools": true, "streaming": true, "permissions": true },
+        "session_id": &shared.session_id,
+        "reconnected": msg_count > 0,
+        "resumed": resumed,
+        "message_count": msg_count,
+    })).await;
+
+    // ── Client RPC loop ──
+    while !shared.should_exit.load(Ordering::Relaxed) {
+        let msg = match conn.recv_message().await {
+            Ok(msg) => msg,
+            Err(IpcError::ConnectionClosed) => {
+                eprintln!("Client disconnected");
+                break;
+            }
+            Err(e) => {
+                eprintln!("IPC error: {}", e);
+                break;
+            }
+        };
+
+        match msg {
+            JsonRpcMessage::Request(req) => {
+                let id = req.id.clone();
+                match parse_client_method(&req) {
+                    Ok(method) => {
+                        match method {
+                            ClientMethod::SubmitMessage { prompt, attachments, .. } => {
+                                let prompt_str = match prompt.as_str() {
+                                    Some(s) => s.to_string(),
+                                    None => serde_json::to_string(&prompt).unwrap_or_default(),
+                                };
+                                let mut rx = engine.submit_message_with_attachments(prompt_str, attachments).await;
+                                let mut disconnected = false;
+                                while let Some(event) = rx.recv().await {
+                                    if send_engine_event(&mut conn, &event).await.is_err() {
+                                        disconnected = true;
+                                        break;
+                                    }
+                                    if matches!(event, EngineEvent::Result(_) | EngineEvent::Error(_)) {
+                                        break;
+                                    }
+                                }
+                                if disconnected {
+                                    break;
+                                }
+                                engine.sync_messages().await;
+                                let _ = conn.send_response(id, serde_json::json!({"status": "complete"})).await;
+                            }
+                            ClientMethod::Abort => {
+                                engine.abort();
+                                let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                            }
+                            ClientMethod::Shutdown => {
+                                let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                                shared.should_exit.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                            ClientMethod::UpdateSettings { settings } => {
+                                if let Some(thinking) = settings.get("thinking") {
+                                    if let Some(mode) = thinking.get("mode").and_then(|v| v.as_str()) {
+                                        match mode {
+                                            "enabled" => {
+                                                let budget = thinking.get("budget_tokens")
+                                                    .and_then(|v| v.as_u64())
+                                                    .unwrap_or(10240) as u32;
+                                                engine.update_thinking_config(ThinkingConfig::Enabled { budget_tokens: budget });
+                                            }
+                                            "adaptive" => {
+                                                engine.update_thinking_config(ThinkingConfig::Adaptive);
+                                            }
+                                            _ => {
+                                                engine.update_thinking_config(ThinkingConfig::Disabled);
+                                            }
+                                        }
+                                    }
+                                }
+                                let _ = conn.send_response(id, serde_json::json!("ok")).await;
+                            }
+                            ClientMethod::PermissionResponse { tool_use_id, decision, rule } => {
+                                let perm_decision = match decision.as_str() {
+                                    "allow" => PermissionDecision::Allow,
+                                    "allow_always" => PermissionDecision::AllowAlways { rule },
+                                    _ => PermissionDecision::Deny,
+                                };
+                                let delivered = shared.permission_gate.respond(&tool_use_id, perm_decision);
+                                let _ = conn.send_response(id, serde_json::json!({"delivered": delivered})).await;
+                            }
+                            ClientMethod::Initialize { .. } => {
+                                let _ = conn.send_error(Some(id), -32600, "Already initialized".into()).await;
+                            }
+                            ClientMethod::ListTools => {
+                                let tl: Vec<serde_json::Value> = shared.engine_tools.iter().map(|t| {
+                                    serde_json::json!({"name": t.name(), "description": t.prompt(), "type": "builtin"})
+                                }).collect();
+                                let _ = conn.send_response(id, serde_json::json!({"tools": tl, "count": tl.len()})).await;
+                            }
+                            ClientMethod::ListMcpServers => {
+                                let s = discovery::mcp_config::discover_mcp_servers(&work_cwd).await;
+                                let _ = conn.send_response(id, serde_json::json!({"servers": s, "count": s.len()})).await;
+                            }
+                            ClientMethod::ListSkills => {
+                                let s = discovery::skills::discover_skills(&work_cwd).await;
+                                let _ = conn.send_response(id, serde_json::json!({"skills": s, "count": s.len()})).await;
+                            }
+                            ClientMethod::ListPlugins => {
+                                let p = discovery::plugins::discover_plugins(&work_cwd).await;
+                                let _ = conn.send_response(id, serde_json::json!({"plugins": p, "count": p.len()})).await;
+                            }
+                            ClientMethod::Compact => {
+                                match engine.compact().await {
+                                    Ok(result) => {
+                                        let _ = conn.send_response(id, serde_json::json!({
+                                            "tokens_saved": result.tokens_saved,
+                                            "summary_tokens": result.summary_tokens,
+                                            "tokens_before": result.tokens_before,
+                                            "tokens_after": result.tokens_after,
+                                        })).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn.send_error(Some(id), -32000, e.message).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::SwitchModel { model: new_model } => {
+                                engine.update_model(new_model.clone());
+                                shared.state_manager.update(|s| { s.model = new_model.clone(); });
+                                let _ = conn.send_response(id, serde_json::json!({"model": new_model})).await;
+                            }
+                            ClientMethod::SwitchCwd { cwd: new_cwd } => {
+                                let abs_cwd = if new_cwd.is_absolute() {
+                                    new_cwd
+                                } else {
+                                    std::path::PathBuf::from(&work_cwd).join(&new_cwd)
+                                };
+                                if !abs_cwd.is_dir() {
+                                    let _ = conn.send_error(Some(id), -32000,
+                                        format!("Directory does not exist: {}", abs_cwd.display())).await;
+                                } else {
+                                    // Create .baoclaw/ scaffold if missing
+                                    let baoclaw_dir = abs_cwd.join(".baoclaw");
+                                    if !baoclaw_dir.exists() {
+                                        let _ = std::fs::create_dir_all(&baoclaw_dir);
+                                        // Create empty config files
+                                        let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
+                                        let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
+                                        let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
+                                    }
+                                    engine.update_cwd(abs_cwd.clone());
+                                    work_cwd = abs_cwd.to_string_lossy().to_string();
+                                    let _ = conn.send_response(id, serde_json::json!({
+                                        "cwd": abs_cwd.display().to_string(),
+                                        "scaffold_created": !baoclaw_dir.join("BAOCLAW.md").exists()
+                                    })).await;
+                                }
+                            }
+                            ClientMethod::GitDiff => {
+                                let output = tokio::process::Command::new("git")
+                                    .args(["diff", "--stat"])
+                                    .current_dir(&work_cwd)
+                                    .output()
+                                    .await;
+                                match output {
+                                    Ok(o) if o.status.success() => {
+                                        let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                                        let result = if stdout.trim().is_empty() {
+                                            "No uncommitted changes.".to_string()
+                                        } else {
+                                            stdout
+                                        };
+                                        let _ = conn.send_response(id, serde_json::json!({"diff": result})).await;
+                                    }
+                                    Ok(o) => {
+                                        let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                                        let _ = conn.send_error(Some(id), -32000, format!("git diff failed: {}", stderr)).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn.send_error(Some(id), -32000, format!("Not a git repository or git not available: {}", e)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::GitCommit { message } => {
+                                let add_result = tokio::process::Command::new("git")
+                                    .args(["add", "-A"])
+                                    .current_dir(&work_cwd)
+                                    .output()
+                                    .await;
+                                match add_result {
+                                    Ok(o) if o.status.success() => {
+                                        let commit_result = tokio::process::Command::new("git")
+                                            .args(["commit", "-m", &message])
+                                            .current_dir(&work_cwd)
+                                            .output()
+                                            .await;
+                                        match commit_result {
+                                            Ok(co) if co.status.success() => {
+                                                let hash = tokio::process::Command::new("git")
+                                                    .args(["rev-parse", "--short", "HEAD"])
+                                                    .current_dir(&work_cwd)
+                                                    .output()
+                                                    .await
+                                                    .ok()
+                                                    .and_then(|h| String::from_utf8(h.stdout).ok())
+                                                    .map(|s| s.trim().to_string())
+                                                    .unwrap_or_default();
+                                                let _ = conn.send_response(id, serde_json::json!({"hash": hash, "message": message})).await;
+                                            }
+                                            Ok(co) => {
+                                                let stderr = String::from_utf8_lossy(&co.stderr).to_string();
+                                                let stdout = String::from_utf8_lossy(&co.stdout).to_string();
+                                                let msg = if stderr.is_empty() { stdout } else { stderr };
+                                                let _ = conn.send_error(Some(id), -32000, format!("git commit failed: {}", msg)).await;
+                                            }
+                                            Err(e) => {
+                                                let _ = conn.send_error(Some(id), -32000, format!("git commit error: {}", e)).await;
+                                            }
+                                        }
+                                    }
+                                    Ok(o) => {
+                                        let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                                        let _ = conn.send_error(Some(id), -32000, format!("git add failed: {}", stderr)).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn.send_error(Some(id), -32000, format!("Not a git repository or git not available: {}", e)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::GitStatus => {
+                                let git_info = engine::git_info::get_git_info(std::path::Path::new(&work_cwd));
+                                match git_info {
+                                    Some(info) => {
+                                        let _ = conn.send_response(id, serde_json::json!({
+                                            "branch": info.branch,
+                                            "has_changes": info.has_changes,
+                                            "staged_files": info.staged_files,
+                                            "modified_files": info.modified_files,
+                                            "untracked_files": info.untracked_files,
+                                        })).await;
+                                    }
+                                    None => {
+                                        let _ = conn.send_error(Some(id), -32000, "Not a git repository".to_string()).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::ListMcpResources => {
+                                let _ = conn.send_response(id, serde_json::json!({"resources": [], "count": 0})).await;
+                            }
+                            ClientMethod::ReadMcpResource { server_name, uri } => {
+                                let _ = conn.send_error(Some(id), -32000,
+                                    format!("MCP resource read not yet wired: {}:{}", server_name, uri)).await;
+                            }
+                            ClientMethod::TaskCreate { description, prompt } => {
+                                let task_id = shared.task_manager.create_task(
+                                    description,
+                                    prompt,
+                                    std::path::PathBuf::from(&work_cwd),
+                                    shared.state_manager.get().model,
+                                ).await;
+                                let _ = conn.send_response(id, serde_json::json!({"task_id": task_id})).await;
+                            }
+                            ClientMethod::TaskList => {
+                                let tasks = shared.task_manager.list_tasks().await;
+                                let _ = conn.send_response(id, serde_json::json!({"tasks": tasks, "count": tasks.len()})).await;
+                            }
+                            ClientMethod::TaskStatus { task_id } => {
+                                match shared.task_manager.get_task_status(&task_id).await {
+                                    Some(task) => {
+                                        let _ = conn.send_response(id, serde_json::json!(task)).await;
+                                    }
+                                    None => {
+                                        let _ = conn.send_error(Some(id), -32000,
+                                            format!("Task not found: {}", task_id)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TaskStop { task_id } => {
+                                let stopped = shared.task_manager.stop_task(&task_id).await;
+                                let _ = conn.send_response(id, serde_json::json!({"stopped": stopped})).await;
+                            }
+                            ClientMethod::MemoryList => {
+                                let entries = shared.memory_store.list().await;
+                                let _ = conn.send_response(id, serde_json::json!({"memories": entries, "count": entries.len()})).await;
+                            }
+                            ClientMethod::MemoryAdd { content, category } => {
+                                let cat = engine::memory::parse_category(&category);
+                                let entry = shared.memory_store.add(content, cat, "user".to_string()).await;
+                                let _ = conn.send_response(id, serde_json::json!({"memory": entry})).await;
+                            }
+                            ClientMethod::MemoryDelete { id: mem_id } => {
+                                let deleted = shared.memory_store.delete(&mem_id).await;
+                                let _ = conn.send_response(id, serde_json::json!({"deleted": deleted})).await;
+                            }
+                            ClientMethod::MemoryClear => {
+                                let count = shared.memory_store.clear().await;
+                                let _ = conn.send_response(id, serde_json::json!({"cleared": count})).await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = conn.send_error(Some(id), -32601, format!("{}", e)).await;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    eprintln!("Client session ended");
 }
 
 #[tokio::main]
@@ -801,9 +1082,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_client: Arc<UnifiedClient> = {
         match baoclaw_config.api_type.as_str() {
             "openai" => {
-                let base_url = std::env::var("OPENAI_BASE_URL").ok()
-                    .or(baoclaw_config.openai_base_url.clone())
-                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok());
+                let base_url = std::env::var("OPENAI_BASE_URL")
+                    .or_else(|_| std::env::var("ANTHROPIC_BASE_URL"))
+                    .ok();
                 let api_key_openai = std::env::var("OPENAI_API_KEY")
                     .unwrap_or_else(|_| api_key.clone());
                 eprintln!("Using OpenAI-compatible API (base_url: {})", base_url.as_deref().unwrap_or("default"));
@@ -928,12 +1209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
     };
 
-    // Session ID: reuse existing project session or create new one.
-    // One project directory = one session file, daemon restarts append to it.
-    let cwd_hash = &format!("{:x}", md5_simple(&cwd_str))[..8];
-    let session_id = engine::transcript::find_latest_session_for_cwd(&cwd_str)
-        .unwrap_or_else(|| format!("{}-{}", cwd_hash, &uuid::Uuid::new_v4().to_string()[..8]));
-    eprintln!("Session ID: {} (cwd: {})", session_id, cwd_str);
+    let session_id = uuid::Uuid::new_v4().to_string();
 
     // Write metadata file for discovery by CLI
     write_meta(&socket_path, &cwd_str, &session_id);

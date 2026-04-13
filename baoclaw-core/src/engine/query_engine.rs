@@ -250,21 +250,11 @@ impl QueryEngine {
         let recent_messages = self.messages[split..].to_vec();
 
         // Build a summarisation prompt from the old messages
-        let raw_summary = format_messages_for_summary(old_messages);
-        // Truncate to ~100k chars (~25k tokens) to avoid exceeding context window
-        let max_chars: usize = 100_000;
-        let truncated = if raw_summary.len() > max_chars {
-            eprintln!("Compact: truncating summary input from {} to {} chars", raw_summary.len(), max_chars);
-            format!("{}\n\n[... truncated, {} total chars]", &raw_summary[..max_chars], raw_summary.len())
-        } else {
-            raw_summary
-        };
         let summary_prompt = format!(
             "Summarize the following conversation history concisely, \
              preserving key context, decisions, and file changes:\n\n{}",
-            truncated
+            format_messages_for_summary(old_messages)
         );
-        eprintln!("Compact: summarizing {} messages ({} chars prompt)", old_messages.len(), summary_prompt.len());
 
         // Call the API (non-streaming) to produce a summary
         let summary = self.call_api_for_summary(&summary_prompt).await?;
@@ -383,6 +373,7 @@ impl QueryEngine {
     ) -> mpsc::Receiver<EngineEvent> {
         let (tx, rx) = mpsc::channel(256);
 
+        // Build user message content: plain string or multimodal array
         let content = if let Some(att) = attachments {
             if att.is_empty() {
                 Value::String(prompt)
@@ -400,6 +391,7 @@ impl QueryEngine {
             Value::String(prompt)
         };
 
+        // Build the user message and append to history
         let user_msg = Message {
             uuid: uuid::Uuid::new_v4().to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
