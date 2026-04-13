@@ -799,6 +799,95 @@ async function main() {
   }
 
   // Command handler dispatch table
+  async function handleCron(args: string): Promise<string> {
+    if (!ipcClient.connected) return formatDisconnected();
+    const parts = args.split(/\s+/);
+    const subCmd = parts[0] || '';
+
+    try {
+      if (subCmd === 'list' || subCmd === '') {
+        const result = await ipcClient.request<{ jobs: any[]; count: number }>('cronList');
+        if (result.count === 0) return '暂无定时任务。使用 /cron add 创建。';
+        let out = `⏰ 定时任务 (${result.count})\n\n`;
+        for (const j of result.jobs) {
+          const status = j.enabled ? '✅' : '⏸️';
+          out += `${status} [${j.id}] ${j.name}\n  ${j.schedule} | ${j.last_run ? '上次: ' + j.last_run.slice(0, 19) : '未运行'}\n  ${j.prompt.slice(0, 60)}\n\n`;
+        }
+        return out;
+      } else if (subCmd === 'add') {
+        const match = args.match(/add\s+"([^"]+)"\s+"([^"]+)"\s+(.+)/);
+        if (!match) return '用法: /cron add "任务名" "every 1h" 提示词\n\n支持: every 30m, daily 09:00, weekly mon 09:00';
+        const result = await ipcClient.request<{ job: any }>('cronAdd', { name: match[1], schedule: match[2], prompt: match[3] });
+        return `✅ 定时任务已创建 [${result.job.id}] ${result.job.name} (${result.job.schedule})`;
+      } else if (subCmd === 'remove' || subCmd === 'rm') {
+        const jobId = parts[1];
+        if (!jobId) return '用法: /cron remove <id>';
+        const result = await ipcClient.request<{ removed: boolean }>('cronRemove', { id: jobId });
+        return result.removed ? '✅ 已删除' : '❌ 未找到该任务';
+      } else if (subCmd === 'toggle') {
+        const jobId = parts[1];
+        if (!jobId) return '用法: /cron toggle <id>';
+        const result = await ipcClient.request<{ enabled: boolean }>('cronToggle', { id: jobId });
+        return result.enabled ? '✅ 已启用' : '⏸️ 已禁用';
+      } else {
+        return '⏰ 定时任务命令\n\n/cron list — 列出所有任务\n/cron add "名称" "计划" 提示词\n/cron remove <id>\n/cron toggle <id>';
+      }
+    } catch (err) { return formatError(err); }
+  }
+
+  async function handleCd(args: string): Promise<string> {
+    if (!args) return `📂 当前目录: ${daemonInfo.cwd}\n用法: /cd <路径>`;
+    if (!ipcClient.connected) return formatDisconnected();
+    try {
+      const result = await ipcClient.request<{ cwd: string; scaffold_created: boolean; message_count?: number }>('switchCwd', { cwd: args });
+      let msg = `📂 已切换到 ${result.cwd}`;
+      if (result.scaffold_created) msg += '\n  已创建 .baoclaw/ 配置目录';
+      if (result.message_count && result.message_count > 0) {
+        msg += `\n  已恢复项目会话 (${result.message_count} 条消息)`;
+      } else {
+        msg += '\n  新会话已开始';
+      }
+      return msg;
+    } catch (err) { return formatError(err); }
+  }
+
+  async function handleTask(args: string): Promise<string> {
+    if (!ipcClient.connected) return formatDisconnected();
+    const parts = args.split(/\s+/);
+    const subCmd = parts[0] || '';
+
+    try {
+      if (subCmd === 'run') {
+        const desc = args.slice(3).trim().replace(/^["']|["']$/g, '');
+        if (!desc) return '用法: /task run "任务描述"';
+        const result = await ipcClient.request<{ task_id: string }>('taskCreate', { description: desc, prompt: desc });
+        return `✅ 后台任务已创建 [${result.task_id}]`;
+      } else if (subCmd === 'list' || subCmd === '') {
+        const result = await ipcClient.request<{ tasks: any[]; count: number }>('taskList');
+        if (result.count === 0) return '暂无后台任务。';
+        let out = `📋 后台任务 (${result.count})\n\n`;
+        for (const t of result.tasks) {
+          const status = typeof t.status === 'string' ? t.status : JSON.stringify(t.status);
+          out += `[${t.id}] ${status} ${t.description}\n`;
+        }
+        return out;
+      } else if (subCmd === 'status') {
+        const taskId = parts[1];
+        if (!taskId) return '用法: /task status <id>';
+        const t = await ipcClient.request<any>('taskStatus', { task_id: taskId });
+        return `📋 任务 ${t.id}\n状态: ${typeof t.status === 'string' ? t.status : JSON.stringify(t.status)}\n描述: ${t.description}`;
+      } else if (subCmd === 'stop') {
+        const taskId = parts[1];
+        if (!taskId) return '用法: /task stop <id>';
+        const result = await ipcClient.request<{ stopped: boolean }>('taskStop', { task_id: taskId });
+        return result.stopped ? '✅ 已停止' : '❌ 未找到或未在运行';
+      } else {
+        return '📋 后台任务命令\n\n/task run "描述" — 创建任务\n/task list — 列出任务\n/task status <id> — 查看状态\n/task stop <id> — 停止任务';
+      }
+    } catch (err) { return formatError(err); }
+  }
+
+  // Command handler dispatch table
   const commandHandlers: Record<string, (args: string, chatId: number) => Promise<string> | string> = {
     '/tools':   (args) => handleTools(),
     '/skills':  (args) => handleSkills(),
@@ -818,6 +907,9 @@ async function main() {
     '/shutdown': () => handleShutdown(),
     '/quit':    (_args, chatId) => handleQuit(chatId),
     '/memory':  (args) => handleMemory(args),
+    '/cron':    (args) => handleCron(args),
+    '/cd':      (args) => handleCd(args),
+    '/task':    (args) => handleTask(args),
   };
 
   // ── Process a single message for a chat ──

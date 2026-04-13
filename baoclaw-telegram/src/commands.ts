@@ -109,6 +109,9 @@ export const COMMAND_REGISTRY: Record<string, CommandDefinition> = {
   '/shutdown': { description: '关闭守护进程' },
   '/quit':     { description: '断开 Telegram 网关（Daemon 保持运行）' },
   '/memory':   { description: '管理长期记忆' },
+  '/cron':     { description: '定时任务: /cron add|list|remove|toggle' },
+  '/cd':       { description: '切换工作目录: /cd <path>' },
+  '/task':     { description: '后台任务: /task run|list|status|stop' },
 };
 
 // ═══════════════════════════════════════════════════════════════

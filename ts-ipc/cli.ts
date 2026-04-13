@@ -652,6 +652,7 @@ async function main() {
         const tools = toolCount > 0 ? `${toolCount} tool${toolCount > 1 ? 's' : ''}` : '';
         const parts = [tools, tokens, `${(elapsed / 1000).toFixed(1)}s`].filter(Boolean).join(' · ');
         console.log(`\n${FG_CYAN}  ${parts}${RESET}\n`);
+        queryStartTime = 0; // mark idle
         break;
       }
 
@@ -669,6 +670,7 @@ async function main() {
         if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
         const err = event as { code: string; message: string };
         console.log(`\n${FG_RED}${BOLD}Error${RESET}${FG_RED} [${err.code}]: ${err.message}${RESET}\n`);
+        queryStartTime = 0; // mark idle
         break;
       }
       case 'cron_result': {
@@ -695,6 +697,28 @@ async function main() {
     prompt: `${FG_ORANGE}❯${RESET} `,
     completer,
     terminal: true,
+  });
+
+  // Ctrl+C handling: abort current task if busy, otherwise show hint
+  let ctrlCCount = 0;
+  rl.on('SIGINT', async () => {
+    if (queryStartTime > 0) {
+      // Task in progress — send abort
+      stopSpinner();
+      console.log(`\n${FG_YELLOW}⚠ Aborting...${RESET}`);
+      try { await client.request('abort'); } catch {}
+      ctrlCCount = 0;
+    } else {
+      ctrlCCount++;
+      if (ctrlCCount >= 2) {
+        console.log(`\n${DIM}Disconnected (daemon stays running).${RESET}`);
+        await client.disconnect();
+        process.exit(0);
+      }
+      console.log(`\n${DIM}Press Ctrl+C again to quit, or type /quit${RESET}`);
+      rl.prompt();
+      setTimeout(() => { ctrlCCount = 0; }, 2000);
+    }
   });
 
   rl.prompt();
