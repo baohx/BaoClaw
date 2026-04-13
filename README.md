@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/banner.png" alt="BaoClaw Banner" width="600">
+
 # 🐾 BaoClaw
 
 **The AI coding agent that remembers, evolves, and follows you everywhere.**
