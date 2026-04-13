@@ -14,13 +14,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 // We need to reference the crate items directly
-use claude_core::engine::query_engine::EngineEvent;
-use claude_core::permissions::gate::PermissionGate;
-use claude_core::permissions::manager::{
+use baoclaw_core::engine::query_engine::EngineEvent;
+use baoclaw_core::permissions::gate::PermissionGate;
+use baoclaw_core::permissions::manager::{
     PermissionManager, PermissionMode, PermissionRule, ToolPermissionContext,
 };
-use claude_core::tools::executor::{execute_tool_with_permission, ToolUseRequest};
-use claude_core::tools::trait_def::*;
+use baoclaw_core::tools::executor::{execute_tool_with_permission, ToolUseRequest};
+use baoclaw_core::tools::trait_def::*;
 
 /// A mock tool that tracks whether call() was invoked.
 struct TrackingTool {

@@ -7,7 +7,7 @@
 
 use proptest::prelude::*;
 
-use claude_core::tools::builtins::glob_tool::glob_search;
+use baoclaw_core::tools::builtins::glob_tool::glob_search;
 
 /// Strategy for generating simple, valid glob patterns.
 fn valid_glob_pattern_strategy() -> impl Strategy<Value = String> {

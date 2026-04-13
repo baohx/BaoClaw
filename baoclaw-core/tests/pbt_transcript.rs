@@ -9,7 +9,7 @@
 use proptest::prelude::*;
 use serde_json::{json, Value};
 
-use claude_core::engine::transcript::{
+use baoclaw_core::engine::transcript::{
     TranscriptEntry, TranscriptEntryType, TranscriptWriter,
 };
 

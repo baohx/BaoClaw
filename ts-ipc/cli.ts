@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * BaoClaw CLI — Rich terminal interface powered by Rust core engine.
- * Visual style inspired by Claude Code's TUI.
+ * Visual style inspired by BaoClaw TUI.
  */
 import * as net from 'net';
 import * as readline from 'readline';
@@ -25,7 +25,7 @@ const ITALIC = `${ESC}3m`;
 const UNDERLINE = `${ESC}4m`;
 
 // Colors (optimized for dark terminal backgrounds)
-const FG_ORANGE = `${ESC}38;2;217;119;40m`;   // Claude orange
+const FG_ORANGE = `${ESC}38;2;217;119;40m`;   // BaoClaw orange
 const FG_CYAN = `${ESC}96m`;                   // bright cyan
 const FG_GREEN = `${ESC}92m`;                  // bright green
 const FG_YELLOW = `${ESC}93m`;                 // bright yellow
@@ -455,8 +455,8 @@ function completer(line: string): [string[], string] {
 // Main
 // ═══════════════════════════════════════════════════════════════
 async function main() {
-  const defaultBin = path.resolve(process.cwd(), 'claude-core', 'target', 'release', 'claude-core');
-  const binaryPath = path.resolve(process.env.CLAUDE_CORE_BIN ?? defaultBin);
+  const defaultBin = path.resolve(process.cwd(), 'baoclaw-core', 'target', 'release', 'baoclaw-core');
+  const binaryPath = path.resolve(process.env.BAOCLAW_CORE_BIN ?? defaultBin);
 
   // Parse CLI flags
   const args = process.argv.slice(2);

@@ -13,7 +13,7 @@
 use proptest::prelude::*;
 use regex::Regex;
 
-use claude_core::tools::builtins::grep_tool::grep_search;
+use baoclaw_core::tools::builtins::grep_tool::grep_search;
 
 /// Strategy for generating valid, simple regex patterns that are guaranteed
 /// to be compilable. We use literal strings and simple character classes.

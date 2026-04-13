@@ -50,6 +50,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "baoclaw-core"
+version = "0.4.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "glob",
+ "ignore",
+ "jsonwebtoken",
+ "libc",
+ "proptest",
+ "rand 0.8.5",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -132,32 +158,6 @@ dependencies = [
  "serde",
  "wasm-bindgen",
  "windows-link",
-]
-
-[[package]]
-name = "claude-core"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "futures",
- "glob",
- "ignore",
- "jsonwebtoken",
- "libc",
- "proptest",
- "rand 0.8.5",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-stream",
- "urlencoding",
- "uuid",
 ]
 
 [[package]]

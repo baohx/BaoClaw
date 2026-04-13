@@ -23,10 +23,10 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
 fi
 
 # Build Rust core if needed
-BINARY="$SCRIPT_DIR/claude-core/target/release/claude-core"
+BINARY="$SCRIPT_DIR/baoclaw-core/target/release/baoclaw-core"
 if [ ! -f "$BINARY" ]; then
   echo "🔨 Building Rust core (first time, may take a minute)..."
-  cd "$SCRIPT_DIR/claude-core"
+  cd "$SCRIPT_DIR/baoclaw-core"
   cargo build --release 2>&1 | tail -3
   cd "$SCRIPT_DIR"
   echo "✓ Build complete"
@@ -41,6 +41,6 @@ if [ ! -d "$SCRIPT_DIR/ts-ipc/node_modules" ]; then
 fi
 
 # Launch
-export CLAUDE_CORE_BIN="$BINARY"
+export BAOCLAW_CORE_BIN="$BINARY"
 cd "$SCRIPT_DIR"
 npx --prefix ts-ipc tsx ts-ipc/cli.ts

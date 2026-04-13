@@ -10,8 +10,8 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use claude_core::api::client::{AnthropicClient, ApiClientConfig};
-use claude_core::engine::query_engine::{
+use baoclaw_core::api::client::{AnthropicClient, ApiClientConfig};
+use baoclaw_core::engine::query_engine::{
     build_system_prompt, load_project_instructions, QueryLoopConfig, ThinkingConfig,
 };
 

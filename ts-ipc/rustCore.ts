@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { IpcClient } from './client.js';
 
 export interface RustCoreConfig {
-  /** Path to the claude-core binary */
+  /** Path to the baoclaw-core binary */
   binaryPath: string;
   /** Working directory */
   cwd: string;
@@ -99,7 +99,7 @@ function waitForSocketPath(
  * Start the Rust core process, connect via IPC, and initialize.
  *
  * Flow:
- * 1. Spawn the claude-core binary as a child process
+ * 1. Spawn the baoclaw-core binary as a child process
  * 2. Read stdout for the SOCKET:{path} line (with timeout)
  * 3. Connect IPC client to the socket
  * 4. Send initialize request

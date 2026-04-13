@@ -4,8 +4,8 @@
 use proptest::prelude::*;
 use std::collections::HashMap;
 
-use claude_core::api::fallback::{FallbackAction, FallbackController};
-use claude_core::config::BaoclawConfig;
+use baoclaw_core::api::fallback::{FallbackAction, FallbackController};
+use baoclaw_core::config::BaoclawConfig;
 
 fn make_config(n_fallbacks: usize, max_retries: u32) -> BaoclawConfig {
     let mut fallbacks = Vec::new();

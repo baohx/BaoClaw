@@ -4,7 +4,7 @@
 use proptest::prelude::*;
 use std::collections::HashMap;
 
-use claude_core::config::{BaoclawConfig, load_config_from, save_config_to};
+use baoclaw_core::config::{BaoclawConfig, load_config_from, save_config_to};
 
 fn model_strategy() -> impl Strategy<Value = String> {
     prop_oneof![

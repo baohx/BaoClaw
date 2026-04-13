@@ -37,7 +37,7 @@ mkdir -p "$INSTALL_DIR/bin"
 mkdir -p "$BIN_DIR"
 
 # 4. Copy Rust binary
-cp "$SCRIPT_DIR/baoclaw-core/target/release/claude-core" "$INSTALL_DIR/bin/claude-core"
+cp "$SCRIPT_DIR/baoclaw-core/target/release/baoclaw-core" "$INSTALL_DIR/bin/baoclaw-core"
 echo "✓ Rust binary installed to $INSTALL_DIR/bin/"
 
 # 5. Copy TS-IPC files
@@ -106,7 +106,7 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
   exit 1
 fi
 
-export CLAUDE_CORE_BIN="$BAOCLAW_HOME/bin/claude-core"
+export BAOCLAW_CORE_BIN="$BAOCLAW_HOME/bin/baoclaw-core"
 exec npx --prefix "$BAOCLAW_HOME/ts-ipc" tsx "$BAOCLAW_HOME/ts-ipc/cli.ts"
 LAUNCHER
 

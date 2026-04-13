@@ -5,8 +5,8 @@
 
 use proptest::prelude::*;
 
-use claude_core::engine::cost_tracker::CostTracker;
-use claude_core::models::message::Usage;
+use baoclaw_core::engine::cost_tracker::CostTracker;
+use baoclaw_core::models::message::Usage;
 
 /// Strategy for generating arbitrary Usage values.
 fn usage_strategy() -> impl Strategy<Value = Usage> {

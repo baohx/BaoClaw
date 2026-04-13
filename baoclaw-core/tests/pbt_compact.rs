@@ -14,7 +14,7 @@
 use proptest::prelude::*;
 use serde_json::Value;
 
-use claude_core::models::message::{
+use baoclaw_core::models::message::{
     ApiAssistantMessage, ApiUserMessage, ContentBlock, Message, MessageContent, SystemSubtype,
 };
 
