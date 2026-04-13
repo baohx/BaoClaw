@@ -1152,11 +1152,18 @@ fn extract_text(content_blocks: &[ContentBlock]) -> Option<String> {
 fn build_tool_result_message(results: &[ToolExecutionResult]) -> Message {
     let content_blocks: Vec<Value> = results.iter().map(|r| {
         // Strip large base64 image data from tool output to avoid bloating context
-        let output = strip_base64_images(&r.output);
+        let raw_output = strip_base64_images(&r.output);
+        // API requires content to be a string or array of content blocks, not an object
+        let content = match &raw_output {
+            Value::String(s) => Value::String(s.clone()),
+            Value::Null => Value::String(String::new()),
+            Value::Array(arr) => Value::Array(arr.clone()),
+            other => Value::String(serde_json::to_string(other).unwrap_or_default()),
+        };
         serde_json::json!({
             "type": "tool_result",
             "tool_use_id": r.tool_use_id,
-            "content": output,
+            "content": content,
             "is_error": r.is_error,
         })
     }).collect();
