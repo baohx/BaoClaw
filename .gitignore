@@ -32,3 +32,6 @@ Thumbs.db
 
 # BaoClaw local config
 .baoclaw/mcp.local.json
+
+# Book
+/book/

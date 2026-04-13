@@ -7,7 +7,7 @@ INSTALL_DIR="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 BIN_DIR="${BAOCLAW_BIN_DIR:-$HOME/.local/bin}"
 
 echo "╔═══════════════════════════════════════╗"
-echo "║       BaoClaw Installer v0.5.0        ║"
+echo "║       BaoClaw Installer v0.6.0        ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
 
@@ -83,7 +83,7 @@ cat > "$BIN_DIR/baoclaw" << 'LAUNCHER'
 BAOCLAW_HOME="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-  echo "BaoClaw v0.5.0 — AI coding assistant"
+  echo "BaoClaw v0.6.0 — AI coding assistant"
   echo ""
   echo "Usage: baoclaw"
   echo ""
@@ -95,7 +95,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 fi
 
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-  echo "baoclaw 0.5.0"
+  echo "baoclaw 0.6.0"
   exit 0
 fi
 
