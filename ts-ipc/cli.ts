@@ -1492,7 +1492,7 @@ async function main() {
           const child = spawn(process.execPath, [tsxPath, gatewayScript], {
             cwd: process.cwd(),
             stdio: ['ignore', logFd, logFd],
-            env: { ...process.env },
+            env: { ...process.env, BAOCLAW_TELEGRAM_CWD: process.cwd() },
             detached: true,
           });
           child.on('error', (err) => {
