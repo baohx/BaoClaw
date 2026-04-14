@@ -199,9 +199,47 @@ export ANTHROPIC_BASE_URL=https://your-provider.com/v1
 npx --prefix ts-ipc tsx ts-ipc/cli.ts
 ```
 
-## Configuration
+## Configuration Reference
 
-Global config: `~/.baoclaw/config.json`
+### Directory Structure
+
+```
+~/.baoclaw/                          # User-level (global, cross-project)
+├── config.json                      # Main configuration
+├── memory.jsonl                     # Global memories (fallback)
+├── cron.json                        # Scheduled tasks
+├── sessions/                        # Session transcripts (per-project)
+│   └── {cwd_hash}-{uuid}.jsonl
+├── skills/                          # Personal skills (cross-project)
+│   └── my-skill.md
+├── plugins/                         # User-level plugins
+│   └── my-plugin/
+│       ├── skills/
+│       └── mcp.json
+├── mcp.json                         # User-level MCP servers
+├── mcp-auth/                        # MCP OAuth tokens
+├── models/                          # Local model files (whisper etc.)
+│   └── ggml-base.bin
+├── telemetry/                       # Telemetry events (local only)
+├── evolution/                       # Self-evolution data
+│   ├── trajectories.jsonl           # Interaction history for RLHF
+│   ├── candidates/                  # Auto-extracted skill candidates
+│   └── training_export.jsonl        # Exported training data
+├── telegram-gateway.pid             # Telegram gateway PID file
+└── telegram-gateway.log             # Telegram gateway log
+
+<project>/.baoclaw/                  # Project-level
+├── BAOCLAW.md                       # Project instructions → system prompt
+├── mcp.json                         # Project MCP servers
+├── mcp.local.json                   # Local MCP overrides (gitignored)
+├── memory.jsonl                     # Project-level memories
+├── skills/                          # Project-specific skills
+├── plugins/                         # Project-level plugins
+├── backups/                         # File backups before edits
+└── todo.json                        # Project todo list
+```
+
+### `~/.baoclaw/config.json` — Main Configuration
 
 ```json
 {
@@ -209,35 +247,155 @@ Global config: `~/.baoclaw/config.json`
   "fallback_models": ["claude-3-5-haiku-20241022"],
   "max_retries_per_model": 2,
   "api_type": "anthropic",
-  "openai_base_url": "https://your-proxy.com/v1",
+  "openai_base_url": null,
   "telegram": {
-    "token": "123456:ABC-DEF...",
+    "token": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
     "allowedChatIds": [12345678]
   }
 }
 ```
 
-Project config: `<project>/.baoclaw/`
-```
-.baoclaw/
-├── BAOCLAW.md          # Project instructions (injected into system prompt)
-├── mcp.json            # MCP server configurations
-├── memory.jsonl        # Project-level memories
-└── skills/             # Project-specific skills
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | `claude-sonnet-4-20250514` | Primary LLM model |
+| `fallback_models` | string[] | `[]` | Models to try when primary is rate-limited |
+| `max_retries_per_model` | number | `2` | Retries before falling back to next model |
+| `api_type` | string | `"anthropic"` | `"anthropic"` or `"openai"` |
+| `openai_base_url` | string? | `null` | Base URL for OpenAI-compatible API |
+| `telegram.token` | string | — | Telegram bot token from @BotFather |
+| `telegram.allowedChatIds` | number[] | `[]` | Allowed chat IDs (empty = allow all) |
+
+Environment variable overrides:
+- `ANTHROPIC_API_KEY` — API key (required)
+- `ANTHROPIC_MODEL` — overrides `model` field
+- `ANTHROPIC_BASE_URL` — overrides `openai_base_url`
+- `BRAVE_SEARCH_API_KEY` — for WebSearch tool
+
+OpenAI-compatible example:
+```json
+{
+  "model": "deepseek-chat",
+  "api_type": "openai",
+  "openai_base_url": "https://api.deepseek.com/v1"
+}
 ```
 
-Global data: `~/.baoclaw/`
+### `<project>/.baoclaw/BAOCLAW.md` — Project Instructions
+
+Injected into the system prompt for every conversation in this project. Write anything the agent should know about your project.
+
+```markdown
+# My Project
+
+This is a Python web app using FastAPI + SQLAlchemy.
+
+## Conventions
+- Use type hints everywhere
+- Tests go in tests/ directory
+- Use pytest for testing
+- Database migrations with alembic
+
+## Important Files
+- src/main.py — app entry point
+- src/models/ — SQLAlchemy models
+- src/api/ — FastAPI routes
 ```
-~/.baoclaw/
-├── config.json         # Global configuration
-├── memory.jsonl        # Global memories (fallback)
-├── cron.json           # Scheduled tasks
-├── sessions/           # Session transcripts (per-project)
-├── skills/             # Personal skills (cross-project)
-└── evolution/
-    ├── trajectories.jsonl  # Interaction history for RLHF
-    └── candidates/         # Auto-extracted skill candidates
+
+Also works as `BAOCLAW.md` in the project root (`.baoclaw/BAOCLAW.md` takes priority).
+
+### `mcp.json` — MCP Server Configuration
+
+Works at both user level (`~/.baoclaw/mcp.json`) and project level (`<project>/.baoclaw/mcp.json`). Project-level overrides user-level.
+
+```json
+{
+  "mcpServers": {
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "./data.db"],
+      "env": {},
+      "disabled": false
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."
+      }
+    }
+  }
+}
 ```
+
+`<project>/.baoclaw/mcp.local.json` — same format, for local overrides that should be gitignored.
+
+### `~/.baoclaw/cron.json` — Scheduled Tasks
+
+Managed via `/cron` command. Do not edit manually while daemon is running.
+
+```json
+[
+  {
+    "id": "a1b2c3d4",
+    "name": "Daily git summary",
+    "prompt": "Summarize yesterday's git commits in this project",
+    "schedule": "daily 09:00",
+    "cwd": "/home/user/my-project",
+    "enabled": true,
+    "created_at": "2026-04-14T10:00:00Z",
+    "last_run": "2026-04-14T09:00:15Z",
+    "last_result": "3 commits: fixed login bug, added tests..."
+  }
+]
+```
+
+Schedule formats: `every 30m`, `every 2h`, `daily 09:00`, `weekly mon 09:00`
+
+### `~/.baoclaw/skills/` and `<project>/.baoclaw/skills/` — Skills
+
+Markdown files loaded into the system prompt. User-level skills apply to all projects; project-level skills apply only to that project.
+
+```markdown
+---
+description: Code review checklist
+created_by: evolution
+version: 2
+---
+
+# Code Review
+
+When asked to review code:
+1. Check for security issues (SQL injection, XSS, etc.)
+2. Check error handling (are errors caught and logged?)
+3. Check naming conventions
+4. Suggest performance improvements
+5. Output as a checklist with ✅/❌
+```
+
+Skills can be created manually or auto-generated by the Evolution Engine.
+
+### `~/.baoclaw/evolution/trajectories.jsonl` — Interaction Trajectories
+
+Auto-recorded. Each line is a JSON object:
+
+```json
+{
+  "id": "a1b2c3d4",
+  "timestamp": "2026-04-14T10:30:00Z",
+  "cwd": "/home/user/project",
+  "user_prompt": "Fix the login bug",
+  "assistant_actions": [
+    {"tool_name": "Grep", "input_summary": "search for login", "output_summary": "found in auth.py", "is_error": false},
+    {"tool_name": "FileEdit", "input_summary": "fix auth.py line 42", "output_summary": "edited", "is_error": false}
+  ],
+  "outcome": {"Completed": {"final_text_preview": "Fixed the login bug by..."}},
+  "tool_count": 2,
+  "duration_ms": 15000,
+  "user_rating": "Good"
+}
+```
+
+Export for RLHF fine-tuning: ask the agent to `export training data` or use the Evolve tool.
 
 ## CLI Commands
 
@@ -472,6 +630,31 @@ export ANTHROPIC_API_KEY=your-key
 export ANTHROPIC_BASE_URL=https://your-provider.com/v1
 baoclaw
 ```
+
+## 配置文件参考
+
+详细的配置文件说明请参考英文版 [Configuration Reference](#configuration-reference) 部分。
+
+简要概览：
+
+| 文件 | 位置 | 说明 |
+|------|------|------|
+| `config.json` | `~/.baoclaw/` | 主配置（模型、API、Telegram token） |
+| `BAOCLAW.md` | `<项目>/.baoclaw/` | 项目指令，注入系统提示词 |
+| `mcp.json` | 两级都有 | MCP 服务器配置 |
+| `mcp.local.json` | `<项目>/.baoclaw/` | 本地 MCP 覆盖（gitignore） |
+| `memory.jsonl` | 两级都有 | 记忆存储 |
+| `cron.json` | `~/.baoclaw/` | 定时任务 |
+| `skills/*.md` | 两级都有 | 技能文件 |
+| `todo.json` | `<项目>/.baoclaw/` | 项目待办 |
+| `evolution/` | `~/.baoclaw/` | 进化数据（轨迹、候选 skill） |
+| `sessions/` | `~/.baoclaw/` | 会话记录（按项目） |
+
+环境变量：
+- `ANTHROPIC_API_KEY` — API 密钥（必需）
+- `ANTHROPIC_MODEL` — 覆盖配置中的模型
+- `ANTHROPIC_BASE_URL` — OpenAI 兼容 API 地址
+- `BRAVE_SEARCH_API_KEY` — Web 搜索 API 密钥
 
 ## 完整命令列表
 
