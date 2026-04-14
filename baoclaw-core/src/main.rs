@@ -61,11 +61,9 @@ fn socket_dir() -> PathBuf {
 }
 
 /// Generate a socket path with session info embedded in the filename
-fn make_socket_path(cwd: &str) -> PathBuf {
+fn make_socket_path(_cwd: &str) -> PathBuf {
     let pid = std::process::id();
-    // Use a hash of cwd for the filename so we can identify which dir it serves
-    let cwd_hash = &format!("{:x}", md5_simple(cwd))[..8];
-    socket_dir().join(format!("baoclaw-{}-{}.sock", cwd_hash, pid))
+    socket_dir().join(format!("baoclaw-{}.sock", pid))
 }
 
 /// Write a metadata JSON file next to the socket for discovery
@@ -628,9 +626,12 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         .unwrap_or_else(|| shared.baoclaw_config.model.clone());
     let mut work_cwd = init_cwd;
 
-    // ── Shared mode branch ──
-    if let Some(ref shared_session_id) = init_shared_session_id {
-        let session_id_clone = shared_session_id.clone();
+    // ── Shared mode: session key is derived from cwd, not client-provided ID ──
+    // This allows one daemon to manage multiple project sessions.
+    if let Some(ref _shared_session_id) = init_shared_session_id {
+        let cwd_hash = format!("{:x}", md5_simple(&work_cwd.to_string_lossy()))[..8].to_string();
+        let session_id_clone = cwd_hash.clone();
+        eprintln!("Client connecting to session '{}' (cwd: {})", session_id_clone, work_cwd.display());
         let shared_clone = shared.clone();
         let model_clone = model.clone();
         let work_cwd_clone = work_cwd.clone();

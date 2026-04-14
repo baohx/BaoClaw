@@ -191,10 +191,11 @@ async function connectToDaemon(maxWaitMs = 60_000, retryIntervalMs = 5_000): Pro
       try {
         const client = new IpcClient();
         await client.connect(best.socket);
+        // Use daemon's cwd as default; Telegram can switch with /cd
         const result = await client.request<InitializeResult>('initialize', {
           cwd: best.cwd,
           settings: {},
-          shared_session_id: 'default',
+          shared_session_id: 'telegram',
         });
         let sessionState: SessionState = {
           resumed: false,

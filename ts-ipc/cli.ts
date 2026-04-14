@@ -492,25 +492,20 @@ async function main() {
   printLogo();
 
   // ── Discover existing daemons ──
+  // Global daemon model: reuse any existing daemon, start new only if none exists.
+  // Each CLI sends its own cwd; the daemon manages per-project sessions internally.
   const daemons = discoverDaemons();
   let socketPath: string;
   let child: ChildProcess | null = null;
   let isReconnect = false;
-  let effectiveCwd = process.cwd(); // default: current terminal directory
+  const effectiveCwd = process.cwd(); // always use the terminal's current directory
 
   if (daemons.length > 0) {
-    const selected = await selectDaemon(daemons);
-    if (selected) {
-      // Connect to existing daemon — use the daemon's original cwd
-      socketPath = selected.socket;
-      isReconnect = true;
-      effectiveCwd = selected.cwd;
-      try { process.chdir(effectiveCwd); } catch {}
-      console.log(`${DIM}Reconnecting to pid=${selected.pid} (cwd: ${selected.cwd})...${RESET}`);
-    } else {
-      // Start new daemon
-      socketPath = await startNewDaemon(binaryPath);
-    }
+    // Connect to the first available daemon (global singleton)
+    const daemon = daemons[0];
+    socketPath = daemon.socket;
+    isReconnect = true;
+    console.log(`${DIM}Connecting to daemon pid=${daemon.pid}...${RESET}`);
   } else {
     socketPath = await startNewDaemon(binaryPath);
   }
