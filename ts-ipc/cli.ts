@@ -391,7 +391,7 @@ const COMMANDS = [
   '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory',
-  '/cd', '/cron',
+  '/projects', '/cron', '/history',
 ];
 
 /**
@@ -979,38 +979,90 @@ async function main() {
       return;
     }
 
-    if (input.startsWith('/cd')) {
-      const targetDir = input.slice('/cd'.length).trim();
-      if (!targetDir) {
-        console.log(`\n${FG_WHITE}Current directory:${RESET} ${process.cwd()}`);
-        console.log(`${DIM}Usage: /cd <path>${RESET}\n`);
+    if (input.startsWith('/projects')) {
+      const projArgs = input.slice('/projects'.length).trim();
+
+      if (!projArgs || projArgs === 'list') {
+        try {
+          const result = await client.request<{ projects: any[]; count: number }>('projectsList');
+          if (result.count === 0) {
+            console.log(`\n${DIM}No projects registered. Use /projects new <path> [description]${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Projects${RESET} ${DIM}(${result.count})${RESET}\n`);
+            for (const p of result.projects) {
+              const last = p.last_accessed ? p.last_accessed.slice(0, 10) : 'never';
+              console.log(`  ${FG_WHITE}${BOLD}${p.id}${RESET}  ${p.description}`);
+              console.log(`    ${DIM}${p.cwd}  (${last})${RESET}`);
+            }
+            console.log(`\n${DIM}  Switch: /projects <id>  |  New: /projects new <path> [desc]${RESET}\n`);
+          }
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
         rl.prompt();
         return;
       }
-      startSpinner('Switching directory...');
-      try {
-        const result = await client.request<{ cwd: string; scaffold_created: boolean; message_count?: number }>('switchCwd', { cwd: targetDir });
-        stopSpinner();
-        // Also change the Node process cwd for @file resolution
-        try { process.chdir(result.cwd); } catch {}
-        console.log(`\n${FG_GREEN}${BOLD}Switched to${RESET} ${result.cwd}`);
-        if (result.scaffold_created) {
-          console.log(`${DIM}  Created .baoclaw/ scaffold (BAOCLAW.md, mcp.json, skills/)${RESET}`);
-        }
-        if (result.message_count && result.message_count > 0) {
-          console.log(`${DIM}  Resumed project session (${result.message_count} messages).${RESET}`);
+
+      if (projArgs.startsWith('new ')) {
+        const rest = projArgs.slice(4).trim();
+        const spaceIdx = rest.indexOf(' ');
+        let targetPath: string;
+        let desc: string | undefined;
+        if (spaceIdx > 0) {
+          targetPath = rest.slice(0, spaceIdx);
+          desc = rest.slice(spaceIdx + 1).trim() || undefined;
         } else {
-          console.log(`${DIM}  Fresh session started, project memory loaded.${RESET}`);
+          targetPath = rest;
         }
-        // Reset local streaming state
-        currentText = '';
-        isStreaming = false;
-        toolCount = 0;
-        console.log();
-      } catch (err) {
-        stopSpinner();
-        console.error(`${FG_RED}${err}${RESET}`);
+        if (!targetPath) {
+          console.log(`\n${FG_YELLOW}Usage: /projects new <path> [description]${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const params: Record<string, unknown> = { cwd: targetPath };
+          if (desc) params.description = desc;
+          const result = await client.request<{ project: any; switched: boolean }>('projectsNew', params);
+          try { process.chdir(result.project.cwd); } catch {}
+          console.log(`\n${FG_GREEN}${BOLD}Created & switched to${RESET} ${result.project.description}`);
+          console.log(`${DIM}  [${result.project.id}] ${result.project.cwd}${RESET}`);
+          currentText = ''; isStreaming = false; toolCount = 0;
+          console.log();
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
       }
+
+      if (projArgs.startsWith('desc ')) {
+        const parts = projArgs.slice(5).trim().split(/\s+/);
+        const idPrefix = parts[0];
+        const newDesc = parts.slice(1).join(' ');
+        if (!idPrefix || !newDesc) {
+          console.log(`\n${FG_YELLOW}Usage: /projects desc <id> <description>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          await client.request('projectsUpdateDesc', { id_prefix: idPrefix, description: newDesc });
+          console.log(`\n${FG_GREEN}✓ Description updated${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      // /projects <id_prefix> — switch
+      const idPrefix = projArgs;
+      try {
+        const result = await client.request<{ project: any; message_count: number }>('projectsSwitch', { id_prefix: idPrefix });
+        try { process.chdir(result.project.cwd); } catch {}
+        console.log(`\n${FG_GREEN}${BOLD}Switched to${RESET} ${result.project.description}`);
+        console.log(`${DIM}  [${result.project.id}] ${result.project.cwd}${RESET}`);
+        if (result.message_count > 0) {
+          console.log(`${DIM}  Resumed session (${result.message_count} messages)${RESET}`);
+        } else {
+          console.log(`${DIM}  Fresh session${RESET}`);
+        }
+        currentText = ''; isStreaming = false; toolCount = 0;
+        console.log();
+      } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
       rl.prompt();
       return;
     }
