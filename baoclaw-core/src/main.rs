@@ -789,7 +789,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         let model_clone = model.clone();
         let work_cwd_clone = work_cwd.clone();
 
-        let (session, _is_new) = shared.session_registry.get_or_create(
+        let (session, is_new) = shared.session_registry.get_or_create(
             &session_id_clone,
             || {
                 QueryEngine::new(QueryEngineConfig {
@@ -814,6 +814,25 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         shared.project_registry.ensure_registered(
             &work_cwd.to_string_lossy(), None
         ).await;
+
+        // Resume session history if new or empty
+        let current_msg_count = session.engine_read().await.get_messages().len();
+        if is_new || current_msg_count == 0 {
+            let cwd_str_for_resume = work_cwd.to_string_lossy().to_string();
+            if let Some(rid) = engine::transcript::find_latest_session_for_cwd(&cwd_str_for_resume) {
+                match engine::transcript::TranscriptWriter::load(&rid) {
+                    Ok(entries) => {
+                        let messages = engine::transcript::rebuild_messages_from_transcript(&entries);
+                        if !messages.is_empty() {
+                            let mut engine = session.engine_write().await;
+                            engine.set_messages(messages);
+                            eprintln!("Resumed session {} ({} messages)", rid, engine.get_messages().len());
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to resume session {}: {}", rid, e),
+                }
+            }
+        }
 
         let (client_id, broadcast_rx) = session.add_client().await;
         let msg_count = session.engine_read().await.get_messages().len();
