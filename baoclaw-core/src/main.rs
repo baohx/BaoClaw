@@ -670,6 +670,56 @@ async fn handle_shared_client(
                                     }
                                 }
                             }
+                            ClientMethod::TalkTail { count } => {
+                                let engine = session.engine_read().await;
+                                let messages = engine.get_messages();
+                                let start = if messages.len() > count { messages.len() - count } else { 0 };
+                                let tail: Vec<serde_json::Value> = messages[start..].iter().map(|m| {
+                                    match &m.content {
+                                        crate::models::message::MessageContent::User { message, .. } => {
+                                            let text = match &message.content {
+                                                serde_json::Value::String(s) => s.clone(),
+                                                serde_json::Value::Array(arr) => {
+                                                    arr.iter().filter_map(|b| {
+                                                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                                            b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                                        } else { None }
+                                                    }).collect::<Vec<_>>().join(" ")
+                                                }
+                                                _ => serde_json::to_string(&message.content).unwrap_or_default(),
+                                            };
+                                            serde_json::json!({"role": "user", "text": text, "timestamp": m.timestamp})
+                                        }
+                                        crate::models::message::MessageContent::Assistant { message, .. } => {
+                                            let text: String = message.content.iter().filter_map(|b| {
+                                                match b {
+                                                    crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
+                                                    _ => None,
+                                                }
+                                            }).collect::<Vec<_>>().join("");
+                                            let tools: Vec<String> = message.content.iter().filter_map(|b| {
+                                                match b {
+                                                    crate::models::message::ContentBlock::ToolUse { name, .. } => Some(name.clone()),
+                                                    _ => None,
+                                                }
+                                            }).collect();
+                                            let mut entry = serde_json::json!({"role": "assistant", "text": text, "timestamp": m.timestamp});
+                                            if !tools.is_empty() {
+                                                entry["tools"] = serde_json::json!(tools);
+                                            }
+                                            entry
+                                        }
+                                        _ => serde_json::json!({"role": "system", "timestamp": m.timestamp}),
+                                    }
+                                }).collect();
+                                let total = messages.len();
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({
+                                    "messages": tail,
+                                    "count": tail.len(),
+                                    "total": total,
+                                })).await;
+                            }
                         }
                     }
                     Err(e) => {

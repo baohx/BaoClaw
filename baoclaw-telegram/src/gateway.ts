@@ -800,6 +800,26 @@ async function main() {
     } catch (err) { return formatError(err); }
   }
 
+  async function handleHistory(args: string): Promise<string> {
+    if (!ipcClient.connected) return formatDisconnected();
+    const count = parseInt(args, 10) || 10;
+    try {
+      const result = await ipcClient.request<{ messages: any[]; count: number; total: number }>('talkTail', { count });
+      if (result.count === 0) return '暂无对话记录。';
+      let out = `📜 最近对话 (${result.count}/${result.total})\n\n`;
+      for (const m of result.messages) {
+        const ts = m.timestamp ? m.timestamp.slice(11, 19) : '';
+        if (m.role === 'user') {
+          out += `[${ts}] 👤 ${(m.text || '').slice(0, 80)}\n`;
+        } else if (m.role === 'assistant') {
+          const tools = m.tools && m.tools.length > 0 ? ` [${m.tools.join(',')}]` : '';
+          out += `[${ts}] 🤖${tools} ${(m.text || '').slice(0, 80)}\n`;
+        }
+      }
+      return out;
+    } catch (err) { return formatError(err); }
+  }
+
   // Command handler dispatch table
   async function handleCron(args: string): Promise<string> {
     if (!ipcClient.connected) return formatDisconnected();
@@ -937,6 +957,7 @@ async function main() {
     '/cron':    (args) => handleCron(args),
     '/projects': (args) => handleProjects(args),
     '/task':    (args) => handleTask(args),
+    '/history': (args) => handleHistory(args),
   };
 
   // ── Process a single message for a chat ──

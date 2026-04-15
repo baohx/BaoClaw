@@ -133,7 +133,14 @@ pub enum ClientMethod {
         id_prefix: String,
         description: String,
     },
+    #[serde(rename = "talkTail")]
+    TalkTail {
+        #[serde(default = "default_tail_count")]
+        count: usize,
+    },
 }
+
+fn default_tail_count() -> usize { 10 }
 
 fn default_category() -> String { "fact".to_string() }
 

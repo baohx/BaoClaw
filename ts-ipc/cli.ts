@@ -1078,6 +1078,31 @@ async function main() {
       return;
     }
 
+    if (input.startsWith('/history')) {
+      const arg = input.slice('/history'.length).trim();
+      const count = parseInt(arg, 10) || 10;
+      try {
+        const result = await client.request<{ messages: any[]; count: number; total: number }>('talkTail', { count });
+        console.log(`\n${FG_ORANGE}${BOLD}Recent History${RESET} ${DIM}(${result.count} of ${result.total} messages)${RESET}\n`);
+        for (const m of result.messages) {
+          const ts = m.timestamp ? m.timestamp.slice(11, 19) : '';
+          if (m.role === 'user') {
+            const preview = (m.text || '').slice(0, 120);
+            console.log(`  ${DIM}${ts}${RESET} ${FG_BRIGHT_WHITE}${BOLD}You${RESET} ${preview}${preview.length >= 120 ? '...' : ''}`);
+          } else if (m.role === 'assistant') {
+            const preview = (m.text || '').slice(0, 120);
+            const toolBadge = m.tools && m.tools.length > 0 ? ` ${DIM}[${m.tools.join(', ')}]${RESET}` : '';
+            console.log(`  ${DIM}${ts}${RESET} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge} ${preview}${preview.length >= 120 ? '...' : ''}`);
+          } else {
+            console.log(`  ${DIM}${ts} [system]${RESET}`);
+          }
+        }
+        console.log();
+      } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      rl.prompt();
+      return;
+    }
+
     if (input === '/compact') {
       startSpinner('Compacting conversation...');
       try {

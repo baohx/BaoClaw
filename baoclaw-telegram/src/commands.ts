@@ -112,6 +112,7 @@ export const COMMAND_REGISTRY: Record<string, CommandDefinition> = {
   '/cron':     { description: '定时任务: /cron add|list|remove|toggle' },
   '/projects': { description: '项目管理: /projects list|<id>|new <path> [描述]' },
   '/task':     { description: '后台任务: /task run|list|status|stop' },
+  '/history':  { description: '查看最近对话: /history [n]' },
 };
 
 // ═══════════════════════════════════════════════════════════════
