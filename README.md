@@ -9,7 +9,7 @@
 [English](#english) · [中文](#中文)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)]()
 
 </div>
 

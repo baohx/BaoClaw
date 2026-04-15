@@ -1,6 +1,6 @@
 {
   "name": "baoclaw-cli",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "type": "module",
   "scripts": {
     "start": "npx tsx cli.ts",
