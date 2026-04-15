@@ -1,0 +1,20 @@
+[
+  {
+    "text": "分析 BaoClaw 多子 Agent 并发执行的完整架构",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-14T14:19:12.336104013+00:00"
+  },
+  {
+    "text": "找出并发瓶颈：为什么实测 AgentTool 是串行的",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-14T14:19:16.861085317+00:00"
+  },
+  {
+    "text": "向用户报告完整分析结论和修改建议",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-14T14:20:07.061381341+00:00"
+  }
+]

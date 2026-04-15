@@ -118,6 +118,21 @@ pub enum ClientMethod {
     CronToggle { id: String },
     #[serde(rename = "cronList")]
     CronList,
+    #[serde(rename = "projectsList")]
+    ProjectsList,
+    #[serde(rename = "projectsSwitch")]
+    ProjectsSwitch { id_prefix: String },
+    #[serde(rename = "projectsNew")]
+    ProjectsNew {
+        cwd: String,
+        #[serde(default)]
+        description: Option<String>,
+    },
+    #[serde(rename = "projectsUpdateDesc")]
+    ProjectsUpdateDesc {
+        id_prefix: String,
+        description: String,
+    },
 }
 
 fn default_category() -> String { "fact".to_string() }

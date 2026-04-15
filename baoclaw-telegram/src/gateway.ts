@@ -837,19 +837,44 @@ async function main() {
     } catch (err) { return formatError(err); }
   }
 
-  async function handleCd(args: string): Promise<string> {
-    if (!args) return `📂 当前目录: ${daemonInfo.cwd}\n用法: /cd <路径>`;
+  async function handleProjects(args: string): Promise<string> {
     if (!ipcClient.connected) return formatDisconnected();
+    const parts = args.split(/\s+/);
+    const subCmd = parts[0] || '';
+
     try {
-      const result = await ipcClient.request<{ cwd: string; scaffold_created: boolean; message_count?: number }>('switchCwd', { cwd: args });
-      let msg = `📂 已切换到 ${result.cwd}`;
-      if (result.scaffold_created) msg += '\n  已创建 .baoclaw/ 配置目录';
-      if (result.message_count && result.message_count > 0) {
-        msg += `\n  已恢复项目会话 (${result.message_count} 条消息)`;
+      if (subCmd === 'list' || subCmd === '') {
+        const result = await ipcClient.request<{ projects: any[]; count: number }>('projectsList');
+        if (result.count === 0) return '暂无项目。使用 /projects new <路径> [描述] 创建。';
+        let out = `📂 项目列表 (${result.count})\n\n`;
+        for (const p of result.projects) {
+          out += `[${p.id}] ${p.description}\n  ${p.cwd}\n\n`;
+        }
+        out += '切换: /projects <id>\n新建: /projects new <路径> [描述]';
+        return out;
+      } else if (subCmd === 'new') {
+        const rest = args.slice(3).trim();
+        const spaceIdx = rest.indexOf(' ');
+        let targetPath: string;
+        let desc: string | undefined;
+        if (spaceIdx > 0) {
+          targetPath = rest.slice(0, spaceIdx);
+          desc = rest.slice(spaceIdx + 1).trim() || undefined;
+        } else {
+          targetPath = rest;
+        }
+        if (!targetPath) return '用法: /projects new <路径> [描述]';
+        const params: Record<string, unknown> = { cwd: targetPath };
+        if (desc) params.description = desc;
+        const result = await ipcClient.request<{ project: any }>('projectsNew', params);
+        return `✅ 已创建并切换到: ${result.project.description}\n  [${result.project.id}] ${result.project.cwd}`;
       } else {
-        msg += '\n  新会话已开始';
+        // /projects <id_prefix> — switch
+        const result = await ipcClient.request<{ project: any; message_count: number }>('projectsSwitch', { id_prefix: subCmd });
+        let msg = `📂 已切换到: ${result.project.description}\n  [${result.project.id}] ${result.project.cwd}`;
+        if (result.message_count > 0) msg += `\n  已恢复 ${result.message_count} 条消息`;
+        return msg;
       }
-      return msg;
     } catch (err) { return formatError(err); }
   }
 
@@ -910,7 +935,7 @@ async function main() {
     '/quit':    (_args, chatId) => handleQuit(chatId),
     '/memory':  (args) => handleMemory(args),
     '/cron':    (args) => handleCron(args),
-    '/cd':      (args) => handleCd(args),
+    '/projects': (args) => handleProjects(args),
     '/task':    (args) => handleTask(args),
   };
 

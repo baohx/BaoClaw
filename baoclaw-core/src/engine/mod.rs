@@ -10,3 +10,4 @@ pub mod task_manager;
 pub mod transcript;
 pub mod evolution;
 pub mod cron;
+pub mod projects;

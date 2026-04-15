@@ -401,7 +401,7 @@ Export for RLHF fine-tuning: ask the agent to `export training data` or use the 
 
 | Command | Description |
 |---------|-------------|
-| `/cd <path>` | Switch project directory (auto-resume session) |
+| `/projects` | Project management: list, switch, new, desc |
 | `/tools` | List registered tools |
 | `/mcp` | List MCP servers |
 | `/skills` | List loaded skills |
@@ -437,7 +437,7 @@ All CLI commands are also available in Telegram:
 | `/compact` | Compress context |
 | `/memory` | Manage memories |
 | `/cron` | Manage scheduled tasks |
-| `/cd <path>` | Switch project directory |
+| `/projects` | 项目管理: list, switch, new, desc |
 | `/task` | Manage background tasks |
 | `/diff` `/commit` `/git` | Git operations |
 | `/abort` | Cancel current task |
@@ -660,7 +660,7 @@ baoclaw
 
 | 命令 | 说明 |
 |------|------|
-| `/cd <路径>` | 切换项目目录（自动恢复会话） |
+| `/projects` | 项目管理：list, <id>, new <路径> [描述], desc |
 | `/tools` | 列出已注册的工具 |
 | `/mcp` | 列出 MCP 服务器 |
 | `/skills` | 列出已加载的技能 |

@@ -51,6 +51,7 @@ struct SharedState {
     memory_store: Arc<engine::memory::MemoryStore>,
     evolution_engine: Arc<engine::evolution::EvolutionEngine>,
     cron_manager: Arc<engine::cron::CronManager>,
+    project_registry: Arc<engine::projects::ProjectRegistry>,
 }
 
 /// Socket directory for all BaoClaw daemon instances
@@ -114,7 +115,7 @@ async fn handle_shared_client(
     session: Arc<SharedSession>,
     client_id: ClientId,
     broadcast_rx: tokio::sync::broadcast::Receiver<EngineEvent>,
-    work_cwd: PathBuf,
+    mut work_cwd: PathBuf,
     _session_id: String,
 ) {
     // Wrap conn in Arc<TokioMutex> so the broadcast receiver task can also send
@@ -567,6 +568,108 @@ async fn handle_shared_client(
                                 let mut conn_guard = conn.lock().await;
                                 let _ = conn_guard.send_response(id, serde_json::json!({"jobs": jobs, "count": jobs.len()})).await;
                             }
+                            ClientMethod::ProjectsList => {
+                                let projects = shared.project_registry.list().await;
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"projects": projects, "count": projects.len()})).await;
+                            }
+                            ClientMethod::ProjectsSwitch { id_prefix } => {
+                                let mut conn_guard = conn.lock().await;
+                                match shared.project_registry.find_by_prefix(&id_prefix).await {
+                                    Ok(project) => {
+                                        let abs_cwd = std::path::PathBuf::from(&project.cwd);
+                                        if !abs_cwd.is_dir() {
+                                            let _ = conn_guard.send_error(Some(id), -32000,
+                                                format!("Directory does not exist: {}", project.cwd)).await;
+                                        } else {
+                                            // Switch session: update engine cwd and reload
+                                            let mut engine = session.engine_write().await;
+                                            engine.update_cwd(abs_cwd.clone());
+                                            let new_cwd_str = abs_cwd.to_string_lossy().to_string();
+                                            if let Some(prev_session) = engine::transcript::find_latest_session_for_cwd(&new_cwd_str) {
+                                                if let Ok(entries) = engine::transcript::TranscriptWriter::load(&prev_session) {
+                                                    let messages = engine::transcript::rebuild_messages_from_transcript(&entries);
+                                                    engine.set_messages(messages);
+                                                }
+                                            } else {
+                                                engine.set_messages(vec![]);
+                                            }
+                                            drop(engine);
+                                            shared.memory_store.switch_project(&abs_cwd).await;
+                                            shared.project_registry.touch(&project.cwd).await;
+                                            work_cwd = abs_cwd;
+                                            let msg_count = session.engine_read().await.get_messages().len();
+                                            let _ = conn_guard.send_response(id, serde_json::json!({
+                                                "project": project,
+                                                "message_count": msg_count,
+                                            })).await;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32000, e).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::ProjectsNew { cwd, description } => {
+                                let expanded = if cwd.starts_with('~') {
+                                    let home = std::env::var("HOME").unwrap_or_default();
+                                    cwd.replacen('~', &home, 1)
+                                } else if std::path::Path::new(&cwd).is_relative() {
+                                    work_cwd.join(&cwd).to_string_lossy().to_string()
+                                } else {
+                                    cwd.clone()
+                                };
+                                let abs_path = std::path::PathBuf::from(&expanded);
+                                if !abs_path.is_dir() {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_error(Some(id), -32000,
+                                        format!("Directory does not exist: {}", expanded)).await;
+                                } else {
+                                    let desc = description.unwrap_or_else(|| {
+                                        abs_path.file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_else(|| expanded.clone())
+                                    });
+                                    let mut conn_guard = conn.lock().await;
+                                    match shared.project_registry.register(expanded.clone(), desc).await {
+                                        Ok(project) => {
+                                            // Auto-scaffold
+                                            let baoclaw_dir = abs_path.join(".baoclaw");
+                                            if !baoclaw_dir.exists() {
+                                                let _ = std::fs::create_dir_all(&baoclaw_dir);
+                                                let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
+                                                let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
+                                                let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
+                                            }
+                                            // Switch to the new project
+                                            let mut engine = session.engine_write().await;
+                                            engine.update_cwd(abs_path.clone());
+                                            engine.set_messages(vec![]);
+                                            drop(engine);
+                                            shared.memory_store.switch_project(&abs_path).await;
+                                            work_cwd = abs_path;
+                                            let _ = conn_guard.send_response(id, serde_json::json!({
+                                                "project": project,
+                                                "switched": true,
+                                            })).await;
+                                        }
+                                        Err(e) => {
+                                            let _ = conn_guard.send_error(Some(id), -32000, e).await;
+                                        }
+                                    }
+                                }
+                            }
+                            ClientMethod::ProjectsUpdateDesc { id_prefix, description } => {
+                                let mut conn_guard = conn.lock().await;
+                                match shared.project_registry.update_description(&id_prefix, description).await {
+                                    Ok(()) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"updated": true})).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32000, e).await;
+                                    }
+                                }
+                            }
                         }
                     }
                     Err(e) => {
@@ -655,6 +758,11 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     max_retries_per_model: shared_clone.baoclaw_config.max_retries_per_model,
                 })
             },
+        ).await;
+
+        // Auto-register this project in the registry
+        shared.project_registry.ensure_registered(
+            &work_cwd.to_string_lossy(), None
         ).await;
 
         let (client_id, broadcast_rx) = session.add_client().await;
@@ -958,6 +1066,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         memory_store,
         evolution_engine,
         cron_manager: Arc::new(engine::cron::CronManager::new()),
+        project_registry: Arc::new(engine::projects::ProjectRegistry::new()),
     };
 
     // ══════════════════════════════════════════════════════════

@@ -537,6 +537,24 @@ async function main() {
   })();
   printWelcome(initResult.session_id, activeModel, effectiveCwd);
 
+  // ── Auto-register project and prompt for description if new ──
+  try {
+    const projCheck = await client.request<{ projects: any[] }>('projectsList');
+    const existing = projCheck.projects.find((p: any) => p.cwd === effectiveCwd);
+    if (!existing) {
+      const defaultDesc = path.basename(effectiveCwd);
+      const descRl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const desc = await new Promise<string>((resolve) => {
+        descRl.question(`${FG_ORANGE}Project description${RESET} ${DIM}[${defaultDesc}]${RESET}: `, (answer) => {
+          descRl.close();
+          resolve(answer.trim() || defaultDesc);
+        });
+      });
+      await client.request('projectsNew', { cwd: effectiveCwd, description: desc });
+      console.log(`${DIM}  Registered project: ${desc}${RESET}\n`);
+    }
+  } catch { /* ignore registration errors */ }
+
   // ── Stream event handling ──
   let isStreaming = false;
   let currentText = '';
