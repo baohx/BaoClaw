@@ -1629,7 +1629,8 @@ async function main() {
       console.log(`  ${FG_WHITE}/skills${RESET}     ${DIM}List discovered skills${RESET}`);
       console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
       console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
-      console.log(`  ${FG_WHITE}/cd${RESET}         ${DIM}Switch working directory: /cd <path>${RESET}`);
+      console.log(`  ${FG_WHITE}/projects${RESET}   ${DIM}Project management: list, switch, new${RESET}`);
+      console.log(`  ${FG_WHITE}/history${RESET}    ${DIM}Show recent conversation: /history [n]${RESET}`);
       console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
       console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model: /model [name]${RESET}`);
       console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Show git diff summary${RESET}`);
