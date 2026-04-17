@@ -570,8 +570,16 @@ async fn handle_shared_client(
                             }
                             ClientMethod::ProjectsList => {
                                 let projects = shared.project_registry.list().await;
+                                // Enrich each project with its session_id (derived from cwd hash)
+                                let enriched: Vec<serde_json::Value> = projects.iter().map(|p| {
+                                    let session_key = format!("{:x}", md5_simple(&p.cwd))[..8].to_string();
+                                    let mut v = serde_json::to_value(p).unwrap_or_default();
+                                    v["session_id"] = serde_json::json!(session_key);
+                                    v
+                                }).collect();
+                                let count = enriched.len();
                                 let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"projects": projects, "count": projects.len()})).await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"projects": enriched, "count": count})).await;
                             }
                             ClientMethod::ProjectsSwitch { id_prefix } => {
                                 let mut conn_guard = conn.lock().await;

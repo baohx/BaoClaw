@@ -810,10 +810,12 @@ async function main() {
       for (const m of result.messages) {
         const ts = m.timestamp ? m.timestamp.slice(11, 19) : '';
         if (m.role === 'user') {
-          out += `[${ts}] 👤 ${(m.text || '').slice(0, 80)}\n`;
+          const text = (m.text || '').slice(0, 80);
+          out += `${ts}  👤 ${text}${text.length >= 80 ? '…' : ''}\n`;
         } else if (m.role === 'assistant') {
-          const tools = m.tools && m.tools.length > 0 ? ` [${m.tools.join(',')}]` : '';
-          out += `[${ts}] 🤖${tools} ${(m.text || '').slice(0, 80)}\n`;
+          const text = (m.text || '').slice(0, 80);
+          const tools = m.tools && m.tools.length > 0 ? ` [${m.tools.length}🔧]` : '';
+          out += `${ts}  🤖${tools} ${text}${text.length >= 80 ? '…' : ''}\n`;
         }
       }
       return out;
@@ -833,7 +835,10 @@ async function main() {
         let out = `⏰ 定时任务 (${result.count})\n\n`;
         for (const j of result.jobs) {
           const status = j.enabled ? '✅' : '⏸️';
-          out += `${status} [${j.id}] ${j.name}\n  ${j.schedule} | ${j.last_run ? '上次: ' + j.last_run.slice(0, 19) : '未运行'}\n  ${j.prompt.slice(0, 60)}\n\n`;
+          const last = j.last_run ? j.last_run.slice(0, 19) : '未运行';
+          const prompt = j.prompt.length > 50 ? j.prompt.slice(0, 50) + '…' : j.prompt;
+          out += `${status} [${j.id}] ${j.name}  ${j.schedule}\n`;
+          out += `  ${last}  ${prompt}\n\n`;
         }
         return out;
       } else if (subCmd === 'add') {
@@ -868,9 +873,12 @@ async function main() {
         if (result.count === 0) return '暂无项目。使用 /projects new <路径> [描述] 创建。';
         let out = `📂 项目列表 (${result.count})\n\n`;
         for (const p of result.projects) {
-          out += `[${p.id}] ${p.description}\n  ${p.cwd}\n\n`;
+          const last = p.last_accessed ? p.last_accessed.slice(0, 10) : '';
+          const sid = p.session_id ? `  session:${p.session_id}` : '';
+          out += `[${p.id}] ${p.description}${last ? '  (' + last + ')' : ''}${sid}\n`;
+          out += `  ${p.cwd}\n\n`;
         }
-        out += '切换: /projects <id>\n新建: /projects new <路径> [描述]';
+        out += '切换: /projects <id>  ·  新建: /projects new <路径> [描述]';
         return out;
       } else if (subCmd === 'new') {
         const rest = args.slice(3).trim();

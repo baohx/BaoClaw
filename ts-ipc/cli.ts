@@ -108,23 +108,12 @@ function printWelcome(sessionId: string, model: string, cwd: string) {
 
   console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v0.10.0${RESET}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
-  console.log(`${DIM}  Session: ${sessionId}${RESET}`);
-  console.log(`${DIM}  cwd: ${cwd}${RESET}`);
-  console.log(`${DIM}  model: ${RESET}${FG_GREEN}${model}${RESET}`);
+  console.log(`  ${DIM}Session${RESET}  ${sessionId}`);
+  console.log(`  ${DIM}Model${RESET}    ${FG_GREEN}${model}${RESET}`);
+  console.log(`  ${DIM}CWD${RESET}      ${cwd}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log();
-  console.log(`${DIM}  Tips: Type your message and press Enter.${RESET}`);
-  console.log(`${DIM}        /tools    — list registered tools${RESET}`);
-  console.log(`${DIM}        /mcp      — list MCP servers${RESET}`);
-  console.log(`${DIM}        /skills   — list skills${RESET}`);
-  console.log(`${DIM}        /plugins  — list plugins${RESET}`);
-  console.log(`${DIM}        /compact  — compress conversation context${RESET}`);
-  console.log(`${DIM}        /think    — toggle extended thinking${RESET}`);
-  console.log(`${DIM}        /model    — show or switch model${RESET}`);
-  console.log(`${DIM}        /help     — all commands${RESET}`);
-  console.log(`${DIM}        /voice    — voice input (whisper.cpp)${RESET}`);
-  console.log(`${DIM}        /quit     — disconnect (daemon stays running)${RESET}`);
-  console.log(`${DIM}        /shutdown — stop daemon${RESET}`);
+  console.log(`  ${DIM}Type your message and press Enter. /help for all commands.${RESET}`);
   console.log();
 }
 
@@ -132,67 +121,208 @@ function printWelcome(sessionId: string, model: string, cwd: string) {
 // Message formatting
 // ═══════════════════════════════════════════════════════════════
 function formatToolUse(toolName: string, input: unknown): string {
-  const inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
-  const lines = inputStr.split('\n');
-  const preview = lines.length > 8
-    ? lines.slice(0, 8).join('\n') + `\n${DIM}... (${lines.length - 8} more lines)${RESET}`
-    : inputStr;
+  const inp = (typeof input === 'object' && input !== null) ? input as Record<string, unknown> : {};
 
-  // Special formatting for common tools
+  // Smart formatting per tool type
   if (toolName === 'Bash') {
-    const cmd = typeof input === 'object' && input !== null && 'command' in input
-      ? (input as { command: string }).command
-      : preview;
-    return `${FG_MAGENTA}❯ ${BOLD}${toolName}${RESET}${FG_GRAY} $ ${RESET}${FG_WHITE}${cmd}${RESET}`;
+    const cmd = 'command' in inp ? String(inp.command) : '';
+    const preview = cmd.length > 120 ? cmd.slice(0, 120) + '…' : cmd;
+    return `  ${FG_MAGENTA}❯${RESET} ${FG_WHITE}${BOLD}$ ${preview}${RESET}`;
   }
   if (toolName === 'FileRead' || toolName === 'Read') {
-    const filePath = typeof input === 'object' && input !== null && 'file_path' in input
-      ? (input as { file_path: string }).file_path
-      : '';
-    return `${FG_BLUE}📄 ${BOLD}${toolName}${RESET} ${FG_GRAY}${filePath}${RESET}`;
+    const fp = 'file_path' in inp ? String(inp.file_path) : '';
+    return `  ${FG_BLUE}📄${RESET} ${DIM}read${RESET}  ${FG_WHITE}${fp}${RESET}`;
   }
   if (toolName === 'FileWrite' || toolName === 'Write') {
-    const filePath = typeof input === 'object' && input !== null && 'file_path' in input
-      ? (input as { file_path: string }).file_path
-      : '';
-    return `${FG_GREEN}✏️  ${BOLD}${toolName}${RESET} ${FG_GRAY}${filePath}${RESET}`;
+    const fp = 'file_path' in inp ? String(inp.file_path) : '';
+    return `  ${FG_GREEN}✏️${RESET}  ${DIM}write${RESET} ${FG_WHITE}${fp}${RESET}`;
   }
   if (toolName === 'FileEdit' || toolName === 'Edit') {
-    const filePath = typeof input === 'object' && input !== null && 'file_path' in input
-      ? (input as { file_path: string }).file_path
-      : '';
-    return `${FG_YELLOW}✎ ${BOLD}${toolName}${RESET} ${FG_GRAY}${filePath}${RESET}`;
+    const fp = 'file_path' in inp ? String(inp.file_path) : '';
+    return `  ${FG_YELLOW}✎${RESET}  ${DIM}edit${RESET}  ${FG_WHITE}${fp}${RESET}`;
+  }
+  if (toolName === 'Grep' || toolName === 'GrepTool') {
+    const pattern = 'pattern' in inp ? String(inp.pattern) : '';
+    const fp = 'path' in inp ? ` ${DIM}in${RESET} ${String(inp.path)}` : '';
+    return `  ${FG_CYAN}🔍${RESET} ${DIM}grep${RESET}  ${FG_WHITE}/${pattern}/${RESET}${fp}`;
+  }
+  if (toolName === 'Glob' || toolName === 'GlobTool') {
+    const pattern = 'pattern' in inp ? String(inp.pattern) : '';
+    return `  ${FG_CYAN}📂${RESET} ${DIM}glob${RESET}  ${FG_WHITE}${pattern}${RESET}`;
+  }
+  if (toolName === 'WebFetchTool' || toolName === 'WebFetch') {
+    const url = 'url' in inp ? String(inp.url) : '';
+    const short = url.length > 80 ? url.slice(0, 80) + '…' : url;
+    return `  ${FG_BLUE}🌐${RESET} ${DIM}fetch${RESET} ${FG_WHITE}${short}${RESET}`;
+  }
+  if (toolName === 'WebSearchTool' || toolName === 'Search' || toolName === 'WebSearch') {
+    const q = 'query' in inp ? String(inp.query) : '';
+    return `  ${FG_BLUE}🔎${RESET} ${DIM}search${RESET} ${FG_WHITE}${q}${RESET}`;
+  }
+  if (toolName === 'TodoWriteTool' || toolName === 'TodoWrite') {
+    return `  ${FG_YELLOW}📝${RESET} ${DIM}todo${RESET}  ${FG_WHITE}updating todo list${RESET}`;
+  }
+  if (toolName === 'AgentTool' || toolName === 'Agent') {
+    const prompt = 'prompt' in inp ? String(inp.prompt).slice(0, 80) : '';
+    return `  ${FG_ORANGE}🤖${RESET} ${DIM}agent${RESET} ${FG_WHITE}${prompt}${prompt.length >= 80 ? '…' : ''}${RESET}`;
   }
 
-  return `${FG_MAGENTA}⚡ ${BOLD}${toolName}${RESET}\n${DIM}${preview}${RESET}`;
+  // MCP tools and other unknown tools — show name + compact params
+  const paramKeys = Object.keys(inp);
+  const paramPreview = paramKeys.length > 0
+    ? paramKeys.slice(0, 3).map(k => {
+        const v = String(inp[k] ?? '');
+        return `${DIM}${k}=${RESET}${v.length > 40 ? v.slice(0, 40) + '…' : v}`;
+      }).join(' ')
+    : '';
+  return `  ${FG_MAGENTA}⚡${RESET} ${FG_WHITE}${BOLD}${toolName}${RESET} ${paramPreview}`;
 }
 
-function formatToolResult(output: unknown, isError: boolean): string {
-  const outputStr = typeof output === 'string'
-    ? output
-    : typeof output === 'object' && output !== null && 'output' in output
-      ? String((output as { output: string }).output)
-      : typeof output === 'object' && output !== null && 'stdout' in output
-        ? String((output as { stdout: string }).stdout)
-        : JSON.stringify(output);
+function formatToolResult(output: unknown, isError: boolean, toolName?: string, toolInput?: unknown): string {
+  const prefix = isError ? `${FG_RED}✗${RESET}` : `${FG_GREEN}✓${RESET}`;
 
-  const maxLen = 800;
-  const truncated = outputStr.length > maxLen
-    ? outputStr.slice(0, maxLen) + `\n${DIM}... (truncated)${RESET}`
-    : outputStr;
-
-  const lines = truncated.split('\n');
-  const color = isError ? FG_RED : FG_WHITE;
-  const prefix = isError ? `${FG_RED}✗` : `${FG_GREEN}✓`;
-
-  if (lines.length <= 1) {
-    return `  ${prefix}${RESET} ${color}${truncated}${RESET}`;
+  if (typeof output === 'string') return formatResultText(output, isError, prefix);
+  if (typeof output !== 'object' || output === null) {
+    return `  ${prefix} ${isError ? FG_RED : FG_GRAY}${String(output)}${RESET}`;
   }
 
-  return `  ${prefix}${RESET}\n${lines.map(l => `  ${color}${l}${RESET}`).join('\n')}`;
+  const o = output as Record<string, unknown>;
+
+  // ── Bash ──
+  if (toolName === 'Bash') {
+    const text = typeof o.output === 'string' ? o.output : typeof o.stdout === 'string' ? o.stdout : '';
+    const exitCode = typeof o.exit_code === 'number' ? o.exit_code : null;
+    if (!text.trim() && !isError) return `  ${prefix} ${DIM}(no output)${RESET}`;
+    const exitSuffix = isError && exitCode !== null ? ` ${DIM}exit ${exitCode}${RESET}` : '';
+    return formatResultText(text, isError, prefix) + exitSuffix;
+  }
+
+  // ── FileRead ──
+  if (toolName === 'FileRead' || toolName === 'Read') {
+    const linesRead = o.lines_read ?? o.total_lines ?? '';
+    return `  ${prefix} ${DIM}${linesRead} lines${o.file_path ? ' from ' + o.file_path : ''}${RESET}`;
+  }
+
+  // ── FileWrite ──
+  if (toolName === 'FileWrite' || toolName === 'Write') {
+    return `  ${prefix} ${DIM}${o.file_path ?? ''}${o.bytes_written ? ' (' + o.bytes_written + ' bytes)' : ''}${RESET}`;
+  }
+
+  // ── FileEdit ──
+  if (toolName === 'FileEdit' || toolName === 'Edit') {
+    if (isError && typeof o.error === 'string') return `  ${prefix} ${FG_RED}${o.error}${RESET}`;
+    return `  ${prefix} ${DIM}${o.file_path ?? ''}${RESET}`;
+  }
+
+  // ── GrepTool ──
+  if (toolName === 'GrepTool' || toolName === 'Grep') {
+    const matches = Array.isArray(o.matches) ? o.matches : [];
+    const trunc = o.truncated ? ' (truncated)' : '';
+    if (matches.length === 0) return `  ${prefix} ${DIM}no matches${RESET}`;
+    return `  ${prefix} ${DIM}${matches.length} match${matches.length > 1 ? 'es' : ''}${trunc}${RESET}`;
+  }
+
+  // ── GlobTool ──
+  if (toolName === 'GlobTool' || toolName === 'Glob') {
+    const files = Array.isArray(o.files) ? o.files : [];
+    if (files.length === 0) return `  ${prefix} ${DIM}no files found${RESET}`;
+    const preview = files.slice(0, 4).map((f: unknown) => String(f)).join(', ');
+    const more = files.length > 4 ? ` +${files.length - 4} more` : '';
+    return `  ${prefix} ${DIM}${files.length} files: ${preview}${more}${RESET}`;
+  }
+
+  // ── WebFetchTool ──
+  if (toolName === 'WebFetchTool' || toolName === 'WebFetch') {
+    const content = typeof o.content === 'string' ? o.content : '';
+    if (!content) return `  ${prefix} ${DIM}(empty response)${RESET}`;
+    return `  ${prefix} ${DIM}${content.length.toLocaleString()} chars fetched${RESET}`;
+  }
+
+  // ── WebSearchTool — show results with titles and URLs ──
+  if (toolName === 'WebSearchTool' || toolName === 'Search' || toolName === 'WebSearch') {
+    const results = Array.isArray(o.results) ? o.results as Record<string, unknown>[] : [];
+    if (results.length === 0) return `  ${prefix} ${DIM}no results${RESET}`;
+    let out = `  ${prefix} ${DIM}${results.length} result${results.length !== 1 ? 's' : ''}${RESET}\n`;
+    for (const r of results.slice(0, 5)) {
+      const title = typeof r.title === 'string' ? r.title : '';
+      const url = typeof r.url === 'string' ? r.url : '';
+      const snippet = typeof r.snippet === 'string' ? r.snippet : '';
+      const shortTitle = title.length > 60 ? title.slice(0, 60) + '…' : title;
+      const shortSnippet = snippet.length > 80 ? snippet.slice(0, 80) + '…' : snippet;
+      out += `    ${FG_WHITE}${shortTitle}${RESET}\n`;
+      out += `    ${FG_BLUE}${UNDERLINE}${url}${RESET}\n`;
+      if (shortSnippet) out += `    ${DIM}${shortSnippet}${RESET}\n`;
+    }
+    if (results.length > 5) out += `    ${DIM}… +${results.length - 5} more${RESET}\n`;
+    return out.trimEnd();
+  }
+
+  // ── AgentTool — show result text with cost ──
+  if (toolName === 'AgentTool' || toolName === 'Agent') {
+    const text = typeof o.result === 'string' ? o.result : '';
+    const costVal = typeof o.cost_usd === 'number' ? o.cost_usd as number : 0;
+    const cost = costVal > 0 ? ` ${DIM}(` + '$' + `${costVal.toFixed(4)})${RESET}` : '';
+    if (text) return formatResultText(text, isError, prefix) + cost;
+    return `  ${prefix} ${DIM}done${RESET}${cost}`;
+  }
+
+  // ── Simple confirmation tools ──
+  if (['TodoWriteTool', 'TodoWrite', 'MemoryTool', 'Memory',
+       'ProjectNoteTool', 'ProjectNote', 'SaveProjectRule',
+       'NotebookEditTool', 'NotebookEdit'].includes(toolName || '')) {
+    if (isError && typeof o.error === 'string') return `  ${prefix} ${FG_RED}${o.error}${RESET}`;
+    return `  ${prefix} ${DIM}done${RESET}`;
+  }
+
+  // ── ToolSearchTool ──
+  if (toolName === 'ToolSearchTool' || toolName === 'ToolSearch') {
+    const matches = Array.isArray(o.matches) ? o.matches : [];
+    if (matches.length === 0) return `  ${prefix} ${DIM}no matching tools${RESET}`;
+    const names = matches.slice(0, 5).map((m: any) => m?.name || m).join(', ');
+    const more = matches.length > 5 ? ` +${matches.length - 5}` : '';
+    return `  ${prefix} ${DIM}${names}${more}${RESET}`;
+  }
+
+  // ── Evolve ──
+  if (toolName === 'Evolve' || toolName === 'EvolveTool') {
+    if (o.created) return `  ${prefix} ${DIM}skill created${RESET}`;
+    if (o.improved) return `  ${prefix} ${DIM}skill improved${RESET}`;
+    if (o.promoted) return `  ${prefix} ${DIM}skill promoted${RESET}`;
+    if (typeof o.exported === 'number') return `  ${prefix} ${DIM}${o.exported} skills exported${RESET}`;
+    if (Array.isArray(o.candidates)) return `  ${prefix} ${DIM}${(o.candidates as any[]).length} candidates${RESET}`;
+    return `  ${prefix} ${DIM}done${RESET}`;
+  }
+
+  // ── Generic fallback ──
+  if (Array.isArray(o.content)) {
+    const textParts = (o.content as any[]).filter((c: any) => c?.type === 'text' && typeof c?.text === 'string').map((c: any) => c.text as string);
+    if (textParts.length > 0) return formatResultText(textParts.join('\n'), isError, prefix);
+    const imgCount = (o.content as any[]).filter((c: any) => c?.type === 'image').length;
+    if (imgCount > 0) return `  ${prefix} ${DIM}${imgCount} image${imgCount > 1 ? 's' : ''}${RESET}`;
+  }
+  const textField = o.output ?? o.stdout ?? o.content ?? o.result ?? o.text ?? o.message;
+  if (typeof textField === 'string' && textField.trim()) return formatResultText(textField, isError, prefix);
+  for (const key of Object.keys(o)) {
+    if (Array.isArray(o[key])) return `  ${prefix} ${DIM}${(o[key] as unknown[]).length} ${key}${RESET}`;
+  }
+  const compact = JSON.stringify(output);
+  if (compact.length <= 100) return `  ${prefix} ${FG_GRAY}${compact}${RESET}`;
+  return `  ${prefix} ${FG_GRAY}${compact.slice(0, 100)}…${RESET}`;
 }
 
-// ═══════════════════════════════════════════════════════════════
+/** Format a text result with truncation and coloring */
+function formatResultText(text: string, isError: boolean, prefix: string): string {
+  text = text.replace(/[A-Za-z0-9+/=]{500,}/g, '[binary data]');
+  const color = isError ? FG_RED : FG_GRAY;
+  let lines = text.split('\n');
+  while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
+  if (lines.length > 5) { const t = lines.length; lines = lines.slice(0, 5); lines.push(`${DIM}… (${t - 5} more lines)${RESET}`); }
+  let truncated = lines.join('\n');
+  if (truncated.length > 300) truncated = truncated.slice(0, 300) + `${DIM}…${RESET}`;
+  if (!truncated.includes('\n')) return `  ${prefix} ${color}${truncated}${RESET}`;
+  return `  ${prefix}\n${truncated.split('\n').map(l => `  ${color}  ${l}${RESET}`).join('\n')}`;
+}
+
 // Minimal IPC client (inline to avoid ESM import issues)
 // ═══════════════════════════════════════════════════════════════
 class IpcClient {
@@ -310,7 +440,8 @@ async function selectDaemon(daemons: DaemonInfo[]): Promise<DaemonInfo | null> {
     for (let i = 0; i < daemons.length; i++) {
       const d = daemons[i];
       const age = timeSince(d.started_at);
-      console.log(`  ${FG_WHITE}${BOLD}${i + 1}${RESET}  ${DIM}pid=${d.pid}${RESET} ${FG_WHITE}${d.cwd}${RESET} ${DIM}(${age}, session: ${d.session_id.slice(0, 8)}...)${RESET}`);
+      const dir = d.cwd.length > 40 ? '…' + d.cwd.slice(-39) : d.cwd;
+      console.log(`  ${FG_WHITE}${BOLD}${i + 1}${RESET}  ${FG_WHITE}${dir}${RESET}  ${DIM}pid=${d.pid} · ${age} · ${d.session_id.slice(0, 8)}${RESET}`);
     }
     console.log();
 
@@ -560,6 +691,8 @@ async function main() {
   let currentText = '';
   let toolCount = 0;
   let queryStartTime = 0;
+  // Track tool_use_id → tool_name for smart result formatting
+  const pendingTools = new Map<string, { name: string; input: unknown }>();
 
   client.onNotification('stream/event', (params: unknown) => {
     const event = params as Record<string, unknown>;
@@ -589,18 +722,30 @@ async function main() {
 
       case 'tool_use': {
         stopSpinner();
-        if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+        if (isStreaming) {
+          // Flush accumulated text before showing tool use
+          if (currentText.trim()) {
+            process.stdout.write(`\n${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
+            process.stdout.write(renderMarkdown(currentText));
+            process.stdout.write('\n');
+            currentText = '';
+          }
+          isStreaming = false;
+        }
         toolCount++;
         const tu = event as { tool_name: string; input: unknown; tool_use_id: string };
-        console.log(`\n${formatToolUse(tu.tool_name, tu.input)}`);
-        startSpinner(`Running ${tu.tool_name}...`);
+        pendingTools.set(tu.tool_use_id, { name: tu.tool_name, input: tu.input });
+        console.log(formatToolUse(tu.tool_name, tu.input));
+        startSpinner(`${tu.tool_name}…`);
         break;
       }
 
       case 'tool_result': {
         stopSpinner();
         const tr = event as { tool_use_id: string; output: unknown; is_error: boolean };
-        console.log(formatToolResult(tr.output, tr.is_error));
+        const toolInfo = pendingTools.get(tr.tool_use_id);
+        pendingTools.delete(tr.tool_use_id);
+        console.log(formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input));
         break;
       }
 
@@ -617,13 +762,19 @@ async function main() {
         stopSpinner();
         if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
         const pr = event as { tool_name: string; input: Record<string, unknown>; tool_use_id: string };
-        console.log(`\n${FG_YELLOW}⚠ ${BOLD}Permission Required${RESET}`);
-        console.log(`  Tool: ${FG_WHITE}${pr.tool_name}${RESET}`);
-        console.log(`  Input: ${DIM}${JSON.stringify(pr.input)}${RESET}`);
-        console.log(`  ${FG_GREEN}[y]${RESET} Allow  ${FG_GREEN}[a]${RESET} Always Allow  ${FG_RED}[n]${RESET} Deny`);
+
+        // Show a compact permission prompt
+        const inp = pr.input || {};
+        const paramPreview = Object.keys(inp).slice(0, 2).map(k => {
+          const v = String(inp[k] ?? '');
+          return `${k}=${v.length > 30 ? v.slice(0, 30) + '…' : v}`;
+        }).join(', ');
+
+        console.log(`\n  ${FG_YELLOW}⚠ Permission${RESET}  ${FG_WHITE}${BOLD}${pr.tool_name}${RESET}  ${DIM}${paramPreview}${RESET}`);
+        console.log(`    ${FG_GREEN}[y]${RESET} Allow  ${FG_GREEN}[a]${RESET} Always  ${FG_RED}[n]${RESET} Deny`);
 
         const permRl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        permRl.question(`${FG_ORANGE}> ${RESET}`, async (answer: string) => {
+        permRl.question(`  ${FG_ORANGE}> ${RESET}`, async (answer: string) => {
           permRl.close();
           let decision: string;
           let rule: string | undefined;
@@ -656,16 +807,47 @@ async function main() {
           process.stdout.write(renderMarkdown(currentText));
           process.stdout.write('\n');
           isStreaming = false;
+        } else if (queryStartTime > 0 && !currentText.trim() && toolCount === 0) {
+          // AI returned without any text or tool use — show a hint
+          const r = event as { status?: string };
+          if (r.status === 'complete') {
+            console.log(`\n${DIM}  (empty response — try rephrasing or providing more context)${RESET}\n`);
+          }
         }
-        const result = event as { status: string; num_turns: number; duration_ms: number; usage?: { input_tokens: number; output_tokens: number } };
-        const elapsed = Date.now() - queryStartTime;
-        const tokens = result.usage
-          ? `${result.usage.input_tokens}→${result.usage.output_tokens} tokens`
-          : '';
-        const tools = toolCount > 0 ? `${toolCount} tool${toolCount > 1 ? 's' : ''}` : '';
-        const parts = [tools, tokens, `${(elapsed / 1000).toFixed(1)}s`].filter(Boolean).join(' · ');
-        console.log(`\n${FG_CYAN}  ${parts}${RESET}\n`);
-        queryStartTime = 0; // mark idle
+        // Only show stats bar for actual queries (skip stale/duplicate events)
+        if (queryStartTime > 0) {
+          const result = event as { status: string; num_turns: number; duration_ms: number; usage?: { input_tokens: number; output_tokens: number }; total_cost_usd?: number };
+          const elapsed = Date.now() - queryStartTime;
+          const elapsedStr = elapsed >= 60000
+            ? `${(elapsed / 60000).toFixed(1)}m`
+            : `${(elapsed / 1000).toFixed(1)}s`;
+  
+          // Build a clean stats line with separators
+          const statParts: string[] = [];
+          if (toolCount > 0) {
+            statParts.push(`${FG_MAGENTA}⚡ ${toolCount} tool${toolCount > 1 ? 's' : ''}${RESET}`);
+          }
+          if (result.usage && (result.usage.input_tokens > 0 || result.usage.output_tokens > 0)) {
+            const inp = result.usage.input_tokens >= 1000
+              ? `${(result.usage.input_tokens / 1000).toFixed(1)}k`
+              : `${result.usage.input_tokens}`;
+            const out = result.usage.output_tokens >= 1000
+              ? `${(result.usage.output_tokens / 1000).toFixed(1)}k`
+              : `${result.usage.output_tokens}`;
+            statParts.push(`${FG_CYAN}↑${inp} ↓${out}${RESET}`);
+          }
+          if (result.total_cost_usd && result.total_cost_usd > 0) {
+            statParts.push(`${FG_YELLOW}$${result.total_cost_usd.toFixed(4)}${RESET}`);
+          }
+          statParts.push(`${FG_GRAY}${elapsedStr}${RESET}`);
+  
+          const statsLine = statParts.join(`${FG_GRAY} │ ${RESET}`);
+          console.log(`\n${FG_GRAY}  ─${RESET} ${statsLine} ${FG_GRAY}─${RESET}\n`);
+        }
+        // Always reset state
+        currentText = '';
+        toolCount = 0;
+        queryStartTime = 0;
         break;
       }
 
@@ -673,8 +855,8 @@ async function main() {
         stopSpinner();
         if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
         const fb = event as { from_model: string; to_model: string };
-        console.log(`\n${FG_YELLOW}⚠ ${BOLD}Model Fallback${RESET}${FG_YELLOW} ${fb.from_model} → ${fb.to_model} (rate limited)${RESET}\n`);
-        startSpinner('Retrying with ' + fb.to_model + '...');
+        console.log(`\n  ${FG_YELLOW}⚠ Fallback${RESET} ${DIM}${fb.from_model}${RESET} ${FG_YELLOW}→${RESET} ${FG_GREEN}${fb.to_model}${RESET} ${DIM}(rate limited)${RESET}\n`);
+        startSpinner(fb.to_model + '…');
         break;
       }
 
@@ -682,7 +864,7 @@ async function main() {
         stopSpinner();
         if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
         const err = event as { code: string; message: string };
-        console.log(`\n${FG_RED}${BOLD}Error${RESET}${FG_RED} [${err.code}]: ${err.message}${RESET}\n`);
+        console.log(`\n  ${FG_RED}✗ ${BOLD}${err.code || 'Error'}${RESET}${FG_RED}: ${err.message}${RESET}\n`);
         queryStartTime = 0; // mark idle
         break;
       }
@@ -807,15 +989,26 @@ async function main() {
       try {
         const result = await client.request<{ tools: Array<{ name: string; description: string; type: string }>; count: number }>('listTools');
         console.log(`\n${FG_ORANGE}${BOLD}Registered Tools${RESET} ${DIM}(${result.count})${RESET}\n`);
+
+        // Group by type
+        const groups: Record<string, typeof result.tools> = {};
         for (const tool of result.tools) {
-          const badge = tool.type === 'builtin' ? `${FG_GREEN}builtin${RESET}` : `${FG_BLUE}${tool.type}${RESET}`;
-          console.log(`  ${FG_WHITE}${BOLD}${tool.name}${RESET} ${DIM}[${badge}${DIM}]${RESET}`);
-          if (tool.description) {
-            const desc = tool.description.length > 80 ? tool.description.slice(0, 80) + '...' : tool.description;
-            console.log(`    ${DIM}${desc}${RESET}`);
-          }
+          const t = tool.type || 'other';
+          if (!groups[t]) groups[t] = [];
+          groups[t].push(tool);
         }
-        console.log();
+
+        for (const [type, tools] of Object.entries(groups)) {
+          const badge = type === 'builtin' ? `${FG_GREEN}${type}${RESET}` : `${FG_BLUE}${type}${RESET}`;
+          console.log(`  ${FG_GRAY}── ${badge} ${FG_GRAY}(${tools.length}) ──${RESET}`);
+          for (const tool of tools) {
+            const desc = tool.description
+              ? (tool.description.length > 60 ? tool.description.slice(0, 60) + '…' : tool.description)
+              : '';
+            console.log(`  ${FG_WHITE}${tool.name}${RESET}  ${DIM}${desc}${RESET}`);
+          }
+          console.log();
+        }
       } catch (err) {
         console.error(`${FG_RED}Failed to list tools: ${err}${RESET}`);
       }
@@ -825,22 +1018,24 @@ async function main() {
 
     if (input === '/mcp') {
       try {
-        const result = await client.request<{ servers: Array<{ name: string; command?: string; server_type: string; url?: string; disabled: boolean; source: string; config_path: string }>; count: number }>('listMcpServers');
+        const result = await client.request<{ servers: Array<{ name: string; command?: string; args?: string[]; server_type: string; url?: string; disabled: boolean; source: string; config_path: string }>; count: number }>('listMcpServers');
         if (result.count === 0) {
           console.log(`\n${DIM}No MCP servers configured.${RESET}`);
           console.log(`${DIM}Add servers to .baoclaw/mcp.json or ~/.baoclaw/mcp.json${RESET}\n`);
         } else {
           console.log(`\n${FG_ORANGE}${BOLD}MCP Servers${RESET} ${DIM}(${result.count})${RESET}\n`);
           for (const srv of result.servers) {
-            const status = srv.disabled ? `${FG_RED}disabled${RESET}` : `${FG_GREEN}enabled${RESET}`;
+            const statusIcon = srv.disabled ? `${FG_RED}●${RESET}` : `${FG_GREEN}●${RESET}`;
             const source = `${DIM}[${srv.source}]${RESET}`;
-            console.log(`  ${FG_WHITE}${BOLD}${srv.name}${RESET} ${status} ${source}`);
+            console.log(`  ${statusIcon} ${FG_WHITE}${BOLD}${srv.name}${RESET} ${source}`);
             if (srv.command) {
-              console.log(`    ${DIM}${srv.server_type}: ${srv.command} ${srv.args?.join(' ') || ''}${RESET}`);
+              const args = srv.args?.join(' ') || '';
+              const cmd = `${srv.command} ${args}`.trim();
+              const short = cmd.length > 60 ? cmd.slice(0, 60) + '…' : cmd;
+              console.log(`    ${DIM}${srv.server_type}: ${short}${RESET}`);
             } else if (srv.url) {
               console.log(`    ${DIM}${srv.server_type}: ${srv.url}${RESET}`);
             }
-            console.log(`    ${DIM}config: ${srv.config_path}${RESET}`);
           }
           console.log();
         }
@@ -924,29 +1119,25 @@ async function main() {
 
         const activeModel = process.env.ANTHROPIC_MODEL || configModel;
 
-        console.log(`\n${FG_ORANGE}${BOLD}Model Configuration${RESET}\n`);
-        console.log(`  ${FG_WHITE}Active model:${RESET}  ${FG_GREEN}${activeModel}${RESET}`);
+        console.log(`\n${FG_ORANGE}${BOLD}Model${RESET}\n`);
+        console.log(`  ${FG_WHITE}Active:${RESET}   ${FG_GREEN}${activeModel}${RESET}`);
         if (process.env.ANTHROPIC_MODEL) {
-          console.log(`  ${FG_GRAY}(overridden by ANTHROPIC_MODEL env var, config: ${configModel})${RESET}`);
+          console.log(`  ${DIM}(env override, config: ${configModel})${RESET}`);
         }
-        console.log(`  ${FG_WHITE}Max retries:${RESET}   ${maxRetries} per model`);
-        console.log();
+        console.log(`  ${FG_WHITE}Retries:${RESET}  ${maxRetries} per model`);
 
         if (fallbackModels.length > 0) {
-          console.log(`  ${FG_WHITE}Fallback chain:${RESET}`);
-          console.log(`    ${FG_CYAN}0.${RESET} ${FG_GREEN}${activeModel}${RESET} ${FG_GRAY}(primary)${RESET}`);
+          console.log();
+          console.log(`  ${FG_GRAY}── Fallback Chain ──${RESET}`);
+          console.log(`  ${FG_CYAN}0${RESET}  ${FG_GREEN}${activeModel}${RESET}  ${DIM}primary${RESET}`);
           fallbackModels.forEach((m: string, i: number) => {
-            console.log(`    ${FG_CYAN}${i + 1}.${RESET} ${FG_YELLOW}${m}${RESET}`);
+            console.log(`  ${FG_CYAN}${i + 1}${RESET}  ${FG_YELLOW}${m}${RESET}`);
           });
         } else {
-          console.log(`  ${FG_GRAY}No fallback models configured.${RESET}`);
-          console.log(`  ${FG_GRAY}Edit ~/.baoclaw/config.json to add fallback_models.${RESET}`);
+          console.log(`\n  ${DIM}No fallback models. Edit ~/.baoclaw/config.json${RESET}`);
         }
 
-        console.log();
-        console.log(`  ${FG_WHITE}Switch:${RESET}  /model <model-name>`);
-        console.log(`  ${FG_WHITE}Config:${RESET}  ~/.baoclaw/config.json`);
-        console.log();
+        console.log(`\n  ${DIM}Switch: /model <name>${RESET}\n`);
       } else {
         // Switch model
         try {
@@ -989,12 +1180,20 @@ async function main() {
             console.log(`\n${DIM}No projects registered. Use /projects new <path> [description]${RESET}\n`);
           } else {
             console.log(`\n${FG_ORANGE}${BOLD}Projects${RESET} ${DIM}(${result.count})${RESET}\n`);
+            // Calculate column widths
+            const idWidth = Math.max(4, ...result.projects.map((p: any) => (p.id || '').length));
+            const descWidth = Math.max(8, ...result.projects.map((p: any) => (p.description || '').length));
+            const clampedDesc = Math.min(descWidth, 30);
+
             for (const p of result.projects) {
-              const last = p.last_accessed ? p.last_accessed.slice(0, 10) : 'never';
-              console.log(`  ${FG_WHITE}${BOLD}${p.id}${RESET}  ${p.description}`);
-              console.log(`    ${DIM}${p.cwd}  (${last})${RESET}`);
+              const id = (p.id || '').padEnd(idWidth);
+              const desc = (p.description || '').slice(0, 30).padEnd(clampedDesc);
+              const last = p.last_accessed ? timeSince(p.last_accessed) : 'never';
+              const sid = p.session_id ? `${DIM}session:${p.session_id}${RESET}` : '';
+              console.log(`  ${FG_CYAN}${id}${RESET}  ${FG_WHITE}${BOLD}${desc}${RESET}  ${DIM}${last}${RESET}  ${sid}`);
+              console.log(`  ${' '.repeat(idWidth)}  ${DIM}${p.cwd}${RESET}`);
             }
-            console.log(`\n${DIM}  Switch: /projects <id>  |  New: /projects new <path> [desc]${RESET}\n`);
+            console.log(`\n  ${DIM}Switch: /projects <id>  ·  New: /projects new <path> [desc]${RESET}\n`);
           }
         } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
         rl.prompt();
@@ -1095,11 +1294,11 @@ async function main() {
           } else {
             console.log(`\n${FG_ORANGE}${BOLD}Cron Jobs${RESET} ${DIM}(${result.count})${RESET}\n`);
             for (const j of result.jobs) {
-              const status = j.enabled ? `${FG_GREEN}on${RESET}` : `${FG_RED}off${RESET}`;
-              const last = j.last_run ? `last: ${j.last_run.slice(0, 19)}` : 'never run';
-              console.log(`  ${FG_WHITE}${BOLD}${j.id}${RESET} ${status} ${DIM}${j.schedule}${RESET} ${j.name}`);
-              console.log(`    ${DIM}${last}${RESET}`);
-              console.log(`    ${DIM}${j.prompt.slice(0, 80)}${RESET}`);
+              const statusIcon = j.enabled ? `${FG_GREEN}●${RESET}` : `${FG_RED}●${RESET}`;
+              const last = j.last_run ? timeSince(j.last_run) : 'never';
+              const prompt = j.prompt.length > 60 ? j.prompt.slice(0, 60) + '…' : j.prompt;
+              console.log(`  ${statusIcon} ${FG_WHITE}${j.id}${RESET}  ${j.name}  ${DIM}${j.schedule}${RESET}  ${DIM}last: ${last}${RESET}`);
+              console.log(`    ${DIM}${prompt}${RESET}`);
             }
             console.log();
           }
@@ -1135,18 +1334,20 @@ async function main() {
       const count = parseInt(arg, 10) || 10;
       try {
         const result = await client.request<{ messages: any[]; count: number; total: number }>('talkTail', { count });
-        console.log(`\n${FG_ORANGE}${BOLD}Recent History${RESET} ${DIM}(${result.count} of ${result.total} messages)${RESET}\n`);
+        console.log(`\n${FG_ORANGE}${BOLD}Recent History${RESET} ${DIM}(${result.count} of ${result.total})${RESET}\n`);
         for (const m of result.messages) {
-          const ts = m.timestamp ? m.timestamp.slice(11, 19) : '';
+          const ts = m.timestamp ? `${DIM}${m.timestamp.slice(11, 19)}${RESET}` : '';
           if (m.role === 'user') {
-            const preview = (m.text || '').slice(0, 120);
-            console.log(`  ${DIM}${ts}${RESET} ${FG_BRIGHT_WHITE}${BOLD}You${RESET} ${preview}${preview.length >= 120 ? '...' : ''}`);
+            const preview = (m.text || '').slice(0, 100);
+            console.log(`  ${ts} ${FG_BRIGHT_WHITE}${BOLD}You${RESET}  ${preview}${preview.length >= 100 ? '…' : ''}`);
           } else if (m.role === 'assistant') {
-            const preview = (m.text || '').slice(0, 120);
-            const toolBadge = m.tools && m.tools.length > 0 ? ` ${DIM}[${m.tools.join(', ')}]${RESET}` : '';
-            console.log(`  ${DIM}${ts}${RESET} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge} ${preview}${preview.length >= 120 ? '...' : ''}`);
+            const preview = (m.text || '').slice(0, 100);
+            const toolBadge = m.tools && m.tools.length > 0
+              ? ` ${FG_MAGENTA}[${m.tools.length} tool${m.tools.length > 1 ? 's' : ''}]${RESET}`
+              : '';
+            console.log(`  ${ts} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge}  ${DIM}${preview}${preview.length >= 100 ? '…' : ''}${RESET}`);
           } else {
-            console.log(`  ${DIM}${ts} [system]${RESET}`);
+            console.log(`  ${ts} ${DIM}[system]${RESET}`);
           }
         }
         console.log();
@@ -1163,7 +1364,13 @@ async function main() {
         if (result.tokens_saved === 0) {
           console.log(`\n${DIM}Not enough messages to compact.${RESET}\n`);
         } else {
-          console.log(`\n${FG_GREEN}${BOLD}Compacted${RESET} ${DIM}${result.tokens_before}→${result.tokens_after} tokens (saved ${result.tokens_saved}, summary ${result.summary_tokens})${RESET}\n`);
+          const pct = ((result.tokens_saved / result.tokens_before) * 100).toFixed(0);
+          console.log(`\n${FG_GREEN}${BOLD}Compacted${RESET}`);
+          console.log(`  ${FG_WHITE}Before:${RESET}  ${result.tokens_before.toLocaleString()} tokens`);
+          console.log(`  ${FG_WHITE}After:${RESET}   ${result.tokens_after.toLocaleString()} tokens`);
+          console.log(`  ${FG_WHITE}Saved:${RESET}   ${FG_GREEN}${result.tokens_saved.toLocaleString()} tokens (${pct}%)${RESET}`);
+          console.log(`  ${FG_WHITE}Summary:${RESET} ${result.summary_tokens.toLocaleString()} tokens`);
+          console.log();
         }
       } catch (err) {
         stopSpinner();
@@ -1186,7 +1393,11 @@ async function main() {
           } else {
             console.log(`\n${FG_ORANGE}${BOLD}Long-term Memory${RESET} ${DIM}(${result.count})${RESET}\n`);
             for (const m of result.memories) {
-              console.log(`  ${FG_WHITE}${BOLD}${m.id}${RESET} ${DIM}[${m.category}]${RESET} ${m.content}`);
+              const catColor = m.category === 'preference' ? FG_MAGENTA
+                : m.category === 'decision' ? FG_YELLOW
+                : FG_CYAN;
+              const content = m.content.length > 80 ? m.content.slice(0, 80) + '…' : m.content;
+              console.log(`  ${catColor}${m.category.padEnd(10)}${RESET} ${FG_WHITE}${content}${RESET}  ${DIM}[${m.id}]${RESET}`);
             }
             console.log();
           }
@@ -1359,11 +1570,12 @@ async function main() {
             for (const t of result.tasks) {
               const statusStr = typeof t.status === 'string' ? t.status
                 : t.status && typeof t.status === 'object' && 'Failed' in t.status ? `Failed: ${t.status.Failed}` : JSON.stringify(t.status);
-              const statusColor = statusStr === 'Running' ? FG_YELLOW
-                : statusStr === 'Completed' ? FG_GREEN
-                : statusStr === 'Aborted' ? FG_GRAY
-                : FG_RED;
-              console.log(`  ${FG_WHITE}${BOLD}${t.id}${RESET}  ${statusColor}${statusStr}${RESET}  ${DIM}${t.description}${RESET}`);
+              const statusIcon = statusStr === 'Running' ? `${FG_YELLOW}●${RESET}`
+                : statusStr === 'Completed' ? `${FG_GREEN}●${RESET}`
+                : statusStr === 'Aborted' ? `${FG_GRAY}●${RESET}`
+                : `${FG_RED}●${RESET}`;
+              const desc = t.description.length > 50 ? t.description.slice(0, 50) + '…' : t.description;
+              console.log(`  ${statusIcon} ${FG_WHITE}${t.id}${RESET}  ${desc}  ${DIM}${statusStr}${RESET}`);
             }
             console.log();
           }
@@ -1385,14 +1597,17 @@ async function main() {
           const t = await client.request<{ id: string; description: string; status: string | { Failed: string }; created_at: string; completed_at: string | null; result: string | null }>('taskStatus', { task_id: taskId });
           const statusStr = typeof t.status === 'string' ? t.status
             : t.status && typeof t.status === 'object' && 'Failed' in t.status ? `Failed: ${t.status.Failed}` : JSON.stringify(t.status);
-          console.log(`\n${FG_ORANGE}${BOLD}Task ${t.id}${RESET}`);
-          console.log(`  Status:      ${statusStr}`);
-          console.log(`  Description: ${t.description}`);
-          console.log(`  Created:     ${t.created_at}`);
-          if (t.completed_at) console.log(`  Completed:   ${t.completed_at}`);
+          const statusColor = statusStr === 'Running' ? FG_YELLOW
+            : statusStr === 'Completed' ? FG_GREEN
+            : statusStr.startsWith('Failed') ? FG_RED : FG_GRAY;
+          console.log(`\n${FG_ORANGE}${BOLD}Task${RESET} ${FG_WHITE}${t.id}${RESET}`);
+          console.log(`  ${FG_WHITE}Status:${RESET}  ${statusColor}${statusStr}${RESET}`);
+          console.log(`  ${FG_WHITE}Desc:${RESET}    ${t.description}`);
+          console.log(`  ${FG_WHITE}Created:${RESET} ${DIM}${t.created_at}${RESET}`);
+          if (t.completed_at) console.log(`  ${FG_WHITE}Done:${RESET}    ${DIM}${t.completed_at}${RESET}`);
           if (t.result) {
-            const preview = t.result.length > 200 ? t.result.slice(0, 200) + '...' : t.result;
-            console.log(`  Result:      ${DIM}${preview}${RESET}`);
+            const preview = t.result.length > 150 ? t.result.slice(0, 150) + '…' : t.result;
+            console.log(`  ${FG_WHITE}Result:${RESET}  ${DIM}${preview}${RESET}`);
           }
           console.log();
         } catch (err) {
@@ -1676,26 +1891,43 @@ async function main() {
 
     if (input === '/help') {
       console.log(`\n${FG_ORANGE}${BOLD}Commands${RESET}\n`);
+
+      console.log(`  ${FG_GRAY}── Conversation ──${RESET}`);
+      console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
+      console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
+      console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model${RESET}`);
+      console.log(`  ${FG_WHITE}/history${RESET}    ${DIM}Recent conversation: /history [n]${RESET}`);
+      console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
+      console.log();
+
+      console.log(`  ${FG_GRAY}── Projects & Git ──${RESET}`);
+      console.log(`  ${FG_WHITE}/projects${RESET}   ${DIM}List, switch, create projects${RESET}`);
+      console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Git status (branch, changes)${RESET}`);
+      console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Git diff summary${RESET}`);
+      console.log(`  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit${RESET}`);
+      console.log();
+
+      console.log(`  ${FG_GRAY}── Tools & Extensions ──${RESET}`);
       console.log(`  ${FG_WHITE}/tools${RESET}      ${DIM}List registered tools${RESET}`);
-      console.log(`  ${FG_WHITE}/mcp${RESET}        ${DIM}List MCP server configurations${RESET}`);
+      console.log(`  ${FG_WHITE}/mcp${RESET}        ${DIM}List MCP servers${RESET}`);
       console.log(`  ${FG_WHITE}/skills${RESET}     ${DIM}List discovered skills${RESET}`);
       console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
-      console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
-      console.log(`  ${FG_WHITE}/projects${RESET}   ${DIM}Project management: list, switch, new${RESET}`);
-      console.log(`  ${FG_WHITE}/history${RESET}    ${DIM}Show recent conversation: /history [n]${RESET}`);
-      console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
-      console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model: /model [name]${RESET}`);
-      console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Show git diff summary${RESET}`);
-      console.log(`  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit: /commit <message>${RESET}`);
-      console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Show git status (branch, changes)${RESET}`);
+      console.log();
+
+      console.log(`  ${FG_GRAY}── Automation ──${RESET}`);
       console.log(`  ${FG_WHITE}/task${RESET}       ${DIM}Background tasks: run, list, status, stop${RESET}`);
+      console.log(`  ${FG_WHITE}/cron${RESET}       ${DIM}Scheduled tasks: add, list, remove, toggle${RESET}`);
+      console.log(`  ${FG_WHITE}/memory${RESET}     ${DIM}Long-term memory: list, add, delete, clear${RESET}`);
+      console.log();
+
+      console.log(`  ${FG_GRAY}── Input & Integrations ──${RESET}`);
       console.log(`  ${FG_WHITE}/voice${RESET}      ${DIM}Voice input (requires whisper.cpp)${RESET}`);
       console.log(`  ${FG_WHITE}@file.pdf${RESET}   ${DIM}Attach file: @photo.png @doc.pdf @doc.docx${RESET}`);
-      console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Toggle telemetry: /telemetry on|off${RESET}`);
-      console.log(`  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway: start, stop, status${RESET}`);
-      console.log(`  ${FG_WHITE}/memory${RESET}     ${DIM}Long-term memory: list, add, delete, clear${RESET}`);
-      console.log(`  ${FG_WHITE}/cron${RESET}       ${DIM}Scheduled tasks: add, list, remove, toggle${RESET}`);
-      console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
+      console.log(`  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway${RESET}`);
+      console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Toggle telemetry: on|off${RESET}`);
+      console.log();
+
+      console.log(`  ${FG_GRAY}── Session ──${RESET}`);
       console.log(`  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`);
       console.log(`  ${FG_WHITE}/help${RESET}       ${DIM}Show this help${RESET}`);
       console.log(`  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`);

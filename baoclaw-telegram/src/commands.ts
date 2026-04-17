@@ -154,13 +154,25 @@ export function isRegisteredCommand(text: string): boolean {
  */
 export function formatTools(tools: ToolInfo[], count: number): string {
   if (count === 0) return '暂无已注册的工具。';
-  let out = `🔧 已注册工具 (${count})\n\n`;
+
+  // Group by type
+  const groups: Record<string, ToolInfo[]> = {};
   for (const t of tools) {
-    out += `• ${t.name} [${t.type}]\n`;
-    if (t.description) {
-      const desc = t.description.length > 80 ? t.description.slice(0, 80) + '...' : t.description;
-      out += `  ${desc}\n`;
+    const type = t.type || 'other';
+    if (!groups[type]) groups[type] = [];
+    groups[type].push(t);
+  }
+
+  let out = `🔧 已注册工具 (${count})\n\n`;
+  for (const [type, items] of Object.entries(groups)) {
+    out += `── ${type} (${items.length}) ──\n`;
+    for (const t of items) {
+      const desc = t.description
+        ? (t.description.length > 60 ? t.description.slice(0, 60) + '…' : t.description)
+        : '';
+      out += `• ${t.name}  ${desc}\n`;
     }
+    out += '\n';
   }
   return out;
 }
@@ -187,8 +199,8 @@ export function formatMcpServers(servers: McpServerInfo[], count: number): strin
   if (count === 0) return '暂无已配置的 MCP 服务器。';
   let out = `🌐 MCP 服务器 (${count})\n\n`;
   for (const srv of servers) {
-    const status = srv.disabled ? '🔴 已禁用' : '🟢 已启用';
-    out += `• ${srv.name} [${srv.server_type}] ${status} [${srv.source}]\n`;
+    const status = srv.disabled ? '🔴' : '🟢';
+    out += `${status} ${srv.name}  [${srv.server_type}] [${srv.source}]\n`;
   }
   return out;
 }
@@ -222,7 +234,14 @@ export function formatPlugins(plugins: PluginInfo[], count: number): string {
  * Format compact result showing tokens saved and summary tokens.
  */
 export function formatCompact(result: CompactResult): string {
-  return `🗜️ 上下文已压缩\n\n压缩前: ${result.tokens_before} tokens\n压缩后: ${result.tokens_after} tokens\n节省: ${result.tokens_saved} tokens\n摘要: ${result.summary_tokens} tokens`;
+  const pct = result.tokens_before > 0
+    ? ((result.tokens_saved / result.tokens_before) * 100).toFixed(0)
+    : '0';
+  return `🗜️ 上下文已压缩\n\n` +
+    `压缩前  ${result.tokens_before.toLocaleString()} tokens\n` +
+    `压缩后  ${result.tokens_after.toLocaleString()} tokens\n` +
+    `节省    ${result.tokens_saved.toLocaleString()} tokens (${pct}%)\n` +
+    `摘要    ${result.summary_tokens.toLocaleString()} tokens`;
 }
 
 /**
@@ -338,10 +357,34 @@ export function formatDisconnected(): string {
  * Format help output listing all commands with descriptions.
  */
 export function formatHelp(registry: Record<string, { description: string }>): string {
+  // Group commands by category for cleaner display
+  const groups: Record<string, string[]> = {
+    '💬 对话': ['/compact', '/think', '/model', '/history', '/abort'],
+    '📂 项目 & Git': ['/projects', '/git', '/diff', '/commit'],
+    '🔧 工具 & 扩展': ['/tools', '/mcp', '/skills', '/plugins'],
+    '⚙️ 自动化': ['/task', '/cron', '/memory'],
+    '🔌 会话': ['/help', '/status', '/start', '/clear', '/quit', '/shutdown'],
+  };
+
   let out = '📖 可用命令\n\n';
-  for (const [cmd, def] of Object.entries(registry)) {
-    out += `${cmd} — ${def.description}\n`;
+  for (const [group, cmds] of Object.entries(groups)) {
+    out += `${group}\n`;
+    for (const cmd of cmds) {
+      const def = registry[cmd];
+      if (def) out += `  ${cmd} — ${def.description}\n`;
+    }
+    out += '\n';
   }
+
+  // Any commands not in groups
+  const grouped = new Set(Object.values(groups).flat());
+  const ungrouped = Object.entries(registry).filter(([cmd]) => !grouped.has(cmd));
+  if (ungrouped.length > 0) {
+    for (const [cmd, def] of ungrouped) {
+      out += `${cmd} — ${def.description}\n`;
+    }
+  }
+
   return out;
 }
 
@@ -361,11 +404,11 @@ export function formatStatus(
     ? `🔄 已恢复会话 (${sessionState.messageCount} 条消息)`
     : '🆕 新会话';
   return (
-    `🐾 Status\n` +
-    `Daemon: pid=${daemonInfo.pid}\n` +
-    `Session: ${daemonInfo.session_id}\n` +
-    `CWD: ${daemonInfo.cwd}\n` +
-    `Bot: @${botUsername}\n` +
+    `🐾 BaoClaw Status\n\n` +
+    `Daemon   pid=${daemonInfo.pid}\n` +
+    `Session  ${daemonInfo.session_id}\n` +
+    `CWD      ${daemonInfo.cwd}\n` +
+    `Bot      @${botUsername}\n\n` +
     sessionLine
   );
 }

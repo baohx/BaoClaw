@@ -1069,6 +1069,12 @@ pub fn build_system_prompt(config: &QueryLoopConfig) -> Option<Vec<Value>> {
         parts.push("You are a helpful AI coding assistant.".to_string());
     }
 
+    // Inject current working directory so the AI knows where it is
+    parts.push(format!(
+        "Current working directory: {}",
+        config.cwd.display()
+    ));
+
     // Inject project instructions from BAOCLAW.md
     if let Some(instructions) = &config.project_instructions {
         parts.push(format!(
