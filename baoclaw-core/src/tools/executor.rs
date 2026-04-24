@@ -81,8 +81,20 @@ pub async fn execute_tool(
         };
     }
 
-    // Step 3: Call the tool
-    let call_result = tool.call(request.input.clone(), context, progress).await;
+    // Step 3: Call the tool with abort awareness
+    // Wrap tool call with a timeout and abort check
+    let abort_signal = context.abort_signal.clone();
+    let call_result = tokio::select! {
+        r = tool.call(request.input.clone(), context, progress) => r,
+        _ = async {
+            let mut rx = abort_signal.as_ref().clone();
+            while !*rx.borrow() {
+                if rx.changed().await.is_err() { break; }
+            }
+        } => {
+            Err(ToolError::Aborted)
+        }
+    };
     match call_result {
         Ok(result) => {
             let max_size = tool.max_result_size_chars();

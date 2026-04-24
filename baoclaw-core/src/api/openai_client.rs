@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use super::client::{ApiClientConfig, ApiError, ApiStreamEvent, ApiErrorDetail, CreateMessageRequest, SseStream};
+use super::client::{ApiClientConfig, ApiError, ApiStreamEvent, CreateMessageRequest};
 
 const DEFAULT_OPENAI_URL: &str = "https://api.openai.com";
 

@@ -877,6 +877,18 @@ async function main() {
         rl.prompt();
         break;
       }
+      case 'state_update': {
+        // Track context token usage for display
+        const patch = (event as { patch: Record<string, unknown> }).patch;
+        if (patch?.usage) {
+          const u = patch.usage as { input_tokens?: number; output_tokens?: number };
+          const total = (u.input_tokens || 0) + (u.output_tokens || 0);
+          if (total > 80000) {
+            console.log(`\n${FG_YELLOW}⚠ Context: ${(total/1000).toFixed(0)}k tokens — consider /compact${RESET}`);
+          }
+        }
+        break;
+      }
     }
 
   });

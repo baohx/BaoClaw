@@ -66,6 +66,10 @@ impl Tool for WebFetchTool {
         true
     }
 
+    fn max_result_size_chars(&self) -> usize {
+        30_000 // Limit fetched content to ~7.5k tokens
+    }
+
     fn prompt(&self) -> String {
         "Fetch web page content from a URL. By default converts HTML to plain text. \
          Use raw=true to get the original HTML."

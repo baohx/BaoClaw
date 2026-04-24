@@ -138,6 +138,12 @@ pub enum ClientMethod {
         #[serde(default = "default_tail_count")]
         count: usize,
     },
+    #[serde(rename = "searchHistory")]
+    SearchHistory {
+        query: String,
+        #[serde(default = "default_tail_count")]
+        max_results: usize,
+    },
 }
 
 fn default_tail_count() -> usize { 10 }

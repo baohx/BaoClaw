@@ -5,7 +5,6 @@
 //! connected clients (CLI, Telegram, WhatsApp).
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast};

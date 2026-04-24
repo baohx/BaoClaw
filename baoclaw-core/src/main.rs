@@ -23,7 +23,6 @@ use config::BaoclawConfig;
 use engine::query_engine::{EngineEvent, QueryEngine, QueryEngineConfig, ThinkingConfig, EMPTY_USAGE};
 use engine::shared_session::{SessionRegistry, SharedSession, ClientId};
 use engine::task_manager::TaskManager;
-use engine::transcript::{TranscriptWriter, rebuild_messages_from_transcript};
 use ipc::events::{send_engine_event, engine_event_to_notification};
 use ipc::protocol::JsonRpcMessage;
 use ipc::router::{parse_client_method, ClientMethod};
@@ -751,6 +750,56 @@ async fn handle_shared_client(
                                     "total": total,
                                 })).await;
                             }
+                            ClientMethod::SearchHistory { query, max_results } => {
+                                // Search through current session messages for matching text
+                                let engine = session.engine_read().await;
+                                let messages = engine.get_messages();
+                                let query_lower = query.to_lowercase();
+                                let mut results: Vec<serde_json::Value> = Vec::new();
+
+                                for m in messages.iter().rev() {
+                                    if results.len() >= max_results { break; }
+                                    let (role, text) = match &m.content {
+                                        crate::models::message::MessageContent::User { message, .. } => {
+                                            let t = match &message.content {
+                                                serde_json::Value::String(s) => s.clone(),
+                                                serde_json::Value::Array(arr) => arr.iter().filter_map(|b| b.get("text").and_then(|t| t.as_str()).map(String::from)).collect::<Vec<_>>().join(" "),
+                                                _ => String::new(),
+                                            };
+                                            ("user", t)
+                                        }
+                                        crate::models::message::MessageContent::Assistant { message, .. } => {
+                                            let t: String = message.content.iter().filter_map(|b| match b {
+                                                crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
+                                                _ => None,
+                                            }).collect::<Vec<_>>().join(" ");
+                                            ("assistant", t)
+                                        }
+                                        _ => continue,
+                                    };
+                                    if text.to_lowercase().contains(&query_lower) {
+                                        // Extract a snippet around the match
+                                        let lower = text.to_lowercase();
+                                        let idx = lower.find(&query_lower).unwrap_or(0);
+                                        let start = idx.saturating_sub(50);
+                                        let end = (idx + query.len() + 100).min(text.len());
+                                        let snippet = &text[start..end];
+                                        results.push(serde_json::json!({
+                                            "role": role,
+                                            "text": text.chars().take(200).collect::<String>(),
+                                            "snippet": snippet,
+                                            "timestamp": m.timestamp,
+                                        }));
+                                    }
+                                }
+
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({
+                                    "results": results,
+                                    "count": results.len(),
+                                    "query": query,
+                                })).await;
+                            }
                         }
                     }
                     Err(e) => {
@@ -783,7 +832,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         }
     };
 
-    let (init_id, init_cwd, init_model, init_resume_session_id, init_shared_session_id) = match init_msg {
+    let (init_id, init_cwd, init_model, _init_resume_session_id, init_shared_session_id) = match init_msg {
         JsonRpcMessage::Request(req) => {
             let id = req.id.clone();
             match parse_client_method(&req) {
@@ -808,7 +857,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
     let model = init_model
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
         .unwrap_or_else(|| shared.baoclaw_config.model.clone());
-    let mut work_cwd = init_cwd;
+    let work_cwd = init_cwd;
 
     // ── Shared mode: session key is derived from cwd, not client-provided ID ──
     // This allows one daemon to manage multiple project sessions.

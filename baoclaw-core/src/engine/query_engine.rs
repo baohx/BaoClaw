@@ -481,6 +481,23 @@ impl QueryEngine {
         };
         self.messages.push(user_msg);
 
+        // ── Token budget check: auto-compact if context is too large ──
+        // GLM models typically have 128k context; we compact at 80% to leave room
+        const MAX_CONTEXT_TOKENS: u64 = 100_000; // ~80% of 128k
+        let current_tokens = estimate_tokens(&self.messages);
+        if current_tokens > MAX_CONTEXT_TOKENS && self.messages.len() > 5 {
+            eprintln!("Token budget exceeded ({} > {}), auto-compacting before query", current_tokens, MAX_CONTEXT_TOKENS);
+            match self.compact().await {
+                Ok(result) => {
+                    eprintln!("Auto-compact: {} -> {} tokens (saved {})",
+                        result.tokens_before, result.tokens_after, result.tokens_saved);
+                }
+                Err(e) => {
+                    eprintln!("Auto-compact failed: {}, continuing anyway", e.message);
+                }
+            }
+        }
+
         // Build the config for the spawned loop
         let loop_config = QueryLoopConfig {
             api_client: Arc::clone(&self.config.api_client),

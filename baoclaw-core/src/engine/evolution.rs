@@ -276,7 +276,7 @@ impl EvolutionEngine {
 
     /// Build a system prompt fragment for the evolution system.
     /// Includes pending evaluations and skill candidates.
-    pub async fn build_prompt_fragment(&self, cwd: &Path) -> Option<String> {
+    pub async fn build_prompt_fragment(&self, _cwd: &Path) -> Option<String> {
         let mut parts = Vec::new();
 
         // Check for pending self-evaluation

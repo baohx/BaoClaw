@@ -54,7 +54,18 @@ function activateTab(cwd) {
   projectListEl.querySelectorAll('.project-item').forEach(el=>{
     el.classList.toggle('active',el.dataset.cwd===cwd);
   });
-  inputEl.focus();
+  // ── Persist open tabs to localStorage ──
+function saveTabState(){
+  const openTabs=[...tabs.entries()].map(([cwd,t])=>({cwd,label:t.label}));
+  try{localStorage.setItem('baoclaw-tabs',JSON.stringify({tabs:openTabs,active:activeTab}));}catch{}
+}
+// Save on tab changes
+const origCreateTab=createTab,origCloseTab=closeTab,origActivateTab=activateTab;
+// Wrap tab operations to auto-save
+const _origRenderTabBar=renderTabBar;
+renderTabBar=function(){_origRenderTabBar();saveTabState();};
+
+inputEl.focus();
 }
 
 function closeTab(cwd) {
@@ -257,11 +268,15 @@ searchInput.addEventListener('input',()=>{
   clearTimeout(searchDebounce);const q=searchInput.value.trim();
   if(!q){searchOverlay.classList.add('hidden');return;}
   searchDebounce=setTimeout(()=>{
+    // Search frontend DOM
     const hits=[],container=getActiveMsgEl();
     container.querySelectorAll('.msg').forEach(el=>{
       const t=el.textContent||'',idx=t.toLowerCase().indexOf(q.toLowerCase());
       if(idx>=0)hits.push({el,role:el.classList.contains('user')?'You':'BaoClaw',snippet:t.slice(Math.max(0,idx-30),idx+q.length+50),query:q});
     });
+    // Also search backend session history
+    const w=getActiveWs();
+    if(w?.readyState===1)w.send(JSON.stringify({action:'rpc',method:'searchHistory',params:{query:q,max_results:20}}));
     searchResults.innerHTML=hits.length?hits.map((h,i)=>'<div class="search-hit" data-idx="'+i+'"><div class="hit-role">'+h.role+'</div><div class="hit-text">'+h.snippet.replace(new RegExp(esc(h.query),'gi'),m=>'<mark>'+m+'</mark>')+'</div></div>').join(''):'<div style="padding:20px;color:var(--text-dim)">No results</div>';
     searchResults.querySelectorAll('.search-hit').forEach((el,i)=>{el.onclick=()=>{hits[i].el.scrollIntoView({behavior:'smooth',block:'center'});hits[i].el.style.outline='2px solid var(--accent)';setTimeout(()=>hits[i].el.style.outline='',2000);searchOverlay.classList.add('hidden');searchInput.value='';};});
     searchOverlay.classList.remove('hidden');
@@ -416,9 +431,31 @@ function handleTabMessage(tab,msg){
           else if(m.role==='assistant')h+='<div style="margin:6px 0"><span style="color:var(--text-dim);font-size:11px">'+ts+'</span> <b style="color:var(--accent)">BC</b>'+(m.tools&&m.tools.length?' <span style="color:var(--cyan);font-size:11px">\u26A1'+m.tools.length+'</span>':'')+'<div style="margin-top:2px;color:var(--text-dim)">'+(txt?esc(txt.slice(0,200))+(txt.length>200?'\u2026':''):(m.tools&&m.tools.length?m.tools.join(', '):'...'))+'</div></div>';
         }
         h+='</div>';addSystemMessage(h);}
+      else if(msg.method==='searchHistory'&&isActive()){
+        const sr=msg.data.results||[];if(!sr.length)break;
+        // Append backend results to search overlay
+        const existing=searchResults.innerHTML;
+        let bh='<div style="padding:8px 0;font-size:11px;color:var(--text-dim);border-top:1px solid var(--border);margin-top:8px">Session history matches ('+sr.length+')</div>';
+        for(const r of sr){const ts=r.timestamp?r.timestamp.slice(11,19):'';const role=r.role==='user'?'You':'BC';
+          bh+='<div class="search-hit"><div class="hit-role">'+ts+' '+role+'</div><div class="hit-text">'+esc(r.snippet||r.text||'').replace(new RegExp(esc(msg.data.query||''),'gi'),m=>'<mark>'+m+'</mark>')+'</div></div>';
+        }
+        searchResults.innerHTML=existing+bh;
+        searchOverlay.classList.remove('hidden');
+      }
       break;}
     case 'error':if(isActive())setStatus(msg.message,'error');break;
   }
 }
+
+// ── Persist open tabs to localStorage ──
+function saveTabState(){
+  const openTabs=[...tabs.entries()].map(([cwd,t])=>({cwd,label:t.label}));
+  try{localStorage.setItem('baoclaw-tabs',JSON.stringify({tabs:openTabs,active:activeTab}));}catch{}
+}
+// Save on tab changes
+const origCreateTab=createTab,origCloseTab=closeTab,origActivateTab=activateTab;
+// Wrap tab operations to auto-save
+const _origRenderTabBar=renderTabBar;
+renderTabBar=function(){_origRenderTabBar();saveTabState();};
 
 inputEl.focus();

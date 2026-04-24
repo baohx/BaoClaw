@@ -6,9 +6,6 @@ pub mod tool_wrapper;
 pub mod transport;
 
 pub use client::{
-    McpClient, McpConnectionStatus, McpError, McpResource, McpServerConfig, McpToolDef,
+    McpClient, McpServerConfig,
     McpTransportType,
 };
-pub use oauth::{McpOAuthManager, OAuthToken};
-pub use tool_wrapper::McpToolWrapper;
-pub use transport::StdioTransport;

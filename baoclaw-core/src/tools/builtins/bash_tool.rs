@@ -83,7 +83,7 @@ impl Tool for BashTool {
 
         let timeout_duration = Duration::from_millis(timeout_ms);
 
-        let mut child = tokio::process::Command::new("/bin/bash")
+        let child = tokio::process::Command::new("/bin/bash")
             .arg("-c")
             .arg(command)
             .current_dir(&context.cwd)
