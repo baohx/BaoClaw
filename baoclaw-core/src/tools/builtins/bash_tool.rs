@@ -83,7 +83,7 @@ impl Tool for BashTool {
 
         let timeout_duration = Duration::from_millis(timeout_ms);
 
-        let child = tokio::process::Command::new("/bin/bash")
+        let mut child = tokio::process::Command::new("/bin/bash")
             .arg("-c")
             .arg(command)
             .current_dir(&context.cwd)
@@ -92,10 +92,35 @@ impl Tool for BashTool {
             .spawn()
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to spawn bash: {}", e)))?;
 
-        let result = tokio::time::timeout(timeout_duration, child.wait_with_output()).await;
+        // Get child PID so we can kill it from the abort branch
+        let child_id = child.id();
+
+        // Race: wait for child vs timeout vs abort signal
+        let abort_signal = context.abort_signal.clone();
+        let result = tokio::select! {
+            r = async {
+                match tokio::time::timeout(timeout_duration, child.wait_with_output()).await {
+                    Ok(Ok(output)) => Ok(output),
+                    Ok(Err(e)) => Err(ToolError::ExecutionFailed(format!("Command execution failed: {}", e))),
+                    Err(_) => Err(ToolError::Timeout(timeout_ms)),
+                }
+            } => r,
+            _ = async {
+                let mut rx = abort_signal.as_ref().clone();
+                while !*rx.borrow() {
+                    if rx.changed().await.is_err() { break; }
+                }
+            } => {
+                // Kill the child process by PID
+                if let Some(pid) = child_id {
+                    unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                }
+                Err(ToolError::Aborted)
+            }
+        };
 
         match result {
-            Ok(Ok(output)) => {
+            Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let combined = if stderr.is_empty() {
@@ -119,11 +144,7 @@ impl Tool for BashTool {
                     is_error,
                 })
             }
-            Ok(Err(e)) => Err(ToolError::ExecutionFailed(format!(
-                "Command execution failed: {}",
-                e
-            ))),
-            Err(_) => Err(ToolError::Timeout(timeout_ms)),
+            Err(e) => Err(e),
         }
     }
 }

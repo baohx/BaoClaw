@@ -418,6 +418,8 @@ async fn handle_shared_client(
                                     }
                                     let mut engine = session.engine_write().await;
                                     engine.update_cwd(abs_cwd.clone());
+                                    let new_session_key = format!("{:x}", md5_simple(&abs_cwd.to_string_lossy()))[..8].to_string();
+                                    engine.update_session_id(new_session_key);
                                     let mut conn_guard = conn.lock().await;
                                     let _ = conn_guard.send_response(id, serde_json::json!({
                                         "cwd": abs_cwd.display().to_string()
@@ -593,6 +595,9 @@ async fn handle_shared_client(
                                             // Switch session: update engine cwd and reload
                                             let mut engine = session.engine_write().await;
                                             engine.update_cwd(abs_cwd.clone());
+                                            // Update session_id so transcript writes go to the correct file
+                                            let new_session_key = format!("{:x}", md5_simple(&abs_cwd.to_string_lossy()))[..8].to_string();
+                                            engine.update_session_id(new_session_key.clone());
                                             let new_cwd_str = abs_cwd.to_string_lossy().to_string();
                                             if let Some(prev_session) = engine::transcript::find_latest_session_for_cwd(&new_cwd_str) {
                                                 if let Ok(entries) = engine::transcript::TranscriptWriter::load(&prev_session) {
@@ -605,11 +610,12 @@ async fn handle_shared_client(
                                             drop(engine);
                                             shared.memory_store.switch_project(&abs_cwd).await;
                                             shared.project_registry.touch(&project.cwd).await;
-                                            work_cwd = abs_cwd;
+                                            work_cwd = abs_cwd.clone();
                                             let msg_count = session.engine_read().await.get_messages().len();
                                             let _ = conn_guard.send_response(id, serde_json::json!({
                                                 "project": project,
                                                 "message_count": msg_count,
+                                                "session_id": new_session_key,
                                             })).await;
                                         }
                                     }
@@ -652,6 +658,8 @@ async fn handle_shared_client(
                                             // Switch to the new project
                                             let mut engine = session.engine_write().await;
                                             engine.update_cwd(abs_path.clone());
+                                            let new_session_key = format!("{:x}", md5_simple(&abs_path.to_string_lossy()))[..8].to_string();
+                                            engine.update_session_id(new_session_key);
                                             engine.set_messages(vec![]);
                                             drop(engine);
                                             shared.memory_store.switch_project(&abs_path).await;
@@ -705,9 +713,24 @@ async fn handle_shared_client(
                                                     _ => None,
                                                 }
                                             }).collect::<Vec<_>>().join("");
-                                            let tools: Vec<String> = message.content.iter().filter_map(|b| {
+                                            let tools: Vec<serde_json::Value> = message.content.iter().filter_map(|b| {
                                                 match b {
-                                                    crate::models::message::ContentBlock::ToolUse { name, .. } => Some(name.clone()),
+                                                    crate::models::message::ContentBlock::ToolUse { name, input, .. } => {
+                                                        // Include tool name + key input params for richer history display
+                                                        let mut info = serde_json::json!({"name": name});
+                                                        if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
+                                                            info["detail"] = serde_json::json!(cmd.chars().take(120).collect::<String>());
+                                                        } else if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
+                                                            info["detail"] = serde_json::json!(fp);
+                                                        } else if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
+                                                            info["detail"] = serde_json::json!(p);
+                                                        } else if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
+                                                            info["detail"] = serde_json::json!(q);
+                                                        } else if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
+                                                            info["detail"] = serde_json::json!(u.chars().take(80).collect::<String>());
+                                                        }
+                                                        Some(info)
+                                                    }
                                                     _ => None,
                                                 }
                                             }).collect();
@@ -789,9 +812,11 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
 
     // ── Shared mode: session key is derived from cwd, not client-provided ID ──
     // This allows one daemon to manage multiple project sessions.
-    if let Some(ref _shared_session_id) = init_shared_session_id {
+    if let Some(ref shared_session_id) = init_shared_session_id {
+        // Session key = cwd_hash + client_type, so different clients (web/telegram/cli)
+        // on the same cwd get independent sessions and don't block each other.
         let cwd_hash = format!("{:x}", md5_simple(&work_cwd.to_string_lossy()))[..8].to_string();
-        let session_id_clone = cwd_hash.clone();
+        let session_id_clone = format!("{}-{}", cwd_hash, shared_session_id);
         eprintln!("Client connecting to session '{}' (cwd: {})", session_id_clone, work_cwd.display());
         let shared_clone = shared.clone();
         let model_clone = model.clone();
@@ -811,7 +836,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     verbose: false,
                     custom_system_prompt: None,
                     append_system_prompt: shared_clone.skill_prompt.clone(),
-                    session_id: Some(shared_clone.session_id.clone()),
+                    session_id: Some(session_id_clone.clone()),
                     fallback_models: shared_clone.baoclaw_config.fallback_models.clone(),
                     max_retries_per_model: shared_clone.baoclaw_config.max_retries_per_model,
                 })
@@ -848,7 +873,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         // Send init response with shared: true
         let _ = conn.send_response(init_id, serde_json::json!({
             "capabilities": { "tools": true, "streaming": true, "permissions": true },
-            "session_id": &shared.session_id,
+            "session_id": &session_id_clone,
             "shared": true,
             "reconnected": msg_count > 0,
             "resumed": false,

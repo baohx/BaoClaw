@@ -898,11 +898,18 @@ async function main() {
   let ctrlCCount = 0;
   rl.on('SIGINT', async () => {
     if (queryStartTime > 0) {
-      // Task in progress — send abort
+      // Task in progress — send abort and immediately reset state
       stopSpinner();
       console.log(`\n${FG_YELLOW}⚠ Aborting...${RESET}`);
       try { await client.request('abort'); } catch {}
+      // Reset state immediately — don't wait for daemon's result event
+      currentText = '';
+      isStreaming = false;
+      toolCount = 0;
+      queryStartTime = 0;
+      console.log(`${FG_YELLOW}⚠ Aborted${RESET}\n`);
       ctrlCCount = 0;
+      rl.prompt();
     } else {
       ctrlCCount++;
       if (ctrlCCount >= 2) {
@@ -974,6 +981,10 @@ async function main() {
     if (input === '/abort') {
       stopSpinner();
       try { await client.request('abort'); } catch {}
+      currentText = '';
+      isStreaming = false;
+      toolCount = 0;
+      queryStartTime = 0;
       console.log(`${FG_YELLOW}⚠ Aborted.${RESET}`);
       rl.prompt();
       return;

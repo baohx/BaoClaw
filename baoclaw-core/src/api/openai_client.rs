@@ -187,7 +187,18 @@ impl OpenAiClient {
                     }
                 }
                 _ => {
-                    messages.push(json!({"role": role, "content": content}));
+                    // Convert mid-conversation system messages (e.g. CompactBoundary)
+                    // to user messages, since many OpenAI-compatible APIs (GLM, etc.)
+                    // only allow system role at the start of the conversation.
+                    if role == "system" {
+                        let text = match content {
+                            Value::String(s) => s.clone(),
+                            _ => serde_json::to_string(content).unwrap_or_default(),
+                        };
+                        messages.push(json!({"role": "user", "content": format!("[System context]\n{}", text)}));
+                    } else {
+                        messages.push(json!({"role": role, "content": content}));
+                    }
                 }
             }
         }
@@ -254,6 +265,25 @@ impl OpenAiClient {
         let status = response.status().as_u16();
         if !response.status().is_success() {
             let message = response.text().await.unwrap_or_default();
+            if status == 400 {
+                // Dump the request for debugging message format issues
+                eprintln!("=== API 400 Bad Request ===");
+                if let Some(msgs) = body.get("messages") {
+                    if let Some(arr) = msgs.as_array() {
+                        for (i, m) in arr.iter().enumerate() {
+                            let role = m.get("role").and_then(|r| r.as_str()).unwrap_or("?");
+                            let content = m.get("content").map(|c| {
+                                let s = c.to_string();
+                                if s.len() > 200 { format!("{}...[{}chars]", &s[..200], s.len()) } else { s }
+                            }).unwrap_or_default();
+                            let tc = m.get("tool_calls").map(|t| format!(" tool_calls:{}", t.to_string().len())).unwrap_or_default();
+                            let tid = m.get("tool_call_id").and_then(|t| t.as_str()).map(|s| format!(" tool_call_id:{}", s)).unwrap_or_default();
+                            eprintln!("  [{}] role={}{}{} content={}", i, role, tc, tid, content);
+                        }
+                    }
+                }
+                eprintln!("=== Response: {} ===", message);
+            }
             return Err(match status {
                 401 => ApiError::AuthError,
                 429 => ApiError::RateLimited,

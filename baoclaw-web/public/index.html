@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BaoClaw</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="logo">🐾 BaoClaw</div>
+      <div id="session-info" class="sidebar-section"></div>
+      <div class="sidebar-section">
+        <div class="section-title">Projects</div>
+        <div id="project-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <input id="search-input" type="text" placeholder="🔍 Search…">
+      </div>
+      <div class="sidebar-section">
+        <button id="btn-compact" class="sidebar-btn">🗜️ Compact</button>
+        <button id="btn-history" class="sidebar-btn">📜 History</button>
+        <button id="btn-clear" class="sidebar-btn">🧹 Clear</button>
+        <div class="btn-group">
+          <button id="btn-download-md" class="sidebar-btn">💾 .md</button>
+          <button id="btn-download-pdf" class="sidebar-btn">📄 .pdf</button>
+        </div>
+      </div>
+      <div id="status-bar" class="sidebar-section status">
+        <span id="status-text">Connecting…</span>
+      </div>
+    </aside>
+    <main id="chat-area">
+      <div id="tab-bar"></div>
+      <div id="messages"></div>
+      <div id="search-overlay" class="hidden">
+        <div id="search-results"></div>
+        <button id="search-close" class="sidebar-btn">Close</button>
+      </div>
+      <div id="input-area">
+        <div id="input-wrapper">
+          <textarea id="input" placeholder="Enter to send, Shift+Enter newline" rows="1"></textarea>
+          <button id="btn-send" title="Send">▶</button>
+          <button id="btn-abort" title="Abort" class="hidden">⏹</button>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

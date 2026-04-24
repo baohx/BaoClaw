@@ -7,7 +7,7 @@ INSTALL_DIR="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 BIN_DIR="${BAOCLAW_BIN_DIR:-$HOME/.local/bin}"
 
 echo "╔═══════════════════════════════════════╗"
-echo "║       BaoClaw Installer v0.10.0        ║"
+echo "║       BaoClaw Installer v0.11.0        ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
 
@@ -71,6 +71,26 @@ npm install --silent 2>&1
 cd "$SCRIPT_DIR"
 echo "✓ Telegram gateway installed to $INSTALL_DIR/baoclaw-telegram/"
 
+# 5c. Copy Web gateway files
+echo "📦 Installing Web gateway..."
+mkdir -p "$INSTALL_DIR/baoclaw-web/src"
+mkdir -p "$INSTALL_DIR/baoclaw-web/public"
+for f in "$SCRIPT_DIR"/baoclaw-web/src/*.ts; do
+  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/baoclaw-web/src/"
+done
+for f in "$SCRIPT_DIR"/baoclaw-web/public/*; do
+  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/baoclaw-web/public/"
+done
+cp "$SCRIPT_DIR/baoclaw-web/package.json" "$INSTALL_DIR/baoclaw-web/"
+cp "$SCRIPT_DIR/baoclaw-web/package-lock.json" "$INSTALL_DIR/baoclaw-web/" 2>/dev/null || true
+cp "$SCRIPT_DIR/baoclaw-web/tsconfig.json" "$INSTALL_DIR/baoclaw-web/"
+
+# Install Web gateway deps in install dir
+cd "$INSTALL_DIR/baoclaw-web"
+npm install --silent 2>&1
+cd "$SCRIPT_DIR"
+echo "✓ Web gateway installed to $INSTALL_DIR/baoclaw-web/"
+
 # 6. Create the launcher script
 cat > "$BIN_DIR/baoclaw" << 'LAUNCHER'
 #!/bin/bash
@@ -83,7 +103,7 @@ cat > "$BIN_DIR/baoclaw" << 'LAUNCHER'
 BAOCLAW_HOME="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-  echo "BaoClaw v0.10.0 — AI coding assistant"
+  echo "BaoClaw v0.11.0 — AI coding assistant"
   echo ""
   echo "Usage: baoclaw"
   echo ""
@@ -95,7 +115,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 fi
 
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-  echo "baoclaw 0.10.0"
+  echo "baoclaw 0.11.0"
   exit 0
 fi
 
@@ -113,6 +133,18 @@ LAUNCHER
 chmod +x "$BIN_DIR/baoclaw"
 echo "✓ Launcher installed to $BIN_DIR/baoclaw"
 
+# 6b. Create the web launcher script
+cat > "$BIN_DIR/baoclaw-web" << 'WEBLAUNCHER'
+#!/bin/bash
+# BaoClaw Web — browser-based chat interface
+# Usage: baoclaw-web [--port 8080]
+BAOCLAW_HOME="${BAOCLAW_HOME:-$HOME/.baoclaw}"
+exec npx --prefix "$BAOCLAW_HOME/baoclaw-web" tsx "$BAOCLAW_HOME/baoclaw-web/src/server.ts" "$@"
+WEBLAUNCHER
+
+chmod +x "$BIN_DIR/baoclaw-web"
+echo "✓ Web launcher installed to $BIN_DIR/baoclaw-web"
+
 echo ""
 echo "═══════════════════════════════════════"
 echo "  Installation complete!"
@@ -121,7 +153,9 @@ echo "  Usage:"
 echo "    export ANTHROPIC_API_KEY=sk-ant-..."
 echo "    export ANTHROPIC_BASE_URL=https://your-proxy.com  # optional"
 echo "    cd /path/to/your/project"
-echo "    baoclaw"
+echo "    baoclaw              # terminal chat"
+echo "    baoclaw-web          # browser chat (http://localhost:8080)"
+echo "    baoclaw-web --port 9090"
 echo ""
 echo "  Add to ~/.bashrc for convenience:"
 echo "    export ANTHROPIC_API_KEY=sk-ant-..."

@@ -212,6 +212,11 @@ impl QueryEngine {
         self.config.cwd = cwd;
     }
 
+    /// Update the session ID at runtime (used when switching projects).
+    pub fn update_session_id(&mut self, session_id: String) {
+        self.config.session_id = Some(session_id);
+    }
+
     /// Get the current model name.
     pub fn get_model(&self) -> &str {
         &self.config.model
@@ -223,6 +228,53 @@ impl QueryEngine {
         if let Some(pending) = self.pending_messages.take() {
             let msgs = pending.lock().await;
             self.messages = msgs.clone();
+        }
+        // Clean up incomplete tool calls at the end of message history.
+        // After abort, the last assistant message may contain tool_use blocks
+        // without a corresponding tool_result user message, which causes API errors.
+        self.cleanup_incomplete_tool_calls();
+    }
+
+    /// Remove trailing assistant messages that have tool_use blocks without
+    /// a following tool_result user message.
+    /// Clean up message history to ensure it's in a valid state for the next API call.
+    /// Fixes: consecutive user messages, trailing tool_use without tool_result, etc.
+    fn cleanup_incomplete_tool_calls(&mut self) {
+        if self.messages.is_empty() { return; }
+
+        // Remove trailing messages that would cause API errors.
+        // Valid ending states: user message (for next submit) or assistant text-only message.
+        // Invalid: assistant with tool_use (no tool_result), or consecutive user messages.
+        loop {
+            if self.messages.is_empty() { break; }
+            let last = &self.messages[self.messages.len() - 1];
+            match &last.content {
+                // Trailing assistant with tool_use but no following tool_result → remove
+                MessageContent::Assistant { message, .. } => {
+                    let has_tool_use = message.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+                    if has_tool_use {
+                        eprintln!("Cleanup: removing incomplete tool_use assistant message");
+                        self.messages.pop();
+                        continue;
+                    }
+                    break; // assistant text-only is fine
+                }
+                // Trailing user message: check if the one before it is also a user message
+                MessageContent::User { .. } => {
+                    if self.messages.len() >= 2 {
+                        let prev = &self.messages[self.messages.len() - 2];
+                        let prev_is_user = matches!(&prev.content, MessageContent::User { .. });
+                        if prev_is_user {
+                            // Two consecutive user messages — remove the last one (the failed query's user msg)
+                            eprintln!("Cleanup: removing duplicate consecutive user message");
+                            self.messages.pop();
+                            continue;
+                        }
+                    }
+                    break; // single trailing user message is fine
+                }
+                _ => break,
+            }
         }
     }
 
@@ -249,15 +301,31 @@ impl QueryEngine {
         let old_messages = &self.messages[..split];
         let recent_messages = self.messages[split..].to_vec();
 
-        // Build a summarisation prompt from the old messages
+        // Build a summarisation prompt from the old messages (truncate to avoid exceeding API limits)
+        let raw_summary = format_messages_for_summary(old_messages);
+        let max_summary_chars: usize = 60_000; // ~15k tokens, safe for most APIs
+        let truncated_summary = if raw_summary.len() > max_summary_chars {
+            format!("{}...\n\n[Conversation truncated, {} total chars]",
+                &raw_summary[..max_summary_chars], raw_summary.len())
+        } else {
+            raw_summary
+        };
         let summary_prompt = format!(
             "Summarize the following conversation history concisely, \
              preserving key context, decisions, and file changes:\n\n{}",
-            format_messages_for_summary(old_messages)
+            truncated_summary
         );
 
-        // Call the API (non-streaming) to produce a summary
-        let summary = self.call_api_for_summary(&summary_prompt).await?;
+        // Call the API (non-streaming) to produce a summary.
+        // If the API call fails (e.g. 500, context too large), fall back to simple truncation.
+        let summary = match self.call_api_for_summary(&summary_prompt).await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Compact: summary API failed ({}), falling back to truncation", e.message);
+                // Fallback: just use a brief note instead of a real summary
+                format!("[Previous conversation ({} messages) was truncated due to context limits]", old_messages.len())
+            }
+        };
 
         let old_token_count = estimate_tokens(old_messages);
         let summary_token_count = estimate_tokens_str(&summary);
@@ -347,9 +415,10 @@ impl QueryEngine {
         }
 
         if summary_text.is_empty() {
+            eprintln!("Compact: API returned empty summary (model: {})", self.config.model);
             return Err(EngineError {
                 code: "empty_summary".to_string(),
-                message: "API returned an empty summary".to_string(),
+                message: "API returned an empty summary. Try /compact again or reduce conversation size.".to_string(),
                 details: None,
             });
         }
@@ -371,6 +440,12 @@ impl QueryEngine {
         prompt: String,
         attachments: Option<Vec<serde_json::Value>>,
     ) -> mpsc::Receiver<EngineEvent> {
+        // Reset abort flag for the new query
+        let _ = self.abort_tx.send(false);
+
+        // Clean up any mess from previous errors/aborts before adding new message
+        self.cleanup_incomplete_tool_calls();
+
         let (tx, rx) = mpsc::channel(256);
 
         // Build user message content: plain string or multimodal array
@@ -564,8 +639,22 @@ async fn run_query_loop(
         };
         let request = build_api_request(&messages, &current_config);
 
-        // Call LLM API (streaming) with rate-limit fallback handling
-        let stream_result = config.api_client.create_message_stream(request).await;
+        // Call LLM API (streaming) with rate-limit fallback handling and timeout
+        let stream_result = tokio::time::timeout(
+            std::time::Duration::from_secs(300), // 5 min max per API call
+            config.api_client.create_message_stream(request)
+        ).await;
+        let stream_result = match stream_result {
+            Ok(r) => r,
+            Err(_) => {
+                let _ = tx.send(EngineEvent::Error(EngineError {
+                    code: "timeout".to_string(),
+                    message: "API call timed out after 5 minutes".to_string(),
+                    details: None,
+                })).await;
+                return;
+            }
+        };
         let mut stream = match stream_result {
             Ok(s) => s,
             Err(ApiError::RateLimited) => {
@@ -602,6 +691,14 @@ async fn run_query_loop(
                 }
             }
             Err(e) => {
+                // API error (400, 500, etc.) — remove the user message we just added
+                // to keep message history in a valid alternating state
+                if let Some(last) = messages.last() {
+                    if matches!(&last.content, MessageContent::User { .. }) {
+                        eprintln!("API error, removing last user message to keep history clean");
+                        messages.pop();
+                    }
+                }
                 let _ = tx.send(EngineEvent::Error(EngineError {
                     code: "api_error".to_string(),
                     message: format!("{}", e),
@@ -622,7 +719,23 @@ async fn run_query_loop(
         // Track what kind of block we're in: "text", "tool_use", "thinking", or ""
         let mut current_block_type = String::new();
 
-        while let Some(event_result) = stream.next().await {
+        while let Some(event_result) = tokio::select! {
+            result = stream.next() => result,
+            _ = async {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    if config.is_aborted() { break; }
+                }
+            } => {
+                eprintln!("Query aborted during stream processing");
+                let _ = tx.send(EngineEvent::Result(QueryResult {
+                    status: QueryStatus::Aborted, text: None, stop_reason: None,
+                    total_cost_usd: cost_tracker.total_cost(), usage: total_usage,
+                    num_turns: turn_count, duration_ms: start_time.elapsed().as_millis() as u64,
+                })).await;
+                return;
+            }
+        } {
             match event_result {
                 Ok(event) => match event {
                     ApiStreamEvent::ContentBlockStart { content_block, .. } => {
@@ -754,6 +867,15 @@ async fn run_query_loop(
                     ApiStreamEvent::Ping => {}
                 },
                 Err(e) => {
+                    // Stream error — clean up: if no assistant content was accumulated,
+                    // remove the user message to keep history valid
+                    if assistant_content_blocks.is_empty() {
+                        if let Some(last) = messages.last() {
+                            if matches!(&last.content, MessageContent::User { .. }) {
+                                messages.pop();
+                            }
+                        }
+                    }
                     let _ = tx.send(EngineEvent::Error(EngineError {
                         code: "stream_error".to_string(),
                         message: format!("{}", e),
@@ -1071,7 +1193,7 @@ pub fn build_system_prompt(config: &QueryLoopConfig) -> Option<Vec<Value>> {
 
     // Inject current working directory so the AI knows where it is
     parts.push(format!(
-        "Current working directory: {}",
+        "Current working directory: {}\n\nWhen the user asks to display or show a file's content, output the full content directly in your response. Do not summarize or describe the file — show the actual text.",
         config.cwd.display()
     ));
 
@@ -1156,15 +1278,39 @@ fn extract_text(content_blocks: &[ContentBlock]) -> Option<String> {
 
 /// Build a user message containing tool results.
 fn build_tool_result_message(results: &[ToolExecutionResult]) -> Message {
+    // Max chars per tool result to avoid exceeding API limits (especially for OpenAI-compatible APIs)
+    const MAX_TOOL_RESULT_CHARS: usize = 30_000;
+
     let content_blocks: Vec<Value> = results.iter().map(|r| {
         // Strip large base64 image data from tool output to avoid bloating context
         let raw_output = strip_base64_images(&r.output);
         // API requires content to be a string or array of content blocks, not an object
         let content = match &raw_output {
-            Value::String(s) => Value::String(s.clone()),
+            Value::String(s) => {
+                if s.len() > MAX_TOOL_RESULT_CHARS {
+                    Value::String(format!(
+                        "{}\n\n[… truncated, {} total chars]",
+                        &s[..MAX_TOOL_RESULT_CHARS],
+                        s.len()
+                    ))
+                } else {
+                    Value::String(s.clone())
+                }
+            }
             Value::Null => Value::String(String::new()),
             Value::Array(arr) => Value::Array(arr.clone()),
-            other => Value::String(serde_json::to_string(other).unwrap_or_default()),
+            other => {
+                let s = serde_json::to_string(other).unwrap_or_default();
+                if s.len() > MAX_TOOL_RESULT_CHARS {
+                    Value::String(format!(
+                        "{}\n\n[… truncated, {} total chars]",
+                        &s[..MAX_TOOL_RESULT_CHARS],
+                        s.len()
+                    ))
+                } else {
+                    Value::String(s)
+                }
+            }
         };
         serde_json::json!({
             "type": "tool_result",
