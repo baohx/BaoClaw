@@ -480,6 +480,7 @@ async function main() {
   const chatQueue = new ChatQueue();
   // Per-chat response accumulator and completion signal
   const accumulators = new Map<number, string>();
+  const thinkingAccumulators = new Map<number, string>();
   const resultResolvers = new Map<number, () => void>();
   // Per-chat pending attachments (for document/image uploads)
   const pendingAttachments = new Map<number, Record<string, unknown>[]>();
@@ -495,8 +496,23 @@ async function main() {
     switch (event.type) {
       case 'assistant_chunk': {
         const content = (event as { content: string }).content || '';
+        // If we were accumulating thinking, send it first
+        const thinkingAcc = thinkingAccumulators.get(chatId);
+        if (thinkingAcc && thinkingAcc.length > 0) {
+          const thinkLen = Math.round(thinkingAcc.length / 4);
+          const preview = thinkingAcc.length > 200 ? thinkingAcc.slice(0, 200) + '…' : thinkingAcc;
+          try { await bot.sendMessage(chatId, `💭 <i>Thought (${thinkLen}tok)</i>\n<blockquote>${preview.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</blockquote>`, { parse_mode: 'HTML' }); } catch {}
+          thinkingAccumulators.delete(chatId);
+        }
         const current = accumulators.get(chatId) ?? '';
         accumulators.set(chatId, current + content);
+        break;
+      }
+
+      case 'thinking_chunk': {
+        const content = (event as { content: string }).content || '';
+        const current = thinkingAccumulators.get(chatId) ?? '';
+        thinkingAccumulators.set(chatId, current + content);
         break;
       }
 
@@ -593,7 +609,7 @@ async function main() {
             }
           }
         }
-        accumulators.delete(chatId);
+        accumulators.delete(chatId);thinkingAccumulators.delete(chatId);
         // Signal completion
         const resolver = resultResolvers.get(chatId);
         if (resolver) { resultResolvers.delete(chatId); resolver(); }
@@ -997,7 +1013,7 @@ async function main() {
         try { await bot.sendMessage(chatId, `❌ ${msg}`); } catch {}
       }
       // Clean up in case result never came
-      accumulators.delete(chatId);
+      accumulators.delete(chatId);thinkingAccumulators.delete(chatId);
       resultResolvers.delete(chatId);
     }
 

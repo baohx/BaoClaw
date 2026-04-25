@@ -28,7 +28,7 @@ function createTab(cwd, label) {
   msgEl.style.display='none';
   messagesEl.parentNode.insertBefore(msgEl, messagesEl);
   const state={currentText:'',isStreaming:false,toolCount:0,queryStartTime:0,
-    currentAssistantEl:null,pendingTools:new Map(),sessionId:'',msgCount:0,contextTokens:0,totalCost:0,loopNum:0,loopToolCount:0,lastStreamType:''};
+    currentAssistantEl:null,pendingTools:new Map(),sessionId:'',msgCount:0,contextTokens:0,totalCost:0,loopNum:0,loopToolCount:0,lastStreamType:'',thinkingText:'',_thinkingEl:null};
   const tab={ws:null,msgEl,state,label,cwd};
   tabs.set(cwd,tab);
   renderTabBar();
@@ -54,6 +54,8 @@ function activateTab(cwd) {
   projectListEl.querySelectorAll('.project-item').forEach(el=>{
     el.classList.toggle('active',el.dataset.cwd===cwd);
   });
+  // Restore busy state for this tab
+  setBusy(tab.state.queryStartTime > 0);
   // ── Persist open tabs to localStorage ──
 function saveTabState(){
   const openTabs=[...tabs.entries()].map(([cwd,t])=>({cwd,label:t.label}));
@@ -313,7 +315,7 @@ btnSend.onclick=sendMessage;
 function doAbort(){
   const w=getActiveWs();if(w?.readyState===1)w.send(JSON.stringify({action:'abort'}));
   addSystemMessage('\u26A0 Aborted');
-  const s=getActiveState();s.currentText='';s.isStreaming=false;s.toolCount=0;s.currentAssistantEl=null;s._currentTextEl=null;s.queryStartTime=0;s.loopNum=0;s.loopToolCount=0;s.lastStreamType='';
+  const s=getActiveState();s.currentText='';s.thinkingText='';s._thinkingEl=null;s.isStreaming=false;s.toolCount=0;s.currentAssistantEl=null;s._currentTextEl=null;s.queryStartTime=0;s.loopNum=0;s.loopToolCount=0;s.lastStreamType='';
   setBusy(false);
 }
 btnAbort.addEventListener('mousedown',e=>{e.preventDefault();e.stopPropagation();doAbort();});
@@ -373,8 +375,34 @@ function handleTabMessage(tab,msg){
       loadProjects();if(s.msgCount>0&&tab.ws?.readyState===1)tab.ws.send(JSON.stringify({action:'rpc',method:'talkTail',params:{count:100}}));break;}
     case 'stream':{const e=msg.data;if(!e?.type)break;
       switch(e.type){
-        case 'assistant_chunk':s.currentText+=e.content||'';s.isStreaming=true;s.lastStreamType='chunk';if(isActive())renderAssistantText();break;
-        case 'thinking_chunk':s.currentText+=e.content||'';s.isStreaming=true;if(isActive())renderAssistantText();break;
+        case 'assistant_chunk':{
+            // If we were in thinking mode, finalize the thinking block
+            if(s._thinkingEl&&s.thinkingText){
+              const summary=s._thinkingEl.querySelector('summary');
+              if(summary)summary.textContent='\u{1F4AD} Thought ('+Math.round(s.thinkingText.length/4)+'tok)';
+              s._thinkingEl=null;
+            }
+            s.currentText+=e.content||'';s.isStreaming=true;s.lastStreamType='chunk';
+            if(isActive())renderAssistantText();break;}
+        case 'thinking_chunk':{
+            s.thinkingText+=e.content||'';s.isStreaming=true;
+            if(isActive()){
+              const container=ensureAssistantMessage();
+              if(!s._thinkingEl){
+                s._thinkingEl=document.createElement('details');
+                s._thinkingEl.className='thinking-block';
+                s._thinkingEl.open=false;
+                s._thinkingEl.innerHTML='<summary>\u{1F4AD} Thinking...</summary><div class="thinking-body"></div>';
+                container.appendChild(s._thinkingEl);
+              }
+              const body=s._thinkingEl.querySelector('.thinking-body');
+              if(body)body.textContent=s.thinkingText;
+              // Update summary with char count
+              const summary=s._thinkingEl.querySelector('summary');
+              if(summary)summary.textContent='\u{1F4AD} Thinking... ('+Math.round(s.thinkingText.length/4)+'tok)';
+              scrollToBottom();
+            }
+            break;}
         case 'tool_use':s.toolCount++;s.currentText='';
             // Detect new loop: if last event was tool_result (or first tool), it's a new loop
             if(s.lastStreamType!=='tool_use'){s.loopNum++;s.loopToolCount=0;
@@ -384,7 +412,7 @@ function handleTabMessage(tab,msg){
             if(isActive())addToolCall(e.tool_name,e.input,e.tool_use_id);break;
         case 'tool_result':s.lastStreamType='tool_result';if(isActive())addToolResult(e.tool_use_id,e.output,e.is_error);break;
         case 'permission_request':if(isActive())addPermissionRequest(e.tool_name,e.input,e.tool_use_id);break;
-        case 'result':if(e.usage)s.contextTokens=(e.usage.input_tokens||0)+(e.usage.output_tokens||0);if(e.total_cost_usd!==undefined)s.totalCost=e.total_cost_usd;if(isActive()){addStatsBar(e);updateSessionInfo(tab,cwd);}s.currentText='';s.isStreaming=false;s.toolCount=0;s.currentAssistantEl=null;s._currentTextEl=null;s.queryStartTime=0;s.loopNum=0;s.loopToolCount=0;s.lastStreamType='';if(isActive())setBusy(false);break;
+        case 'result':if(e.usage)s.contextTokens=(e.usage.input_tokens||0)+(e.usage.output_tokens||0);if(e.total_cost_usd!==undefined)s.totalCost=e.total_cost_usd;if(isActive()){addStatsBar(e);updateSessionInfo(tab,cwd);}s.currentText='';s.thinkingText='';s._thinkingEl=null;s.isStreaming=false;s.toolCount=0;s.currentAssistantEl=null;s._currentTextEl=null;s.queryStartTime=0;s.loopNum=0;s.loopToolCount=0;s.lastStreamType='';if(isActive())setBusy(false);break;
         case 'error':if(isActive()){ensureAssistantMessage().innerHTML+='<div style="color:var(--red)">\u2717 ['+(e.code||'Error')+'] '+esc(e.message||'')+'</div>';}
           s.currentText='';s.isStreaming=false;s.currentAssistantEl=null;s.queryStartTime=0;if(isActive())setBusy(false);break;
         case 'state_update':{const p=e.patch||e;if(p.usage){s.contextTokens=(p.usage.input_tokens||0)+(p.usage.output_tokens||0);}if(p.total_cost_usd!==undefined)s.totalCost=p.total_cost_usd;if(isActive())updateSessionInfo(tab,cwd);break;}

@@ -306,6 +306,9 @@ pub struct OpenAiSseStream {
     tool_call_states: Vec<ToolCallState>,
     finished: bool,
     pending_events: Vec<Result<ApiStreamEvent, ApiError>>,
+    in_thinking: bool,
+    text_started: bool,
+    text_block_index: u32,
 }
 
 struct ToolCallState {
@@ -326,6 +329,9 @@ impl OpenAiSseStream {
             tool_call_states: Vec::new(),
             finished: false,
             pending_events: Vec::new(),
+            in_thinking: false,
+            text_started: false,
+            text_block_index: 0,
         }
     }
 
@@ -378,17 +384,42 @@ impl OpenAiSseStream {
                 // Text content
                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                     if !content.is_empty() {
+                        // If we were in thinking mode, close thinking block first
+                        if self.in_thinking {
+                            events.push(Ok(ApiStreamEvent::ContentBlockStop { index: 0 }));
+                            self.in_thinking = false;
+                            self.content_index = 1;
+                        }
                         // Emit content_block_start on first text
-                        if self.content_index == 0 && self.tool_call_states.is_empty() {
+                        if !self.text_started && self.tool_call_states.is_empty() {
                             events.push(Ok(ApiStreamEvent::ContentBlockStart {
-                                index: 0,
+                                index: self.content_index,
                                 content_block: json!({"type": "text", "text": ""}),
                             }));
-                            self.content_index = 1;
+                            self.text_started = true;
+                            self.text_block_index = self.content_index;
+                            self.content_index += 1;
+                        }
+                        events.push(Ok(ApiStreamEvent::ContentBlockDelta {
+                            index: self.text_block_index,
+                            delta: json!({"type": "text_delta", "text": content}),
+                        }));
+                    }
+                }
+
+                // DeepSeek reasoning_content (thinking/chain-of-thought)
+                if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+                    if !reasoning.is_empty() {
+                        if !self.in_thinking {
+                            events.push(Ok(ApiStreamEvent::ContentBlockStart {
+                                index: 0,
+                                content_block: json!({"type": "thinking", "thinking": ""}),
+                            }));
+                            self.in_thinking = true;
                         }
                         events.push(Ok(ApiStreamEvent::ContentBlockDelta {
                             index: 0,
-                            delta: json!({"type": "text_delta", "text": content}),
+                            delta: json!({"type": "thinking_delta", "thinking": reasoning}),
                         }));
                     }
                 }
@@ -421,8 +452,16 @@ impl OpenAiSseStream {
 
                         // Emit content_block_start on first chunk for this tool call
                         if !state.started {
+                            // Close thinking block if open
+                            if self.in_thinking {
+                                events.push(Ok(ApiStreamEvent::ContentBlockStop { index: 0 }));
+                                self.in_thinking = false;
+                            }
                             // Close text block if open
-                            if self.content_index == 1 && tc_index == 0 {
+                            if self.text_started && tc_index == 0 {
+                                events.push(Ok(ApiStreamEvent::ContentBlockStop { index: self.text_block_index }));
+                                self.text_started = false;
+                            } else if self.content_index == 1 && tc_index == 0 {
                                 events.push(Ok(ApiStreamEvent::ContentBlockStop { index: 0 }));
                             }
                             state.started = true;
@@ -449,8 +488,15 @@ impl OpenAiSseStream {
 
                 // Finish reason
                 if let Some(reason) = finish_reason {
+                    // Close open thinking block
+                    if self.in_thinking {
+                        events.push(Ok(ApiStreamEvent::ContentBlockStop { index: 0 }));
+                        self.in_thinking = false;
+                    }
                     // Close open text block
-                    if self.content_index == 1 && self.tool_call_states.is_empty() {
+                    if self.text_started {
+                        events.push(Ok(ApiStreamEvent::ContentBlockStop { index: self.text_block_index }));
+                    } else if self.content_index == 1 && self.tool_call_states.is_empty() {
                         events.push(Ok(ApiStreamEvent::ContentBlockStop { index: 0 }));
                     }
 
