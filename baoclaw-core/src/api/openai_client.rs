@@ -187,10 +187,10 @@ impl OpenAiClient {
                         if !tool_calls.is_empty() {
                             msg["tool_calls"] = Value::Array(tool_calls);
                         }
-                        // DeepSeek requires reasoning_content to be passed back
-                        if !reasoning_parts.is_empty() {
-                            msg["reasoning_content"] = Value::String(reasoning_parts.join(""));
-                        }
+                        // DeepSeek requires reasoning_content to be passed back on all assistant messages
+                        // when thinking mode is active. Include it even if empty.
+                        let reasoning = reasoning_parts.join("");
+                        msg["reasoning_content"] = Value::String(reasoning);
                         messages.push(msg);
                     } else {
                         messages.push(json!({"role": "assistant", "content": content}));

@@ -883,7 +883,7 @@ async function main() {
         if (patch?.usage) {
           const u = patch.usage as { input_tokens?: number; output_tokens?: number };
           const total = (u.input_tokens || 0) + (u.output_tokens || 0);
-          if (total > 80000) {
+          if (total > 600000) {
             console.log(`\n${FG_YELLOW}⚠ Context: ${(total/1000).toFixed(0)}k tokens — consider /compact${RESET}`);
           }
         }

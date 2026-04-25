@@ -483,7 +483,7 @@ impl QueryEngine {
 
         // ── Token budget check: auto-compact if context is too large ──
         // GLM models typically have 128k context; we compact at 80% to leave room
-        const MAX_CONTEXT_TOKENS: u64 = 100_000; // ~80% of 128k
+        const MAX_CONTEXT_TOKENS: u64 = 800_000; // ~80% of 1M (DeepSeek context window)
         let current_tokens = estimate_tokens(&self.messages);
         if current_tokens > MAX_CONTEXT_TOKENS && self.messages.len() > 5 {
             eprintln!("Token budget exceeded ({} > {}), auto-compacting before query", current_tokens, MAX_CONTEXT_TOKENS);
