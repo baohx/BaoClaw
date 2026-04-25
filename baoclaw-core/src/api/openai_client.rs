@@ -147,6 +147,7 @@ impl OpenAiClient {
                     if let Some(arr) = content.as_array() {
                         let mut text_parts = Vec::new();
                         let mut tool_calls = Vec::new();
+                        let mut reasoning_parts = Vec::new();
 
                         for block in arr {
                             let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -169,6 +170,11 @@ impl OpenAiClient {
                                         }
                                     }));
                                 }
+                                "thinking" => {
+                                    if let Some(t) = block.get("thinking").and_then(|v| v.as_str()) {
+                                        reasoning_parts.push(t.to_string());
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -180,6 +186,10 @@ impl OpenAiClient {
                         }
                         if !tool_calls.is_empty() {
                             msg["tool_calls"] = Value::Array(tool_calls);
+                        }
+                        // DeepSeek requires reasoning_content to be passed back
+                        if !reasoning_parts.is_empty() {
+                            msg["reasoning_content"] = Value::String(reasoning_parts.join(""));
                         }
                         messages.push(msg);
                     } else {
