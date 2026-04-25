@@ -306,7 +306,7 @@ impl QueryEngine {
         let max_summary_chars: usize = 60_000; // ~15k tokens, safe for most APIs
         let truncated_summary = if raw_summary.len() > max_summary_chars {
             format!("{}...\n\n[Conversation truncated, {} total chars]",
-                &raw_summary[..max_summary_chars], raw_summary.len())
+                &raw_summary.chars().take(max_summary_chars).collect::<String>(), raw_summary.len())
         } else {
             raw_summary
         };
@@ -1307,7 +1307,7 @@ fn build_tool_result_message(results: &[ToolExecutionResult]) -> Message {
                 if s.len() > MAX_TOOL_RESULT_CHARS {
                     Value::String(format!(
                         "{}\n\n[… truncated, {} total chars]",
-                        &s[..MAX_TOOL_RESULT_CHARS],
+                        &s.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>(),
                         s.len()
                     ))
                 } else {
@@ -1321,7 +1321,7 @@ fn build_tool_result_message(results: &[ToolExecutionResult]) -> Message {
                 if s.len() > MAX_TOOL_RESULT_CHARS {
                     Value::String(format!(
                         "{}\n\n[… truncated, {} total chars]",
-                        &s[..MAX_TOOL_RESULT_CHARS],
+                        &s.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>(),
                         s.len()
                     ))
                 } else {

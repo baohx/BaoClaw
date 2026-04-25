@@ -274,7 +274,11 @@ impl OpenAiClient {
                             let role = m.get("role").and_then(|r| r.as_str()).unwrap_or("?");
                             let content = m.get("content").map(|c| {
                                 let s = c.to_string();
-                                if s.len() > 200 { format!("{}...[{}chars]", &s[..200], s.len()) } else { s }
+                                if s.len() > 200 {
+                                    // Safe UTF-8 truncation
+                                    let truncated: String = s.chars().take(200).collect();
+                                    format!("{}...[{}chars]", truncated, s.len())
+                                } else { s }
                             }).unwrap_or_default();
                             let tc = m.get("tool_calls").map(|t| format!(" tool_calls:{}", t.to_string().len())).unwrap_or_default();
                             let tid = m.get("tool_call_id").and_then(|t| t.as_str()).map(|s| format!(" tool_call_id:{}", s)).unwrap_or_default();
