@@ -1028,28 +1028,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config::apply_env_override(&mut baoclaw_config);
 
     // Get API key and config from environment
-    let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+    // api_type in config.json determines which env vars to use:
+    //   "openai"    → OPENAI_API_KEY, OPENAI_BASE_URL
+    //   "anthropic" → ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL
     let api_client: Arc<UnifiedClient> = {
         match baoclaw_config.api_type.as_str() {
             "openai" => {
-                let base_url = std::env::var("OPENAI_BASE_URL")
-                    .or_else(|_| std::env::var("ANTHROPIC_BASE_URL"))
-                    .ok();
-                let api_key_openai = std::env::var("OPENAI_API_KEY")
-                    .unwrap_or_else(|_| api_key.clone());
-                eprintln!("Using OpenAI-compatible API (base_url: {})", base_url.as_deref().unwrap_or("default"));
+                let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+                let base_url = std::env::var("OPENAI_BASE_URL").ok();
+                eprintln!("Using OpenAI-compatible API (model: {}, base_url: {})",
+                    baoclaw_config.model,
+                    base_url.as_deref().unwrap_or("https://api.openai.com"));
                 let config = ApiClientConfig {
-                    api_key: api_key_openai,
+                    api_key,
                     base_url,
                     max_retries: None,
                 };
                 Arc::new(UnifiedClient::new_openai(config))
             }
             _ => {
-                eprintln!("Using Anthropic-compatible API");
+                let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+                let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
+                eprintln!("Using Anthropic API (model: {}, base_url: {})",
+                    baoclaw_config.model,
+                    base_url.as_deref().unwrap_or("https://api.anthropic.com"));
                 let config = ApiClientConfig {
                     api_key,
-                    base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
+                    base_url,
                     max_retries: None,
                 };
                 Arc::new(UnifiedClient::new_anthropic(config))

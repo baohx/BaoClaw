@@ -108,22 +108,37 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
   echo "Usage: baoclaw"
   echo ""
   echo "Environment variables:"
-  echo "  ANTHROPIC_API_KEY      API key (required)"
-  echo "  ANTHROPIC_BASE_URL     Custom API endpoint"
-  echo "  BAOCLAW_HOME           Install directory (default: ~/.baoclaw)"
+  echo "  Anthropic mode: ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL"
+  echo "  OpenAI mode:    OPENAI_API_KEY, OPENAI_BASE_URL"
+  echo "  Set api_type in ~/.baoclaw/config.json"
+  echo "  BAOCLAW_HOME    Install directory (default: ~/.baoclaw)"
   exit 0
 fi
 
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-  echo "baoclaw 0.11.0"
+  echo "baoclaw 0.13.4"
   exit 0
 fi
 
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-  echo "Error: ANTHROPIC_API_KEY is not set."
-  echo "  export ANTHROPIC_API_KEY=sk-ant-..."
-  echo "  baoclaw"
-  exit 1
+# Check API key based on config api_type
+BAOCLAW_CONFIG="$BAOCLAW_HOME/config.json"
+API_TYPE="anthropic"
+if [ -f "$BAOCLAW_CONFIG" ]; then
+  API_TYPE=$(python3 -c "import json;print(json.load(open('$BAOCLAW_CONFIG')).get('api_type','anthropic'))" 2>/dev/null || echo "anthropic")
+fi
+
+if [ "$API_TYPE" = "openai" ]; then
+  if [ -z "$OPENAI_API_KEY" ]; then
+    echo "Error: OPENAI_API_KEY is not set (api_type=openai in config.json)"
+    echo "  export OPENAI_API_KEY=sk-..."
+    exit 1
+  fi
+else
+  if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "Error: ANTHROPIC_API_KEY is not set."
+    echo "  export ANTHROPIC_API_KEY=sk-ant-..."
+    exit 1
+  fi
 fi
 
 export BAOCLAW_CORE_BIN="$BAOCLAW_HOME/bin/baoclaw-core"
