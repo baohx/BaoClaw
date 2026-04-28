@@ -25,8 +25,6 @@ fn config_strategy() -> impl Strategy<Value = BaoclawConfig> {
             model,
             fallback_models,
             max_retries_per_model: max_retries,
-            api_type: "anthropic".to_string(),
-            openai_base_url: None,
             extra: HashMap::new(),
         })
 }

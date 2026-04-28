@@ -107,16 +107,8 @@ impl Tool for BashTool {
             } => r,
             _ = async {
                 let mut rx = abort_signal.as_ref().clone();
-                // Only abort if the value actually changed to true.
-                // A dropped sender with value=false is not an abort.
-                loop {
-                    if *rx.borrow() {
-                        break; // abort signal received
-                    }
-                    if rx.changed().await.is_err() {
-                        // Sender dropped without setting to true — don't abort
-                        std::future::pending::<()>().await;
-                    }
+                while !*rx.borrow() {
+                    if rx.changed().await.is_err() { break; }
                 }
             } => {
                 // Kill the child process by PID

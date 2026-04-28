@@ -88,17 +88,8 @@ pub async fn execute_tool(
         r = tool.call(request.input.clone(), context, progress) => r,
         _ = async {
             let mut rx = abort_signal.as_ref().clone();
-            // Only abort if the value actually changed to true.
-            // A dropped sender with value=false is not an abort.
-            loop {
-                if *rx.borrow() {
-                    break; // abort signal received
-                }
-                if rx.changed().await.is_err() {
-                    // Sender dropped without setting to true — don't abort
-                    // Wait indefinitely (this branch should never resolve)
-                    std::future::pending::<()>().await;
-                }
+            while !*rx.borrow() {
+                if rx.changed().await.is_err() { break; }
             }
         } => {
             Err(ToolError::Aborted)
@@ -481,9 +472,7 @@ mod tests {
     }
 
     fn make_context() -> ToolContext {
-        let (tx, rx) = tokio::sync::watch::channel(false);
-        // Keep tx alive — dropping it would cause the abort future to resolve immediately
-        std::mem::forget(tx);
+        let (_tx, rx) = tokio::sync::watch::channel(false);
         ToolContext {
             cwd: PathBuf::from("/tmp"),
             model: "test-model".to_string(),

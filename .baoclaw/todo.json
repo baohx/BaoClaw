@@ -16,5 +16,47 @@
     "completed": true,
     "priority": "high",
     "created_at": "2026-04-14T14:20:07.061381341+00:00"
+  },
+  {
+    "text": "探索项目结构，理解整体架构",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-27T15:57:09.751381459+00:00"
+  },
+  {
+    "text": "审查 Rust 核心引擎 (baoclaw-core)",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-27T15:57:29.403469737+00:00"
+  },
+  {
+    "text": "审查 ts-ipc (IPC 层)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-04-27T15:58:14.420168843+00:00"
+  },
+  {
+    "text": "搜索 Rust 侧逻辑/并发 bug",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-27T15:59:05.824618454+00:00"
+  },
+  {
+    "text": "修复 pbt_config_roundtrip.rs 缺少字段",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-04-27T16:02:06.067155643+00:00"
+  },
+  {
+    "text": "修复 install.sh 版本号不一致",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-04-27T16:09:18.002045436+00:00"
+  },
+  {
+    "text": "检查 Telegram/WhatsApp 网关代码",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-04-27T16:10:36.076730672+00:00"
   }
 ]

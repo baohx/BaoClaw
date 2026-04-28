@@ -10,8 +10,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use baoclaw_core::api::client::ApiClientConfig;
-use baoclaw_core::api::unified::UnifiedClient;
+use baoclaw_core::api::client::{AnthropicClient, ApiClientConfig};
 use baoclaw_core::engine::query_engine::{
     build_system_prompt, load_project_instructions, QueryLoopConfig, ThinkingConfig,
 };
@@ -23,8 +22,8 @@ fn instruction_content_strategy() -> impl Strategy<Value = String> {
         .prop_filter("non-empty after trim", |s| !s.trim().is_empty())
 }
 
-fn make_api_client() -> Arc<UnifiedClient> {
-    Arc::new(UnifiedClient::new_anthropic(ApiClientConfig {
+fn make_api_client() -> Arc<AnthropicClient> {
+    Arc::new(AnthropicClient::new(ApiClientConfig {
         api_key: "test-key".to_string(),
         base_url: None,
         max_retries: None,

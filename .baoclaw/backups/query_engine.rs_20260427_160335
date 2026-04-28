@@ -1489,7 +1489,7 @@ pub fn format_messages_for_summary(messages: &[Message]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::client::ApiClientConfig;
+    use crate::api::client::{AnthropicClient, ApiClientConfig};
     use crate::models::message::ContentBlock;
     use serde_json::json;
 

@@ -416,15 +416,9 @@ mod tests {
         ];
 
         let messages = rebuild_messages_from_transcript(&entries);
-        // UserMessage, AssistantMessage, and a ToolResult user message
-        assert_eq!(messages.len(), 3);
+        // Only UserMessage and AssistantMessage entries are converted
+        assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].uuid, user_msg.uuid);
         assert_eq!(messages[1].uuid, assistant_msg.uuid);
-        // Third message should be a user message with tool results
-        if let MessageContent::User { message: msg, .. } = &messages[2].content {
-            assert_eq!(msg.role, "user");
-        } else {
-            panic!("Expected User message with tool results");
-        }
     }
 }

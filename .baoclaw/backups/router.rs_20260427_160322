@@ -263,7 +263,7 @@ mod tests {
         );
         let method = parse_client_method(&req).unwrap();
         match method {
-            ClientMethod::SubmitMessage { prompt, uuid, .. } => {
+            ClientMethod::SubmitMessage { prompt, uuid } => {
                 assert!(prompt.is_array());
                 assert_eq!(uuid, None);
             }
