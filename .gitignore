@@ -35,3 +35,5 @@ Thumbs.db
 
 # Book
 /book/
+.baoclaw/backups/
+BAOCLAW.md
