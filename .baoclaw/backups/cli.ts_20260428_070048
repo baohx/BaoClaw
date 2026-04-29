@@ -469,44 +469,6 @@ function timeSince(isoDate: string): string {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Shared history display (used by auto-load and /history command)
-// ═══════════════════════════════════════════════════════════════
-async function showHistory(client: IpcClient, count: number) {
-  try {
-    const result = await client.request<{ messages: any[]; count: number; total: number }>('talkTail', { count });
-    if (result.count === 0) return;
-    console.log(`\n${FG_ORANGE}${BOLD}Recent History${RESET} ${DIM}(${result.count} of ${result.total})${RESET}\n`);
-    for (const m of result.messages) {
-      const ts = m.timestamp ? `${DIM}${m.timestamp.slice(11, 19)}${RESET}` : '';
-      if (m.role === 'user') {
-        const preview = (m.text || '').slice(0, 100);
-        console.log(`  ${ts} ${FG_BRIGHT_WHITE}${BOLD}You${RESET}  ${preview}${preview.length >= 100 ? '…' : ''}`);
-      } else if (m.role === 'assistant') {
-        const preview = (m.text || '').slice(0, 100);
-        const toolBadge = m.tools && m.tools.length > 0
-          ? ` ${FG_MAGENTA}[${m.tools.length} tool${m.tools.length > 1 ? 's' : ''}]${RESET}`
-          : '';
-        console.log(`  ${ts} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge}  ${DIM}${preview}${preview.length >= 100 ? '…' : ''}${RESET}`);
-        // Show tool details if available
-        if (m.tools && m.tools.length > 0) {
-          for (const t of m.tools) {
-            const toolName = t.name || '';
-            const detail = t.detail || '';
-            const shortDetail = detail
-              ? `       ${DIM}↳${RESET} ${FG_GRAY}${toolName}${RESET}: ${FG_GRAY}${detail.length > 80 ? detail.slice(0, 80) + '…' : detail}${RESET}`
-              : `       ${DIM}↳${RESET} ${FG_GRAY}${toolName}${RESET}`;
-            console.log(shortDetail);
-          }
-        }
-      } else {
-        console.log(`  ${ts} ${DIM}[system]${RESET}`);
-      }
-    }
-    console.log();
-  } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-}
-
-// ═══════════════════════════════════════════════════════════════
 // Daemon launcher
 // ═══════════════════════════════════════════════════════════════
 async function startNewDaemon(binaryPath: string): Promise<string> {
@@ -723,9 +685,6 @@ async function main() {
       console.log(`${DIM}  Registered project: ${desc}${RESET}\n`);
     }
   } catch { /* ignore registration errors */ }
-
-  // ── Auto-display recent history (last 5 messages) if session has history ──
-  await showHistory(client, 5);
 
   // ── Stream event handling ──
   let isStreaming = false;
@@ -1396,7 +1355,26 @@ async function main() {
     if (input.startsWith('/history')) {
       const arg = input.slice('/history'.length).trim();
       const count = parseInt(arg, 10) || 10;
-      await showHistory(client, count);
+      try {
+        const result = await client.request<{ messages: any[]; count: number; total: number }>('talkTail', { count });
+        console.log(`\n${FG_ORANGE}${BOLD}Recent History${RESET} ${DIM}(${result.count} of ${result.total})${RESET}\n`);
+        for (const m of result.messages) {
+          const ts = m.timestamp ? `${DIM}${m.timestamp.slice(11, 19)}${RESET}` : '';
+          if (m.role === 'user') {
+            const preview = (m.text || '').slice(0, 100);
+            console.log(`  ${ts} ${FG_BRIGHT_WHITE}${BOLD}You${RESET}  ${preview}${preview.length >= 100 ? '…' : ''}`);
+          } else if (m.role === 'assistant') {
+            const preview = (m.text || '').slice(0, 100);
+            const toolBadge = m.tools && m.tools.length > 0
+              ? ` ${FG_MAGENTA}[${m.tools.length} tool${m.tools.length > 1 ? 's' : ''}]${RESET}`
+              : '';
+            console.log(`  ${ts} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge}  ${DIM}${preview}${preview.length >= 100 ? '…' : ''}${RESET}`);
+          } else {
+            console.log(`  ${ts} ${DIM}[system]${RESET}`);
+          }
+        }
+        console.log();
+      } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
       rl.prompt();
       return;
     }

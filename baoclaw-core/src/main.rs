@@ -1062,9 +1062,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Allow tools to access ~/.baoclaw/ in addition to project cwd
+    let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let baoclaw_home = std::path::PathBuf::from(&home_dir).join(".baoclaw");
+    let additional_dirs = vec![baoclaw_home];
+
     // Read-only tool subset for sub-agent use
     let read_only_tools: Vec<Arc<dyn tools::Tool>> = vec![
-        Arc::new(FileReadTool::new(vec![])),
+        Arc::new(FileReadTool::new(additional_dirs.clone())),
         Arc::new(GrepTool::new()),
         Arc::new(GlobTool::new()),
         Arc::new(WebFetchTool::new()),
@@ -1075,9 +1080,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let engine_tools: Vec<Arc<dyn tools::Tool>> = vec![
         Arc::new(BashTool::new()),
-        Arc::new(FileReadTool::new(vec![])),
-        Arc::new(FileWriteTool::new(vec![])),
-        Arc::new(FileEditTool::new(vec![])),
+        Arc::new(FileReadTool::new(additional_dirs.clone())),
+        Arc::new(FileWriteTool::new(additional_dirs.clone())),
+        Arc::new(FileEditTool::new(additional_dirs.clone())),
         Arc::new(WebFetchTool::new()),
         Arc::new(WebSearchTool::new()),
         Arc::new(NotebookEditTool::new()),

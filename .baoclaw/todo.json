@@ -58,5 +58,41 @@
     "completed": false,
     "priority": "medium",
     "created_at": "2026-04-27T16:10:36.076730672+00:00"
+  },
+  {
+    "text": "分析当前 CLI 初始化流程和历史记录机制",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-28T06:53:41.317222289+00:00"
+  },
+  {
+    "text": "在启动流程中插入 auto-history 展示逻辑",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-28T06:58:44.361684714+00:00"
+  },
+  {
+    "text": "排查网络中断后重新发指令立即退出的问题",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-04-28T07:22:07.718398115+00:00"
+  },
+  {
+    "text": "调查 agent loop 以 server error 500 结束的问题",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-04-28T08:30:35.356988765+00:00"
+  },
+  {
+    "text": "修复：500错误应重试3次而非直接终止loop",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-28T08:41:40.121351858+00:00"
+  },
+  {
+    "text": "修复1: 500错误添加重试逻辑（3次指数退避）",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-04-28T08:46:00.451693496+00:00"
   }
 ]

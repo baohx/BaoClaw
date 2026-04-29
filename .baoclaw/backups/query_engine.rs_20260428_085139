@@ -483,7 +483,7 @@ impl QueryEngine {
 
         // ── Token budget check: auto-compact if context is too large ──
         // GLM models typically have 128k context; we compact at 80% to leave room
-        const MAX_CONTEXT_TOKENS: u64 = 400_000; // ~40% of 1M, conservative — chars/4 underestimates real tokens
+        const MAX_CONTEXT_TOKENS: u64 = 800_000; // ~80% of 1M (DeepSeek context window)
         let current_tokens = estimate_tokens(&self.messages);
         if current_tokens > MAX_CONTEXT_TOKENS && self.messages.len() > 5 {
             eprintln!("Token budget exceeded ({} > {}), auto-compacting before query", current_tokens, MAX_CONTEXT_TOKENS);
@@ -637,25 +637,6 @@ async fn run_query_loop(
             }
         }
 
-        // ── Token budget check: auto-compact if context exceeds safe limit ──
-        const MAX_CONTEXT_TOKENS: u64 = 400_000; // ~40% of 1M, conservative — chars/4 overestimates tokens
-        let current_tokens = estimate_tokens(&messages);
-        if current_tokens > MAX_CONTEXT_TOKENS && messages.len() > 5 {
-            eprintln!("Token budget exceeded ({} > {}), auto-compacting mid-loop", current_tokens, MAX_CONTEXT_TOKENS);
-            let _ = tx.send(EngineEvent::Progress {
-                tool_use_id: String::new(),
-                data: serde_json::json!({"message": format!("Context approaching limit ({} est. tokens), compacting...", current_tokens)}),
-            }).await;
-            match compact_messages(messages, tx.clone(), &config).await {
-                Ok(_) => {
-                    eprintln!("Mid-loop auto-compact succeeded");
-                }
-                Err(e) => {
-                    eprintln!("Mid-loop auto-compact failed: {}, continuing anyway", e.message);
-                }
-            }
-        }
-
         // Build API request using the current model from fallback controller
         let current_config = QueryLoopConfig {
             api_client: Arc::clone(&config.api_client),
@@ -768,7 +749,7 @@ async fn run_query_loop(
                 let msg_lower = message.to_lowercase();
                 if msg_lower.contains("context") || msg_lower.contains("token") || msg_lower.contains("too large") || msg_lower.contains("too long") {
                     eprintln!("Bad request (likely context overflow), auto-compacting...");
-                    match compact_messages(messages, tx.clone(), &config).await {
+                    match compact_messages(&mut messages, tx.clone(), &config).await {
                         Ok(_) => {
                             let _ = tx.send(EngineEvent::Progress {
                                 tool_use_id: String::new(),
@@ -1215,108 +1196,6 @@ pub fn load_project_instructions(cwd: &Path) -> Option<String> {
         }
     }
     None
-}
-
-/// Compact messages in-place: summarize old messages via API and replace with a boundary.
-/// Used both for preemptive auto-compaction and for recovery after context-overflow errors.
-async fn compact_messages(
-    messages: &mut Vec<Message>,
-    tx: mpsc::Sender<EngineEvent>,
-    config: &QueryLoopConfig,
-) -> Result<(), EngineError> {
-    const KEEP_RECENT: usize = 10; // keep last 10 messages (5 turns)
-    if messages.len() <= KEEP_RECENT {
-        return Ok(());
-    }
-
-    let old_count = messages.len() - KEEP_RECENT;
-    // Clone old messages to avoid borrowing messages during API call
-    let old_messages: Vec<Message> = messages[..old_count].to_vec();
-    let recent_messages: Vec<Message> = messages[old_count..].to_vec();
-
-    let raw_summary = format_messages_for_summary(&old_messages);
-    let max_summary_chars: usize = 60_000;
-    let truncated_summary = if raw_summary.len() > max_summary_chars {
-        format!("{}...\n\n[Conversation truncated, {} total chars]",
-            &raw_summary.chars().take(max_summary_chars).collect::<String>(), raw_summary.len())
-    } else {
-        raw_summary
-    };
-    let summary_prompt = format!(
-        "Summarize the following conversation history concisely, \
-         preserving key context, decisions, and file changes:\n\n{}",
-        truncated_summary
-    );
-
-    // Call API (non-streaming) for summary
-    let request = CreateMessageRequest {
-        model: config.model.clone(),
-        messages: vec![serde_json::json!({
-            "role": "user",
-            "content": summary_prompt,
-        })],
-        system: Some(vec![serde_json::json!({
-            "type": "text",
-            "text": "You are a conversation summariser. Produce a concise summary.",
-        })]),
-        tools: None,
-        max_tokens: 4096,
-        stream: true,
-        thinking: None,
-        metadata: None,
-    };
-
-    let stream_result = config.api_client.create_message_stream(request).await;
-    let mut stream = match stream_result {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(EngineError {
-                code: "compact_failed".to_string(),
-                message: format!("Failed to call summary API: {}", e),
-                details: None,
-            });
-        }
-    };
-
-    let mut summary_text = String::new();
-    while let Some(event_result) = stream.next().await {
-        match event_result {
-            Ok(event) => {
-                if let ApiStreamEvent::ContentBlockDelta { delta, .. } = event {
-                    if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
-                        summary_text.push_str(text);
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Compact: stream error: {}", e);
-                break;
-            }
-        }
-    }
-
-    if summary_text.trim().is_empty() {
-        summary_text = format!("[Previous conversation ({} messages) was compacted]", old_count);
-    }
-
-    let boundary = Message {
-        uuid: uuid::Uuid::new_v4().to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        content: MessageContent::System {
-            subtype: crate::models::message::SystemSubtype::CompactBoundary,
-            content: summary_text,
-        },
-    };
-
-    *messages = vec![boundary];
-    messages.extend(recent_messages);
-
-    let _ = tx.send(EngineEvent::Progress {
-        tool_use_id: String::new(),
-        data: serde_json::json!({"message": format!("Context compacted: {} messages summarized", old_count)}),
-    }).await;
-
-    Ok(())
 }
 
 /// Build an API request from the current messages and config.

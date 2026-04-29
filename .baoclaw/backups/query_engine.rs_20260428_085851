@@ -483,7 +483,7 @@ impl QueryEngine {
 
         // ── Token budget check: auto-compact if context is too large ──
         // GLM models typically have 128k context; we compact at 80% to leave room
-        const MAX_CONTEXT_TOKENS: u64 = 400_000; // ~40% of 1M, conservative — chars/4 underestimates real tokens
+        const MAX_CONTEXT_TOKENS: u64 = 800_000; // ~80% of 1M (DeepSeek context window)
         let current_tokens = estimate_tokens(&self.messages);
         if current_tokens > MAX_CONTEXT_TOKENS && self.messages.len() > 5 {
             eprintln!("Token budget exceeded ({} > {}), auto-compacting before query", current_tokens, MAX_CONTEXT_TOKENS);
@@ -646,7 +646,7 @@ async fn run_query_loop(
                 tool_use_id: String::new(),
                 data: serde_json::json!({"message": format!("Context approaching limit ({} est. tokens), compacting...", current_tokens)}),
             }).await;
-            match compact_messages(messages, tx.clone(), &config).await {
+            match compact_messages(&mut messages, tx.clone(), &config).await {
                 Ok(_) => {
                     eprintln!("Mid-loop auto-compact succeeded");
                 }
@@ -768,7 +768,7 @@ async fn run_query_loop(
                 let msg_lower = message.to_lowercase();
                 if msg_lower.contains("context") || msg_lower.contains("token") || msg_lower.contains("too large") || msg_lower.contains("too long") {
                     eprintln!("Bad request (likely context overflow), auto-compacting...");
-                    match compact_messages(messages, tx.clone(), &config).await {
+                    match compact_messages(&mut messages, tx.clone(), &config).await {
                         Ok(_) => {
                             let _ = tx.send(EngineEvent::Progress {
                                 tool_use_id: String::new(),
@@ -1229,12 +1229,11 @@ async fn compact_messages(
         return Ok(());
     }
 
-    let old_count = messages.len() - KEEP_RECENT;
-    // Clone old messages to avoid borrowing messages during API call
-    let old_messages: Vec<Message> = messages[..old_count].to_vec();
-    let recent_messages: Vec<Message> = messages[old_count..].to_vec();
+    let split = messages.len() - KEEP_RECENT;
+    let old_messages = &messages[..split];
+    let recent_messages = messages[split..].to_vec();
 
-    let raw_summary = format_messages_for_summary(&old_messages);
+    let raw_summary = format_messages_for_summary(old_messages);
     let max_summary_chars: usize = 60_000;
     let truncated_summary = if raw_summary.len() > max_summary_chars {
         format!("{}...\n\n[Conversation truncated, {} total chars]",
@@ -1296,7 +1295,7 @@ async fn compact_messages(
     }
 
     if summary_text.trim().is_empty() {
-        summary_text = format!("[Previous conversation ({} messages) was compacted]", old_count);
+        summary_text = format!("[Previous conversation ({} messages) was compacted]", old_messages.len());
     }
 
     let boundary = Message {
@@ -1313,7 +1312,7 @@ async fn compact_messages(
 
     let _ = tx.send(EngineEvent::Progress {
         tool_use_id: String::new(),
-        data: serde_json::json!({"message": format!("Context compacted: {} messages summarized", old_count)}),
+        data: serde_json::json!({"message": format!("Context compacted: {} messages summarized", old_messages.len())}),
     }).await;
 
     Ok(())

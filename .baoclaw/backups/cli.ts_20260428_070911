@@ -724,9 +724,6 @@ async function main() {
     }
   } catch { /* ignore registration errors */ }
 
-  // ── Auto-display recent history (last 5 messages) if session has history ──
-  await showHistory(client, 5);
-
   // ── Stream event handling ──
   let isStreaming = false;
   let currentText = '';
