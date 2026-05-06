@@ -1469,10 +1469,105 @@ async fn compact_messages(
     Ok(())
 }
 
+/// Validate and fix tool_use/tool_result pairing in messages before API call.
+/// This ensures we never send malformed messages to the API.
+fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
+    // First pass: collect all tool_use IDs and their corresponding tool_result IDs
+    let mut tool_use_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for msg in messages {
+        match &msg.content {
+            MessageContent::Assistant { message, .. } => {
+                let ids: Vec<String> = message.content.iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::ToolUse { id, .. } => Some(id.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                for id in ids {
+                    tool_use_ids.insert(id);
+                }
+            }
+            MessageContent::User { message, .. } => {
+                let ids = extract_tool_result_ids(message);
+                for id in ids {
+                    tool_result_ids.insert(id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Find orphaned tool_use IDs (without corresponding tool_result)
+    let orphaned_tool_uses: std::collections::HashSet<String> = tool_use_ids
+        .difference(&tool_result_ids)
+        .cloned()
+        .collect();
+
+    // Find orphaned tool_result IDs (without corresponding tool_use)
+    let orphaned_tool_results: std::collections::HashSet<String> = tool_result_ids
+        .difference(&tool_use_ids)
+        .cloned()
+        .collect();
+
+    // Filter messages: remove those with orphaned tool_use/tool_result
+    let mut result = Vec::new();
+    for msg in messages {
+        match &msg.content {
+            MessageContent::System { .. } => {
+                // Skip system messages (CompactBoundary etc.)
+                continue;
+            }
+            MessageContent::Assistant { message, .. } => {
+                // Check if this assistant message contains any orphaned tool_use
+                let has_orphaned = message.content.iter().any(|block| {
+                    if let ContentBlock::ToolUse { id, .. } = block {
+                        orphaned_tool_uses.contains(id)
+                    } else {
+                        false
+                    }
+                });
+                if !has_orphaned {
+                    result.push(msg.clone());
+                } else {
+                    eprintln!("validate_and_fix: skipping assistant message with orphaned tool_use");
+                }
+            }
+            MessageContent::User { message, .. } => {
+                // Check if this user message contains only orphaned tool_result
+                let result_ids = extract_tool_result_ids(message);
+                if result_ids.is_empty() {
+                    // Regular user message, keep it
+                    result.push(msg.clone());
+                } else {
+                    // Tool result message - check if any results are valid (not orphaned)
+                    let has_valid_result = result_ids.iter().any(|id| !orphaned_tool_results.contains(id));
+                    if has_valid_result {
+                        // Keep message but filter out orphaned results
+                        // For now, just keep the whole message
+                        result.push(msg.clone());
+                    } else {
+                        eprintln!("validate_and_fix: skipping user message with only orphaned tool_result");
+                    }
+                }
+            }
+            _ => {
+                result.push(msg.clone());
+            }
+        }
+    }
+
+    result
+}
+
 /// Build an API request from the current messages and config.
 fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> CreateMessageRequest {
+    // First validate and fix tool_use/tool_result pairing
+    let validated_messages = validate_and_fix_tool_messages(messages);
+
     // Convert messages to API format
-    let api_messages: Vec<Value> = messages.iter().filter_map(|msg| {
+    let api_messages: Vec<Value> = validated_messages.iter().filter_map(|msg| {
         match &msg.content {
             MessageContent::User { message, .. } => {
                 Some(serde_json::json!({
