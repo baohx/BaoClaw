@@ -301,18 +301,51 @@ impl QueryEngine {
 
         // Ensure we don't split between tool calls and their results.
         // If old_messages ends with an assistant message containing tool_use,
-        // we need to also include the following user message with tool_result.
+        // we need to either:
+        // 1. Include ALL following tool_result messages in old_messages, OR
+        // 2. Move the assistant message to recent_messages (if results are incomplete)
+        // This handles cases where one assistant message has multiple tool_use blocks.
         if split > 0 && split < self.messages.len() {
-            // Check if the last message in old_messages is an assistant message with tool_use
             if let MessageContent::Assistant { message, .. } = &self.messages[split - 1].content {
-                let has_tool_use = message.content.iter().any(|block| matches!(block, ContentBlock::ToolUse { .. }));
-                if has_tool_use {
-                    // Check if the first message in recent_messages is a user message with tool_result
-                    if let MessageContent::User { message, .. } = &self.messages[split].content {
-                        let has_tool_result = extract_tool_result_ids(message).len() > 0;
-                        if has_tool_result {
-                            // Adjust split to include the tool_result message in old_messages
-                            split += 1;
+                // Extract all tool_use IDs from the assistant message
+                let tool_use_ids: Vec<&str> = message.content.iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+
+                if !tool_use_ids.is_empty() {
+                    // Scan forward to find all corresponding tool_result messages
+                    let mut found_results: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    let mut next_idx = split;
+
+                    while next_idx < self.messages.len() {
+                        if let MessageContent::User { message, .. } = &self.messages[next_idx].content {
+                            let result_ids = extract_tool_result_ids(message);
+                            for id in result_ids {
+                                if tool_use_ids.contains(&id.as_str()) {
+                                    found_results.insert(id);
+                                }
+                            }
+                            // Stop if we've found all tool_use results
+                            if found_results.len() == tool_use_ids.len() {
+                                break;
+                            }
+                        }
+                        next_idx += 1;
+                    }
+
+                    // If we found all tool_result messages, include them in old_messages
+                    // Otherwise, move the assistant message to recent_messages to avoid orphaning tool_results
+                    if found_results.len() == tool_use_ids.len() {
+                        split = next_idx + 1;
+                    } else {
+                        // Not all results found - move assistant message to recent_messages
+                        // This ensures tool_use blocks stay with their tool_result blocks
+                        // Safety: ensure split doesn't go below 1
+                        if split > 1 {
+                            split -= 1;
                         }
                     }
                 }
@@ -1068,15 +1101,47 @@ async fn run_query_loop(
                 if messages.len() > keep_recent {
                     let mut split = messages.len() - keep_recent;
 
-                    // Ensure we don't split between tool calls and their results
+                    // Ensure we don't split between tool calls and their results.
+                    // Handle cases where one assistant message has multiple tool_use blocks.
                     if split > 0 && split < messages.len() {
                         if let MessageContent::Assistant { message, .. } = &messages[split - 1].content {
-                            let has_tool_use = message.content.iter().any(|block| matches!(block, ContentBlock::ToolUse { .. }));
-                            if has_tool_use {
-                                if let MessageContent::User { message, .. } = &messages[split].content {
-                                    let has_tool_result = extract_tool_result_ids(message).len() > 0;
-                                    if has_tool_result {
-                                        split += 1;
+                            // Extract all tool_use IDs from the assistant message
+                            let tool_use_ids: Vec<&str> = message.content.iter()
+                                .filter_map(|block| match block {
+                                    ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
+                                    _ => None,
+                                })
+                                .collect();
+
+                            if !tool_use_ids.is_empty() {
+                                // Scan forward to find all corresponding tool_result messages
+                                let mut found_results: std::collections::HashSet<String> = std::collections::HashSet::new();
+                                let mut next_idx = split;
+
+                                while next_idx < messages.len() {
+                                    if let MessageContent::User { message, .. } = &messages[next_idx].content {
+                                        let result_ids = extract_tool_result_ids(message);
+                                        for id in result_ids {
+                                            if tool_use_ids.contains(&id.as_str()) {
+                                                found_results.insert(id);
+                                            }
+                                        }
+                                        // Stop if we've found all tool_use results
+                                        if found_results.len() == tool_use_ids.len() {
+                                            break;
+                                        }
+                                    }
+                                    next_idx += 1;
+                                }
+
+                                // Adjust split to include all tool_result messages in old_messages
+                                // Otherwise, move the assistant message to recent_messages
+                                if found_results.len() == tool_use_ids.len() {
+                                    split = next_idx + 1;
+                                } else {
+                                    // Not all results found - move assistant message to recent_messages
+                                    if split > 1 {
+                                        split -= 1;
                                     }
                                 }
                             }
@@ -1268,15 +1333,47 @@ async fn compact_messages(
 
     let mut old_count = messages.len() - KEEP_RECENT;
 
-    // Ensure we don't split between tool calls and their results
+    // Ensure we don't split between tool calls and their results.
+    // Handle cases where one assistant message has multiple tool_use blocks.
     if old_count > 0 && old_count < messages.len() {
         if let MessageContent::Assistant { message, .. } = &messages[old_count - 1].content {
-            let has_tool_use = message.content.iter().any(|block| matches!(block, ContentBlock::ToolUse { .. }));
-            if has_tool_use {
-                if let MessageContent::User { message, .. } = &messages[old_count].content {
-                    let has_tool_result = extract_tool_result_ids(message).len() > 0;
-                    if has_tool_result {
-                        old_count += 1;
+            // Extract all tool_use IDs from the assistant message
+            let tool_use_ids: Vec<&str> = message.content.iter()
+                .filter_map(|block| match block {
+                    ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
+                    _ => None,
+                })
+                .collect();
+
+            if !tool_use_ids.is_empty() {
+                // Scan forward to find all corresponding tool_result messages
+                let mut found_results: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut next_idx = old_count;
+
+                while next_idx < messages.len() {
+                    if let MessageContent::User { message, .. } = &messages[next_idx].content {
+                        let result_ids = extract_tool_result_ids(message);
+                        for id in result_ids {
+                            if tool_use_ids.contains(&id.as_str()) {
+                                found_results.insert(id);
+                            }
+                        }
+                        // Stop if we've found all tool_use results
+                        if found_results.len() == tool_use_ids.len() {
+                            break;
+                        }
+                    }
+                    next_idx += 1;
+                }
+
+                // Adjust old_count to include all tool_result messages
+                // Otherwise, move the assistant message to recent_messages
+                if found_results.len() == tool_use_ids.len() {
+                    old_count = next_idx + 1;
+                } else {
+                    // Not all results found - move assistant message to recent_messages
+                    if old_count > 1 {
+                        old_count -= 1;
                     }
                 }
             }
