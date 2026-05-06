@@ -124,7 +124,8 @@ fi
 BAOCLAW_CONFIG="$BAOCLAW_HOME/config.json"
 API_TYPE="anthropic"
 if [ -f "$BAOCLAW_CONFIG" ]; then
-  API_TYPE=$(python3 -c "import json;print(json.load(open('$BAOCLAW_CONFIG')).get('api_type','anthropic'))" 2>/dev/null || echo "anthropic")
+  API_TYPE=$(sed -n 's/.*"api_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$BAOCLAW_CONFIG" | head -1)
+  [ -z "$API_TYPE" ] && API_TYPE="anthropic"
 fi
 
 if [ "$API_TYPE" = "openai" ]; then

@@ -297,7 +297,28 @@ impl QueryEngine {
             });
         }
 
-        let split = self.messages.len() - keep_recent;
+        let mut split = self.messages.len() - keep_recent;
+
+        // Ensure we don't split between tool calls and their results.
+        // If old_messages ends with an assistant message containing tool_use,
+        // we need to also include the following user message with tool_result.
+        if split > 0 && split < self.messages.len() {
+            // Check if the last message in old_messages is an assistant message with tool_use
+            if let MessageContent::Assistant { message, .. } = &self.messages[split - 1].content {
+                let has_tool_use = message.content.iter().any(|block| matches!(block, ContentBlock::ToolUse { .. }));
+                if has_tool_use {
+                    // Check if the first message in recent_messages is a user message with tool_result
+                    if let MessageContent::User { message, .. } = &self.messages[split].content {
+                        let has_tool_result = extract_tool_result_ids(message).len() > 0;
+                        if has_tool_result {
+                            // Adjust split to include the tool_result message in old_messages
+                            split += 1;
+                        }
+                    }
+                }
+            }
+        }
+
         let old_messages = &self.messages[..split];
         let recent_messages = self.messages[split..].to_vec();
 
@@ -1045,7 +1066,23 @@ async fn run_query_loop(
                 // Inline compact: keep last 4 messages, summarize the rest
                 let keep_recent: usize = 4;
                 if messages.len() > keep_recent {
-                    let split = messages.len() - keep_recent;
+                    let mut split = messages.len() - keep_recent;
+
+                    // Ensure we don't split between tool calls and their results
+                    if split > 0 && split < messages.len() {
+                        if let MessageContent::Assistant { message, .. } = &messages[split - 1].content {
+                            let has_tool_use = message.content.iter().any(|block| matches!(block, ContentBlock::ToolUse { .. }));
+                            if has_tool_use {
+                                if let MessageContent::User { message, .. } = &messages[split].content {
+                                    let has_tool_result = extract_tool_result_ids(message).len() > 0;
+                                    if has_tool_result {
+                                        split += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let old_messages = &messages[..split];
                     let summary_prompt = format!(
                         "Summarize the following conversation history concisely, \
@@ -1229,7 +1266,23 @@ async fn compact_messages(
         return Ok(());
     }
 
-    let old_count = messages.len() - KEEP_RECENT;
+    let mut old_count = messages.len() - KEEP_RECENT;
+
+    // Ensure we don't split between tool calls and their results
+    if old_count > 0 && old_count < messages.len() {
+        if let MessageContent::Assistant { message, .. } = &messages[old_count - 1].content {
+            let has_tool_use = message.content.iter().any(|block| matches!(block, ContentBlock::ToolUse { .. }));
+            if has_tool_use {
+                if let MessageContent::User { message, .. } = &messages[old_count].content {
+                    let has_tool_result = extract_tool_result_ids(message).len() > 0;
+                    if has_tool_result {
+                        old_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
     // Clone old messages to avoid borrowing messages during API call
     let old_messages: Vec<Message> = messages[..old_count].to_vec();
     let recent_messages: Vec<Message> = messages[old_count..].to_vec();
@@ -1457,6 +1510,29 @@ fn extract_tool_uses(content_blocks: &[ContentBlock]) -> Vec<ToolUseRequest> {
             _ => None,
         }
     }).collect()
+}
+
+/// Extract tool result IDs from a user message content.
+/// Returns a list of tool_use_id values found in tool_result blocks.
+fn extract_tool_result_ids(user_message: &ApiUserMessage) -> Vec<String> {
+    let mut ids = Vec::new();
+
+    match &user_message.content {
+        Value::Array(arr) => {
+            for block in arr {
+                if let Some(block_type) = block.get("type").and_then(|t| t.as_str()) {
+                    if block_type == "tool_result" {
+                        if let Some(id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                            ids.push(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    ids
 }
 
 /// Extract text content from assistant content blocks.

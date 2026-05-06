@@ -1,25 +1,61 @@
 #!/bin/bash
 # BaoClaw — Launch Script
 # Usage: ANTHROPIC_API_KEY=sk-ant-... ./start.sh
-#        ANTHROPIC_API_KEY=key ANTHROPIC_BASE_URL=https://proxy.example.com ./start.sh
+#        OPENAI_API_KEY=sk-... ./start.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Check API key
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-  echo "╔══════════════════════════════════════════════╗"
-  echo "║  ANTHROPIC_API_KEY is not set.               ║"
-  echo "║                                              ║"
-  echo "║  Usage:                                      ║"
-  echo "║    export ANTHROPIC_API_KEY=sk-ant-...       ║"
-  echo "║    ./start.sh                                ║"
-  echo "║                                              ║"
-  echo "║  For custom API endpoint:                    ║"
-  echo "║    export ANTHROPIC_BASE_URL=https://...     ║"
-  echo "╚══════════════════════════════════════════════╝"
-  exit 1
+# Read api_type from config to decide which key to check
+read_api_type() {
+  local config="$HOME/.baoclaw/config.json"
+  if [ -f "$config" ]; then
+    # Use sed to extract api_type value: "api_type": "openai"
+    local val=$(sed -n 's/.*"api_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -1)
+    if [ -n "$val" ]; then
+      echo "$val"
+      return
+    fi
+  fi
+  echo "anthropic"
+}
+
+API_TYPE=$(read_api_type)
+
+# Check API key based on api_type
+if [ "$API_TYPE" = "openai" ]; then
+  if [ -z "$OPENAI_API_KEY" ]; then
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║  OPENAI_API_KEY is not set.                  ║"
+    echo "║  (api_type is 'openai' in config.json)       ║"
+    echo "║                                              ║"
+    echo "║  Usage:                                      ║"
+    echo "║    export OPENAI_API_KEY=sk-...              ║"
+    echo "║    ./start.sh                                ║"
+    echo "║                                              ║"
+    echo "║  For custom API endpoint:                    ║"
+    echo "║    export OPENAI_BASE_URL=https://...        ║"
+    echo "╚══════════════════════════════════════════════╝"
+    exit 1
+  fi
+else
+  if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║  ANTHROPIC_API_KEY is not set.               ║"
+    echo "║  (api_type is 'anthropic' in config.json)    ║"
+    echo "║                                              ║"
+    echo "║  Usage:                                      ║"
+    echo "║    export ANTHROPIC_API_KEY=sk-ant-...       ║"
+    echo "║    ./start.sh                                ║"
+    echo "║                                              ║"
+    echo "║  To use OpenAI instead:                      ║"
+    echo "║    Set \"api_type\": \"openai\" in               ║"
+    echo "║    ~/.baoclaw/config.json                    ║"
+    echo "║    Then: export OPENAI_API_KEY=sk-...        ║"
+    echo "╚══════════════════════════════════════════════╝"
+    exit 1
+  fi
 fi
 
 # Build Rust core if needed
