@@ -1472,11 +1472,14 @@ async fn compact_messages(
 /// Validate and fix tool_use/tool_result pairing in messages before API call.
 /// This ensures we never send malformed messages to the API.
 fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
+    eprintln!("=== validate_and_fix_tool_messages: START ===");
+    eprintln!("  Input messages: {}", messages.len());
+
     // First pass: collect all tool_use IDs and their corresponding tool_result IDs
     let mut tool_use_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for msg in messages {
+    for (idx, msg) in messages.iter().enumerate() {
         match &msg.content {
             MessageContent::Assistant { message, .. } => {
                 let ids: Vec<String> = message.content.iter()
@@ -1499,6 +1502,9 @@ fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
         }
     }
 
+    eprintln!("  Found {} tool_use IDs: {:?}", tool_use_ids.len(), tool_use_ids);
+    eprintln!("  Found {} tool_result IDs: {:?}", tool_result_ids.len(), tool_result_ids);
+
     // Find orphaned tool_use IDs (without corresponding tool_result)
     let orphaned_tool_uses: std::collections::HashSet<String> = tool_use_ids
         .difference(&tool_result_ids)
@@ -1510,6 +1516,9 @@ fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
         .difference(&tool_use_ids)
         .cloned()
         .collect();
+
+    eprintln!("  Orphaned tool_use blocks: {}", orphaned_tool_uses.len());
+    eprintln!("  Orphaned tool_result blocks: {}", orphaned_tool_results.len());
 
     // Filter messages: remove those with orphaned tool_use/tool_result
     let mut result = Vec::new();
@@ -1557,6 +1566,9 @@ fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
             }
         }
     }
+
+    eprintln!("  Output messages: {}", result.len());
+    eprintln!("=== validate_and_fix_tool_messages: END ===");
 
     result
 }
