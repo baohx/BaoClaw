@@ -898,12 +898,9 @@ async fn run_query_loop(
 
         while let Some(event_result) = tokio::select! {
             result = stream.next() => result,
-            _ = async {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    if config.is_aborted() { break; }
-                }
-            } => {
+            // Event-driven abort: resolves immediately when abort fires,
+            // vs the old 500ms polling loop.
+            _ = crate::engine::wait_for_abort(config.abort_rx.clone()) => {
                 eprintln!("Query aborted during stream processing");
                 let _ = tx.send(EngineEvent::Result(QueryResult {
                     status: QueryStatus::Aborted, text: None, stop_reason: None,
