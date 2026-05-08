@@ -23,7 +23,14 @@ pub struct OpenAiClient {
 
 impl OpenAiClient {
     pub fn new(config: ApiClientConfig) -> Self {
-        let http_client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .user_agent("baoclaw/1.0.0");
+        if std::env::var("BAOCLAW_HTTP1_ONLY").ok().as_deref() == Some("1") {
+            builder = builder.http1_only();
+        }
+        let http_client = builder
             .build()
             .expect("Failed to build HTTP client");
         Self {
@@ -560,7 +567,16 @@ impl Stream for OpenAiSseStream {
                     self.buffer.push_str(&text);
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    return Poll::Ready(Some(Err(ApiError::NetworkError(e.to_string()))));
+                    let mut msg = e.to_string();
+                    let mut source: &dyn std::error::Error = &e;
+                    while let Some(cause) = source.source() {
+                        msg.push_str(&format!(" → {}", cause));
+                        source = cause;
+                    }
+                    if msg.contains("decoding") || msg.contains("h2") || msg.contains("protocol") {
+                        msg.push_str("\n  hint: if using a third-party gateway, try setting BAOCLAW_HTTP1_ONLY=1");
+                    }
+                    return Poll::Ready(Some(Err(ApiError::NetworkError(msg))));
                 }
                 Poll::Ready(None) => {
                     if !self.finished {

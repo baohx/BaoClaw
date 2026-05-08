@@ -11,6 +11,11 @@ pub struct ApiClientConfig {
     pub api_key: String,
     pub base_url: Option<String>,
     pub max_retries: Option<u32>,
+    /// Optional: override the API path after the base URL.
+    /// - `None` (default): auto-detect (smart URL construction)
+    /// - `Some("")`: use base_url as the full endpoint, no path appended
+    /// - `Some("/custom/path")`: append this exact path to base_url
+    pub api_path: Option<String>,
 }
 
 /// The Anthropic API client for streaming message creation.
@@ -19,6 +24,7 @@ pub struct AnthropicClient {
     api_key: String,
     base_url: String,
     max_retries: u32,
+    api_path: Option<String>,
 }
 
 // --- Request types ---
@@ -180,7 +186,19 @@ impl Stream for SseStream {
                     // Loop back to try parsing again with new data
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    return Poll::Ready(Some(Err(ApiError::NetworkError(e.to_string()))));
+                    // Include the full error chain — reqwest's Display often hides the root cause
+                    // (e.g., "error decoding response body" masks the actual hyper/h2 issue)
+                    let mut msg = e.to_string();
+                    let mut source: &dyn std::error::Error = &e;
+                    while let Some(cause) = source.source() {
+                        msg.push_str(&format!(" → {}", cause));
+                        source = cause;
+                    }
+                    // Add diagnostic hint for common third-party gateway issues
+                    if msg.contains("decoding") || msg.contains("h2") || msg.contains("protocol") {
+                        msg.push_str("\n  hint: if using a third-party gateway, try setting BAOCLAW_HTTP1_ONLY=1");
+                    }
+                    return Poll::Ready(Some(Err(ApiError::NetworkError(msg))));
                 }
                 Poll::Ready(None) => {
                     // Stream ended
@@ -245,10 +263,23 @@ const API_VERSION: &str = "2023-06-01";
 
 impl AnthropicClient {
     /// Creates a new AnthropicClient with the given configuration.
-    /// The HTTP client is configured for HTTP/2.
+    /// The HTTP client supports HTTP/2 with automatic gzip/brotli/deflate decompression.
+    /// Set BAOCLAW_HTTP1_ONLY=1 to force HTTP/1.1 (for third-party gateways with HTTP/2 issues).
     pub fn new(config: ApiClientConfig) -> Self {
-        let http_client = reqwest::Client::builder()
-            .http2_prior_knowledge()
+        let mut builder = reqwest::Client::builder()
+            // Long timeouts for streaming — SSE connections can stay open for minutes
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            // Explicitly request identity encoding headers — decompression is automatic
+            // via the gzip/brotli/deflate features
+            .user_agent("baoclaw/1.0.0");
+
+        // Allow forcing HTTP/1.1 via env var for third-party gateways with HTTP/2 issues
+        if std::env::var("BAOCLAW_HTTP1_ONLY").ok().as_deref() == Some("1") {
+            builder = builder.http1_only();
+        }
+
+        let http_client = builder
             .build()
             .expect("Failed to build HTTP client");
 
@@ -259,6 +290,7 @@ impl AnthropicClient {
                 .base_url
                 .unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
             max_retries: config.max_retries.unwrap_or(DEFAULT_MAX_RETRIES),
+            api_path: config.api_path,
         }
     }
 
@@ -272,7 +304,31 @@ impl AnthropicClient {
         &self,
         request: CreateMessageRequest,
     ) -> Result<SseStream, ApiError> {
-        let url = format!("{}/v1/messages", self.base_url);
+        // Smart URL construction: respect explicit api_path override, or auto-detect.
+        // - api_path=""        → use base_url as the full endpoint, no path appended
+        // - api_path="/v2/..." → append this exact path to base_url
+        // - api_path=None      → auto-detect (see below)
+        let url = match &self.api_path {
+            Some(p) if p.is_empty() => self.base_url.clone(),
+            Some(p) => format!("{}{}", self.base_url, p),
+            None => {
+                // Auto-detect: complete the URL from the base_url pattern.
+                // - "https://api.anthropic.com"          → append "/v1/messages"
+                // - "https://api.anthropic.com/v1"       → append "/messages"
+                // - "https://api.anthropic.com/v1/messages" → use as-is
+                // - "https://third-party.com/v1"         → append "/messages"
+                if self.base_url.contains("/v1/messages") || self.base_url.contains("/v1/chat") {
+                    self.base_url.clone()
+                } else if self.base_url.ends_with("/v1") {
+                    format!("{}/messages", self.base_url)
+                } else {
+                    format!("{}/v1/messages", self.base_url)
+                }
+            }
+        };
+
+        eprintln!("[DEBUG] API call URL: {}", url);
+        eprintln!("[DEBUG] base_url={}, api_path={:?}", self.base_url, self.api_path);
 
         let response = self
             .http_client
@@ -576,6 +632,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: None,
             max_retries: None,
+            api_path: None,
         });
         assert_eq!(client.base_url, DEFAULT_BASE_URL);
         assert_eq!(client.max_retries, DEFAULT_MAX_RETRIES);
@@ -587,6 +644,7 @@ mod tests {
             api_key: "sk-ant-test".to_string(),
             base_url: Some("https://custom.api.com".to_string()),
             max_retries: Some(5),
+            api_path: None,
         });
         assert_eq!(client.base_url, "https://custom.api.com");
         assert_eq!(client.max_retries, 5);
