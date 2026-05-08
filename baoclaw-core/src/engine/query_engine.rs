@@ -548,11 +548,15 @@ impl QueryEngine {
         self.messages.push(user_msg);
 
         // ── Token budget check: auto-compact if context is too large ──
-        // GLM models typically have 128k context; we compact at 80% to leave room
-        const MAX_CONTEXT_TOKENS: u64 = 400_000; // ~40% of 1M, conservative — chars/4 underestimates real tokens
-        let current_tokens = estimate_tokens(&self.messages);
-        if current_tokens > MAX_CONTEXT_TOKENS && self.messages.len() > 5 {
-            eprintln!("Token budget exceeded ({} > {}), auto-compacting before query", current_tokens, MAX_CONTEXT_TOKENS);
+        // Threshold and context window come from BaoclawConfig (default 70% of 200K).
+        // The TokenCounter uses tiktoken + API-calibrated baselines for accuracy.
+        let should_compact = {
+            let counter = self.token_counter.lock().await;
+            counter.should_compact(&self.messages) && self.messages.len() > 5
+        };
+        if should_compact {
+            let current_tokens = self.token_counter.lock().await.current_estimate(&self.messages);
+            eprintln!("Token budget exceeded ({} tokens), auto-compacting before query", current_tokens);
             match self.compact().await {
                 Ok(result) => {
                     eprintln!("Auto-compact: {} -> {} tokens (saved {})",
@@ -709,10 +713,14 @@ async fn run_query_loop(
         }
 
         // ── Token budget check: auto-compact if context exceeds safe limit ──
-        const MAX_CONTEXT_TOKENS: u64 = 400_000; // ~40% of 1M, conservative — chars/4 overestimates tokens
-        let current_tokens = estimate_tokens(&messages);
-        if current_tokens > MAX_CONTEXT_TOKENS && messages.len() > 5 {
-            eprintln!("Token budget exceeded ({} > {}), auto-compacting mid-loop", current_tokens, MAX_CONTEXT_TOKENS);
+        // Uses TokenCounter with tiktoken + API calibration (vs the legacy chars/4).
+        let (should_compact, current_tokens) = {
+            let counter = config.token_counter.lock().await;
+            let est = counter.current_estimate(&messages);
+            (counter.should_compact(&messages) && messages.len() > 5, est)
+        };
+        if should_compact {
+            eprintln!("Token budget exceeded ({} tokens), auto-compacting mid-loop", current_tokens);
             let _ = tx.send(EngineEvent::Progress {
                 tool_use_id: String::new(),
                 data: serde_json::json!({"message": format!("Context approaching limit ({} est. tokens), compacting...", current_tokens)}),

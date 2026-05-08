@@ -109,7 +109,7 @@
   },
   {
     "text": "[P1/T4] Wire TokenCounter into config + QueryLoopConfig",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T05:09:59.500106869+00:00"
   },
