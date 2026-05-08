@@ -452,7 +452,15 @@ impl QueryEngine {
         };
 
         let mut summary_text = String::new();
-        while let Some(event_result) = stream.next().await {
+        loop {
+            let event_result = tokio::select! {
+                r = stream.next() => r,
+                _ = crate::engine::wait_for_abort(self.abort_rx.clone()) => {
+                    eprintln!("Aborted during summary streaming");
+                    break;
+                }
+            };
+            let Some(event_result) = event_result else { break; };
             match event_result {
                 Ok(event) => match event {
                     crate::api::client::ApiStreamEvent::ContentBlockDelta { delta, .. } => {
@@ -1202,11 +1210,23 @@ async fn run_query_loop(
                         thinking: None,
                         metadata: None,
                     };
-                    let summary_result = async {
-                        let mut stream = config.api_client.create_message_stream(summary_request).await
+                    let compact_abort_rx = config.abort_rx.clone();
+                    let compact_api_client = Arc::clone(&config.api_client);
+                    let compact_model = config.model.clone();
+                    let summary_result = async move {
+                        let mut stream = compact_api_client.create_message_stream(summary_request).await
                             .map_err(|e| format!("{}", e))?;
                         let mut text = String::new();
-                        while let Some(event_result) = stream.next().await {
+                        let abort_rx = compact_abort_rx;
+                        loop {
+                            let event_result = tokio::select! {
+                                r = stream.next() => r,
+                                _ = crate::engine::wait_for_abort(abort_rx.clone()) => {
+                                    eprintln!("Aborted during compact summary streaming");
+                                    break;
+                                }
+                            };
+                            let Some(event_result) = event_result else { break; };
                             match event_result {
                                 Ok(ApiStreamEvent::ContentBlockDelta { delta, .. }) => {
                                     if let Some(t) = delta.get("text").and_then(|v| v.as_str()) {
@@ -1460,7 +1480,19 @@ async fn compact_messages(
     };
 
     let mut summary_text = String::new();
-    while let Some(event_result) = stream.next().await {
+    loop {
+        let event_result = tokio::select! {
+            r = stream.next() => r,
+            _ = crate::engine::wait_for_abort(config.abort_rx.clone()) => {
+                eprintln!("Compact aborted by user");
+                return Err(EngineError {
+                    code: "compact_aborted".to_string(),
+                    message: "User aborted compaction".to_string(),
+                    details: None,
+                });
+            }
+        };
+        let Some(event_result) = event_result else { break; };
         match event_result {
             Ok(event) => {
                 if let ApiStreamEvent::ContentBlockDelta { delta, .. } = event {

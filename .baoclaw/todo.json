@@ -145,7 +145,7 @@
   },
   {
     "text": "[P2/T3] Tighten main stream loop abort (500ms poll → event-driven)",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:01:51.982361759+00:00"
   },
