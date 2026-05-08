@@ -91,7 +91,7 @@
   },
   {
     "text": "[P1/T1] TokenCounter 骨架 + tiktoken-rs 依赖",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T05:09:23.217642031+00:00"
   },
