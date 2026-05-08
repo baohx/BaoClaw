@@ -1028,6 +1028,14 @@ async fn run_query_loop(
                                 cache_read_input_tokens: usage_val.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
                             };
                             cost_tracker.accumulate(&start_usage, &config.model);
+
+                            // Calibrate the token counter against the real API-reported input_tokens.
+                            // This anchors future estimates to the truth, so subsequent
+                            // tiktoken-based deltas only need to count newly-added messages.
+                            if start_usage.input_tokens > 0 {
+                                let mut counter = config.token_counter.lock().await;
+                                counter.calibrate(start_usage.input_tokens, messages.len());
+                            }
                         }
                     }
                     ApiStreamEvent::MessageStop => {

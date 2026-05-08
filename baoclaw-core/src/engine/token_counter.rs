@@ -70,7 +70,7 @@ impl TokenCounter {
     /// by ~5-10%, which is still an order of magnitude more accurate than the
     /// previous `chars / 4` heuristic (which undercounted Chinese by 4-8×).
     /// Falls back to a `chars * 3 / 4` estimate if the tokeniser fails to load.
-    pub(crate) fn count_text_tokens(text: &str) -> u64 {
+    pub fn count_text_tokens(text: &str) -> u64 {
         match tiktoken_rs::cl100k_base() {
             Ok(bpe) => bpe.encode_with_special_tokens(text).len() as u64,
             Err(_) => (text.chars().count() as u64).saturating_mul(3) / 4,
