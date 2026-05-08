@@ -98,7 +98,7 @@ impl Tool for WebFetchTool {
     async fn call(
         &self,
         input: Value,
-        _context: &ToolContext,
+        context: &ToolContext,
         _progress: &dyn ProgressSender,
     ) -> Result<ToolResult, ToolError> {
         let url = input
@@ -111,7 +111,19 @@ impl Tool for WebFetchTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let result = fetch_and_convert(&self.http_client, url, raw, self.max_size_bytes).await?;
+        let abort_signal = context.abort_signal.clone();
+        let result = tokio::select! {
+            r = fetch_and_convert(&self.http_client, url, raw, self.max_size_bytes) => r?,
+            _ = async {
+                let mut rx = abort_signal.as_ref().clone();
+                loop {
+                    if *rx.borrow() { break; }
+                    if rx.changed().await.is_err() {
+                        std::future::pending::<()>().await;
+                    }
+                }
+            } => return Err(ToolError::Aborted),
+        };
 
         Ok(ToolResult {
             data: json!({

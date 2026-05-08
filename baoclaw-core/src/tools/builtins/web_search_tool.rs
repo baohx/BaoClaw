@@ -65,7 +65,7 @@ impl Tool for WebSearchTool {
     async fn call(
         &self,
         input: Value,
-        _context: &ToolContext,
+        context: &ToolContext,
         _progress: &dyn ProgressSender,
     ) -> Result<ToolResult, ToolError> {
         let api_key = match &self.api_key {
@@ -89,7 +89,19 @@ impl Tool for WebSearchTool {
             .unwrap_or(5)
             .min(20) as usize;
 
-        let results = search(&self.http_client, &api_key, query, num_results).await?;
+        let abort_signal = context.abort_signal.clone();
+        let results = tokio::select! {
+            r = search(&self.http_client, &api_key, query, num_results) => r?,
+            _ = async {
+                let mut rx = abort_signal.as_ref().clone();
+                loop {
+                    if *rx.borrow() { break; }
+                    if rx.changed().await.is_err() {
+                        std::future::pending::<()>().await;
+                    }
+                }
+            } => return Err(ToolError::Aborted),
+        };
         let count = results.len();
 
         Ok(ToolResult {

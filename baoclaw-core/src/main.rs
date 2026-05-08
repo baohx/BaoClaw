@@ -888,6 +888,10 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     session_id: Some(session_id_clone.clone()),
                     fallback_models: shared_clone.baoclaw_config.fallback_models.clone(),
                     max_retries_per_model: shared_clone.baoclaw_config.max_retries_per_model,
+                    context_window: shared_clone.baoclaw_config.context_window,
+                    auto_compact_threshold_ratio: shared_clone.baoclaw_config.auto_compact_threshold_ratio,
+                    parent_turn_id: None,
+                    agent_label: None,
                 })
             },
         ).await;

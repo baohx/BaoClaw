@@ -39,6 +39,14 @@ pub struct QueryEngineConfig {
     pub session_id: Option<String>,
     pub fallback_models: Vec<String>,
     pub max_retries_per_model: u32,
+    /// Model context window (tokens). Default: 200_000 (Claude).
+    pub context_window: u64,
+    /// Auto-compact threshold as fraction of `context_window`. Default: 0.7.
+    pub auto_compact_threshold_ratio: f64,
+    /// For sub-agents: the turn_id of the parent agent's current turn.
+    pub parent_turn_id: Option<u32>,
+    /// For sub-agents: a short label describing the task (shown in CLI).
+    pub agent_label: Option<String>,
 }
 
 /// Thinking mode configuration for the LLM.
@@ -96,6 +104,22 @@ pub enum EngineEvent {
     ModelFallback {
         from_model: String,
         to_model: String,
+    },
+    /// Emitted at the start of each LLM turn (one API call + tool loop).
+    #[serde(rename = "turn_start")]
+    TurnStart {
+        turn_id: u32,
+        parent_turn_id: Option<u32>,
+        agent_label: Option<String>,
+    },
+    /// Emitted when a turn completes (after all tool calls for that turn).
+    #[serde(rename = "turn_end")]
+    TurnEnd {
+        turn_id: u32,
+        duration_ms: u64,
+        tool_count: u32,
+        input_tokens: u64,
+        output_tokens: u64,
     },
     #[serde(rename = "result")]
     Result(QueryResult),
@@ -156,12 +180,19 @@ pub struct QueryEngine {
     abort_tx: watch::Sender<bool>,
     abort_rx: watch::Receiver<bool>,
     total_usage: Usage,
+    token_counter: Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>>,
 }
 
 impl QueryEngine {
     /// Create a new QueryEngine with the given configuration.
     pub fn new(config: QueryEngineConfig) -> Self {
         let (abort_tx, abort_rx) = watch::channel(false);
+        let token_counter = Arc::new(tokio::sync::Mutex::new(
+            crate::engine::token_counter::TokenCounter::new(
+                config.context_window,
+                config.auto_compact_threshold_ratio,
+            ),
+        ));
         Self {
             config,
             messages: Vec::new(),
@@ -169,6 +200,7 @@ impl QueryEngine {
             abort_tx,
             abort_rx,
             total_usage: EMPTY_USAGE,
+            token_counter,
         }
     }
 
@@ -440,7 +472,15 @@ impl QueryEngine {
         };
 
         let mut summary_text = String::new();
-        while let Some(event_result) = stream.next().await {
+        loop {
+            let event_result = tokio::select! {
+                r = stream.next() => r,
+                _ = crate::engine::wait_for_abort(self.abort_rx.clone()) => {
+                    eprintln!("Aborted during summary streaming");
+                    break;
+                }
+            };
+            let Some(event_result) = event_result else { break; };
             match event_result {
                 Ok(event) => match event {
                     crate::api::client::ApiStreamEvent::ContentBlockDelta { delta, .. } => {
@@ -536,11 +576,15 @@ impl QueryEngine {
         self.messages.push(user_msg);
 
         // ── Token budget check: auto-compact if context is too large ──
-        // GLM models typically have 128k context; we compact at 80% to leave room
-        const MAX_CONTEXT_TOKENS: u64 = 400_000; // ~40% of 1M, conservative — chars/4 underestimates real tokens
-        let current_tokens = estimate_tokens(&self.messages);
-        if current_tokens > MAX_CONTEXT_TOKENS && self.messages.len() > 5 {
-            eprintln!("Token budget exceeded ({} > {}), auto-compacting before query", current_tokens, MAX_CONTEXT_TOKENS);
+        // Threshold and context window come from BaoclawConfig (default 70% of 200K).
+        // The TokenCounter uses tiktoken + API-calibrated baselines for accuracy.
+        let should_compact = {
+            let counter = self.token_counter.lock().await;
+            counter.should_compact(&self.messages) && self.messages.len() > 5
+        };
+        if should_compact {
+            let current_tokens = self.token_counter.lock().await.current_estimate(&self.messages);
+            eprintln!("Token budget exceeded ({} tokens), auto-compacting before query", current_tokens);
             match self.compact().await {
                 Ok(result) => {
                     eprintln!("Auto-compact: {} -> {} tokens (saved {})",
@@ -568,6 +612,9 @@ impl QueryEngine {
             session_id: self.config.session_id.clone(),
             fallback_models: self.config.fallback_models.clone(),
             max_retries_per_model: self.config.max_retries_per_model,
+            token_counter: Arc::clone(&self.token_counter),
+            parent_turn_id: self.config.parent_turn_id,
+            agent_label: self.config.agent_label.clone(),
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -608,6 +655,12 @@ pub struct QueryLoopConfig {
     pub session_id: Option<String>,
     pub fallback_models: Vec<String>,
     pub max_retries_per_model: u32,
+    /// Tracks input-token usage for auto-compaction decisions.
+    pub token_counter: Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>>,
+    /// For sub-agents: the turn_id of the parent agent's current turn.
+    pub parent_turn_id: Option<u32>,
+    /// For sub-agents: a short label describing the task (shown in CLI).
+    pub agent_label: Option<String>,
 }
 
 impl QueryLoopConfig {
@@ -627,6 +680,13 @@ async fn run_query_loop(
     let mut total_usage = EMPTY_USAGE;
     let mut cost_tracker = CostTracker::new();
     cost_tracker.reset_query();
+
+    // Per-turn tracking for TurnStart/TurnEnd events
+    let mut turn_id_counter: u32 = 0;
+    let mut turn_start_time = std::time::Instant::now();
+    let mut turn_tool_count: u32 = 0;
+    let mut turn_input_tokens_at_start: u64 = 0;
+    let mut turn_output_tokens_at_start: u64 = 0;
 
     // Open transcript writer if session_id is available
     let mut transcript_writer = config.session_id.as_ref().and_then(|sid| {
@@ -656,6 +716,8 @@ async fn run_query_loop(
         max_retries_per_model: config.max_retries_per_model,
         api_type: "anthropic".to_string(),
         openai_base_url: None,
+        context_window: 200_000,
+        auto_compact_threshold_ratio: 0.7,
         extra: std::collections::HashMap::new(),
     };
     let mut fallback_controller = FallbackController::new(&fallback_config);
@@ -663,6 +725,12 @@ async fn run_query_loop(
     loop {
         // Check abort
         if config.is_aborted() {
+            // Clean up any orphan tool_use blocks before returning, so the
+            // message history stays API-legal for the next query.
+            let fixed = crate::engine::cleanup_orphan_tool_uses(messages);
+            if fixed > 0 {
+                eprintln!("Cleaned up {} orphan tool_use block(s) after abort", fixed);
+            }
             let _ = tx.send(EngineEvent::Result(QueryResult {
                 status: QueryStatus::Aborted,
                 text: None,
@@ -692,10 +760,26 @@ async fn run_query_loop(
         }
 
         // ── Token budget check: auto-compact if context exceeds safe limit ──
-        const MAX_CONTEXT_TOKENS: u64 = 400_000; // ~40% of 1M, conservative — chars/4 overestimates tokens
-        let current_tokens = estimate_tokens(&messages);
-        if current_tokens > MAX_CONTEXT_TOKENS && messages.len() > 5 {
-            eprintln!("Token budget exceeded ({} > {}), auto-compacting mid-loop", current_tokens, MAX_CONTEXT_TOKENS);
+        // Uses TokenCounter with tiktoken + API calibration (vs the legacy chars/4).
+
+        // Emit TurnStart before the API call
+        turn_id_counter += 1;
+        turn_start_time = std::time::Instant::now();
+        turn_tool_count = 0;
+        turn_input_tokens_at_start = total_usage.input_tokens;
+        turn_output_tokens_at_start = total_usage.output_tokens;
+        let _ = tx.send(EngineEvent::TurnStart {
+            turn_id: turn_id_counter,
+            parent_turn_id: config.parent_turn_id,
+            agent_label: config.agent_label.clone(),
+        }).await;
+        let (should_compact, current_tokens) = {
+            let counter = config.token_counter.lock().await;
+            let est = counter.current_estimate(&messages);
+            (counter.should_compact(&messages) && messages.len() > 5, est)
+        };
+        if should_compact {
+            eprintln!("Token budget exceeded ({} tokens), auto-compacting mid-loop", current_tokens);
             let _ = tx.send(EngineEvent::Progress {
                 tool_use_id: String::new(),
                 data: serde_json::json!({"message": format!("Context approaching limit ({} est. tokens), compacting...", current_tokens)}),
@@ -726,6 +810,9 @@ async fn run_query_loop(
             session_id: config.session_id.clone(),
             fallback_models: config.fallback_models.clone(),
             max_retries_per_model: config.max_retries_per_model,
+            token_counter: Arc::clone(&config.token_counter),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let request = build_api_request(&messages, &current_config);
 
@@ -872,13 +959,14 @@ async fn run_query_loop(
 
         while let Some(event_result) = tokio::select! {
             result = stream.next() => result,
-            _ = async {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    if config.is_aborted() { break; }
-                }
-            } => {
+            // Event-driven abort: resolves immediately when abort fires,
+            // vs the old 500ms polling loop.
+            _ = crate::engine::wait_for_abort(config.abort_rx.clone()) => {
                 eprintln!("Query aborted during stream processing");
+                let fixed = crate::engine::cleanup_orphan_tool_uses(messages);
+                if fixed > 0 {
+                    eprintln!("Cleaned up {} orphan tool_use block(s) after stream abort", fixed);
+                }
                 let _ = tx.send(EngineEvent::Result(QueryResult {
                     status: QueryStatus::Aborted, text: None, stop_reason: None,
                     total_cost_usd: cost_tracker.total_cost(), usage: total_usage,
@@ -1002,6 +1090,14 @@ async fn run_query_loop(
                                 cache_read_input_tokens: usage_val.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
                             };
                             cost_tracker.accumulate(&start_usage, &config.model);
+
+                            // Calibrate the token counter against the real API-reported input_tokens.
+                            // This anchors future estimates to the truth, so subsequent
+                            // tiktoken-based deltas only need to count newly-added messages.
+                            if start_usage.input_tokens > 0 {
+                                let mut counter = config.token_counter.lock().await;
+                                counter.calibrate(start_usage.input_tokens, messages.len());
+                            }
                         }
                     }
                     ApiStreamEvent::MessageStop => {
@@ -1171,11 +1267,23 @@ async fn run_query_loop(
                         thinking: None,
                         metadata: None,
                     };
-                    let summary_result = async {
-                        let mut stream = config.api_client.create_message_stream(summary_request).await
+                    let compact_abort_rx = config.abort_rx.clone();
+                    let compact_api_client = Arc::clone(&config.api_client);
+                    let compact_model = config.model.clone();
+                    let summary_result = async move {
+                        let mut stream = compact_api_client.create_message_stream(summary_request).await
                             .map_err(|e| format!("{}", e))?;
                         let mut text = String::new();
-                        while let Some(event_result) = stream.next().await {
+                        let abort_rx = compact_abort_rx;
+                        loop {
+                            let event_result = tokio::select! {
+                                r = stream.next() => r,
+                                _ = crate::engine::wait_for_abort(abort_rx.clone()) => {
+                                    eprintln!("Aborted during compact summary streaming");
+                                    break;
+                                }
+                            };
+                            let Some(event_result) = event_result else { break; };
                             match event_result {
                                 Ok(ApiStreamEvent::ContentBlockDelta { delta, .. }) => {
                                     if let Some(t) = delta.get("text").and_then(|v| v.as_str()) {
@@ -1231,6 +1339,14 @@ async fn run_query_loop(
 
             // No tools → query complete
             let text = extract_text(&assistant_content_blocks);
+            // Emit TurnEnd for the final turn (no tools)
+            let _ = tx.send(EngineEvent::TurnEnd {
+                turn_id: turn_id_counter,
+                duration_ms: turn_start_time.elapsed().as_millis() as u64,
+                tool_count: turn_tool_count,
+                input_tokens: total_usage.input_tokens.saturating_sub(turn_input_tokens_at_start),
+                output_tokens: total_usage.output_tokens.saturating_sub(turn_output_tokens_at_start),
+            }).await;
             let _ = tx.send(EngineEvent::Result(QueryResult {
                 status: QueryStatus::Complete,
                 text,
@@ -1245,6 +1361,7 @@ async fn run_query_loop(
 
         // Emit ToolUse events
         for tu in &tool_uses {
+            turn_tool_count += 1;
             let _ = tx.send(EngineEvent::ToolUse {
                 tool_name: tu.name.clone(),
                 input: tu.input.clone(),
@@ -1295,6 +1412,15 @@ async fn run_query_loop(
         // Build tool result user message and append to messages
         let tool_result_msg = build_tool_result_message(&tool_results);
         messages.push(tool_result_msg);
+
+        // Emit TurnEnd after tool results are processed
+        let _ = tx.send(EngineEvent::TurnEnd {
+            turn_id: turn_id_counter,
+            duration_ms: turn_start_time.elapsed().as_millis() as u64,
+            tool_count: turn_tool_count,
+            input_tokens: total_usage.input_tokens.saturating_sub(turn_input_tokens_at_start),
+            output_tokens: total_usage.output_tokens.saturating_sub(turn_output_tokens_at_start),
+        }).await;
 
         turn_count += 1;
     }
@@ -1429,7 +1555,19 @@ async fn compact_messages(
     };
 
     let mut summary_text = String::new();
-    while let Some(event_result) = stream.next().await {
+    loop {
+        let event_result = tokio::select! {
+            r = stream.next() => r,
+            _ = crate::engine::wait_for_abort(config.abort_rx.clone()) => {
+                eprintln!("Compact aborted by user");
+                return Err(EngineError {
+                    code: "compact_aborted".to_string(),
+                    message: "User aborted compaction".to_string(),
+                    details: None,
+                });
+            }
+        };
+        let Some(event_result) = event_result else { break; };
         match event_result {
             Ok(event) => {
                 if let ApiStreamEvent::ContentBlockDelta { delta, .. } = event {
@@ -1976,6 +2114,10 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
+            parent_turn_id: None,
+            agent_label: None,
         }
     }
 
@@ -2427,6 +2569,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2458,6 +2603,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2489,6 +2637,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let messages = vec![
             Message {
@@ -2613,6 +2764,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2644,6 +2798,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2831,6 +2988,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         }
     }
 
