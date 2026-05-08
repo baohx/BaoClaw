@@ -99,6 +99,8 @@ impl TaskManager {
                 max_retries_per_model: 2,
                 context_window: 200_000,
                 auto_compact_threshold_ratio: 0.7,
+                parent_turn_id: None,
+                agent_label: None,
             };
 
             let mut engine = QueryEngine::new(config);

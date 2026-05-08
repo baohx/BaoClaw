@@ -43,6 +43,10 @@ pub struct QueryEngineConfig {
     pub context_window: u64,
     /// Auto-compact threshold as fraction of `context_window`. Default: 0.7.
     pub auto_compact_threshold_ratio: f64,
+    /// For sub-agents: the turn_id of the parent agent's current turn.
+    pub parent_turn_id: Option<u32>,
+    /// For sub-agents: a short label describing the task (shown in CLI).
+    pub agent_label: Option<String>,
 }
 
 /// Thinking mode configuration for the LLM.
@@ -609,8 +613,8 @@ impl QueryEngine {
             fallback_models: self.config.fallback_models.clone(),
             max_retries_per_model: self.config.max_retries_per_model,
             token_counter: Arc::clone(&self.token_counter),
-            parent_turn_id: None,
-            agent_label: None,
+            parent_turn_id: self.config.parent_turn_id,
+            agent_label: self.config.agent_label.clone(),
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -2112,6 +2116,8 @@ mod tests {
             max_retries_per_model: 2,
             context_window: 200_000,
             auto_compact_threshold_ratio: 0.7,
+            parent_turn_id: None,
+            agent_label: None,
         }
     }
 

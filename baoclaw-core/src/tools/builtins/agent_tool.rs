@@ -126,6 +126,13 @@ impl Tool for AgentTool {
             max_retries_per_model: 2,
             context_window: 200_000,
             auto_compact_threshold_ratio: 0.7,
+            // Propagate parent turn id so CLI can render nested boxes
+            parent_turn_id: input.get("_parent_turn_id").and_then(|v| v.as_u64()).map(|v| v as u32),
+            // Short label from the prompt for CLI display
+            agent_label: Some({
+                let preview: String = prompt.chars().take(40).collect();
+                if prompt.chars().count() > 40 { format!("{}…", preview) } else { preview }
+            }),
         };
 
         let mut sub_engine = QueryEngine::new(sub_engine_config);
