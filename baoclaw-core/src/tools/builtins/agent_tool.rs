@@ -124,6 +124,8 @@ impl Tool for AgentTool {
             session_id: None, // Sub-agent does not persist
             fallback_models: vec![],
             max_retries_per_model: 2,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
 
         let mut sub_engine = QueryEngine::new(sub_engine_config);

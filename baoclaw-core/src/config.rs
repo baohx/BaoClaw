@@ -17,6 +17,16 @@ fn default_max_retries() -> u32 {
     2
 }
 
+/// Default model context window size in tokens (Claude default).
+fn default_context_window() -> u64 {
+    200_000
+}
+
+/// Default ratio of context window at which to auto-compact.
+fn default_compact_threshold() -> f64 {
+    0.7
+}
+
 /// BaoClaw configuration loaded from ~/.baoclaw/config.json.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BaoclawConfig {
@@ -32,6 +42,12 @@ pub struct BaoclawConfig {
     /// OpenAI-compatible API base URL (used when api_type is "openai")
     #[serde(default)]
     pub openai_base_url: Option<String>,
+    /// Model context window size in tokens (e.g. 200_000 for Claude, 128_000 for GPT-4).
+    #[serde(default = "default_context_window")]
+    pub context_window: u64,
+    /// Auto-compact threshold as fraction of context_window (e.g. 0.7 = 70%).
+    #[serde(default = "default_compact_threshold")]
+    pub auto_compact_threshold_ratio: f64,
     /// Preserve unknown fields for forward compatibility.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -47,6 +63,8 @@ impl Default for BaoclawConfig {
             max_retries_per_model: default_max_retries(),
             api_type: default_api_type(),
             openai_base_url: None,
+            context_window: default_context_window(),
+            auto_compact_threshold_ratio: default_compact_threshold(),
             extra: HashMap::new(),
         }
     }
@@ -225,6 +243,8 @@ mod tests {
             max_retries_per_model: 3,
             api_type: "anthropic".to_string(),
             openai_base_url: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
             extra: {
                 let mut m = HashMap::new();
                 m.insert("custom_key".to_string(), Value::String("custom_value".to_string()));

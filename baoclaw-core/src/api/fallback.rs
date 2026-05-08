@@ -141,7 +141,9 @@ mod tests {
             fallback_models: fallbacks.into_iter().map(|s| s.to_string()).collect(),
             max_retries_per_model: max_retries,
             api_type: "anthropic".to_string(),
-        openai_base_url: None,
+            openai_base_url: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
             extra: HashMap::new(),
         }
     }

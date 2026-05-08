@@ -39,6 +39,10 @@ pub struct QueryEngineConfig {
     pub session_id: Option<String>,
     pub fallback_models: Vec<String>,
     pub max_retries_per_model: u32,
+    /// Model context window (tokens). Default: 200_000 (Claude).
+    pub context_window: u64,
+    /// Auto-compact threshold as fraction of `context_window`. Default: 0.7.
+    pub auto_compact_threshold_ratio: f64,
 }
 
 /// Thinking mode configuration for the LLM.
@@ -156,12 +160,19 @@ pub struct QueryEngine {
     abort_tx: watch::Sender<bool>,
     abort_rx: watch::Receiver<bool>,
     total_usage: Usage,
+    token_counter: Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>>,
 }
 
 impl QueryEngine {
     /// Create a new QueryEngine with the given configuration.
     pub fn new(config: QueryEngineConfig) -> Self {
         let (abort_tx, abort_rx) = watch::channel(false);
+        let token_counter = Arc::new(tokio::sync::Mutex::new(
+            crate::engine::token_counter::TokenCounter::new(
+                config.context_window,
+                config.auto_compact_threshold_ratio,
+            ),
+        ));
         Self {
             config,
             messages: Vec::new(),
@@ -169,6 +180,7 @@ impl QueryEngine {
             abort_tx,
             abort_rx,
             total_usage: EMPTY_USAGE,
+            token_counter,
         }
     }
 
@@ -568,6 +580,7 @@ impl QueryEngine {
             session_id: self.config.session_id.clone(),
             fallback_models: self.config.fallback_models.clone(),
             max_retries_per_model: self.config.max_retries_per_model,
+            token_counter: Arc::clone(&self.token_counter),
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -608,6 +621,8 @@ pub struct QueryLoopConfig {
     pub session_id: Option<String>,
     pub fallback_models: Vec<String>,
     pub max_retries_per_model: u32,
+    /// Tracks input-token usage for auto-compaction decisions.
+    pub token_counter: Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>>,
 }
 
 impl QueryLoopConfig {
@@ -656,6 +671,8 @@ async fn run_query_loop(
         max_retries_per_model: config.max_retries_per_model,
         api_type: "anthropic".to_string(),
         openai_base_url: None,
+        context_window: 200_000,
+        auto_compact_threshold_ratio: 0.7,
         extra: std::collections::HashMap::new(),
     };
     let mut fallback_controller = FallbackController::new(&fallback_config);
@@ -726,6 +743,7 @@ async fn run_query_loop(
             session_id: config.session_id.clone(),
             fallback_models: config.fallback_models.clone(),
             max_retries_per_model: config.max_retries_per_model,
+            token_counter: Arc::clone(&config.token_counter),
         };
         let request = build_api_request(&messages, &current_config);
 
@@ -1976,6 +1994,8 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         }
     }
 
@@ -2427,6 +2447,7 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2458,6 +2479,7 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2489,6 +2511,7 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
         };
         let messages = vec![
             Message {
@@ -2613,6 +2636,7 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2644,6 +2668,7 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2831,6 +2856,7 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
         }
     }
 
