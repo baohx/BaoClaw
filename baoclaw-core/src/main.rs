@@ -1043,12 +1043,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     api_key,
                     base_url,
                     max_retries: None,
+                    api_path: None,
                 };
                 Arc::new(UnifiedClient::new_openai(config))
             }
             _ => {
                 let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
                 let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
+                let api_path = std::env::var("ANTHROPIC_API_PATH").ok();
                 eprintln!("Using Anthropic API (model: {}, base_url: {})",
                     baoclaw_config.model,
                     base_url.as_deref().unwrap_or("https://api.anthropic.com"));
@@ -1056,6 +1058,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     api_key,
                     base_url,
                     max_retries: None,
+                    api_path,
                 };
                 Arc::new(UnifiedClient::new_anthropic(config))
             }
@@ -1089,6 +1092,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(TodoWriteTool::new()),
         Arc::new(MemoryTool::new()),
         Arc::new(ProjectNoteTool::new()),
+        Arc::new(tools::builtins::SkillTool::new(PathBuf::from(&cwd_str))),
         Arc::new(AgentTool::new(Arc::clone(&api_client), read_only_tools)),
         Arc::new(tools::builtins::EvolveTool::new(Arc::clone(&evolution_engine))),
     ];

@@ -139,7 +139,8 @@ fn dirs_path() -> Option<PathBuf> {
 }
 
 
-/// Load all discovered skills and concatenate their full content into a system prompt fragment.
+/// Load skill list (names + descriptions only) into system prompt.
+/// Full skill content is loaded on demand via the Skill tool.
 /// Returns None if no skills are found.
 pub async fn load_skills_for_prompt(cwd: &Path) -> Option<String> {
     let skills = discover_skills(cwd).await;
@@ -147,26 +148,15 @@ pub async fn load_skills_for_prompt(cwd: &Path) -> Option<String> {
         return None;
     }
 
-    let mut parts = Vec::new();
-    parts.push("# Loaded Skills\n\nThe following skills are available. Follow their instructions when the user requests the corresponding functionality.\n".to_string());
+    let mut lines = Vec::new();
+    lines.push("# Loaded Skills\n\nThe following skills are available. Their full instructions can be loaded with the Skill tool when needed.\n".to_string());
 
     for skill in &skills {
-        match fs::read_to_string(&skill.path).await {
-            Ok(content) => {
-                parts.push(format!(
-                    "## Skill: {} [source: {}]\n\n{}\n",
-                    skill.name, skill.source, content
-                ));
-            }
-            Err(e) => {
-                eprintln!("Warning: failed to read skill '{}': {}", skill.name, e);
-            }
-        }
+        let desc = skill.description.as_deref().unwrap_or("(no description)");
+        lines.push(format!("- **{}** [{}]: {}", skill.name, skill.source, desc));
     }
 
-    if parts.len() <= 1 {
-        return None; // Only header, no actual skills loaded
-    }
+    lines.push(format!("\nUse `Skill(skill: \"<name>\")` to load a skill's full instructions. Use `Skill(skill: \"__list__\")` to refresh this list. ({})", skills.len()));
 
-    Some(parts.join("\n"))
+    Some(lines.join("\n"))
 }

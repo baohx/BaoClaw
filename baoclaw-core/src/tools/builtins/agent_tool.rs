@@ -189,6 +189,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: None,
             max_retries: None,
+            api_path: None,
         }))
     }
 

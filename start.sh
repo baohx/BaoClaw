@@ -2,8 +2,15 @@
 # BaoClaw — Launch Script
 # Usage: ANTHROPIC_API_KEY=sk-ant-... ./start.sh
 #        OPENAI_API_KEY=sk-... ./start.sh
+#
+# Advanced:
+#   ANTHROPIC_BASE_URL=https://your-proxy.com/v1
+#   ANTHROPIC_API_PATH=""              # empty = base_url IS the endpoint (no /messages appended)
 
 set -e
+
+# Force tokenfor.me API (override any existing ANTHROPIC_BASE_URL)
+export ANTHROPIC_BASE_URL=https://cn-api.tokenfor.me
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
