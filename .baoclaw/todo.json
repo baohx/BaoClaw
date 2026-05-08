@@ -205,25 +205,25 @@
   },
   {
     "text": "[P3/T4-5] CLI turn stack + nested rendering",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:18:33.123808640+00:00"
   },
   {
     "text": "[P3/T6] /verbose command for log level",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:18:40.473089448+00:00"
   },
   {
     "text": "[P3/T7] Token/cost status footer",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:18:46.964728409+00:00"
   },
   {
     "text": "[P3/T8-9] Special event highlights + end-to-end verify",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:18:52.274146196+00:00"
   }
