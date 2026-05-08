@@ -1,5 +1,7 @@
 // QueryEngine - core conversation loop
 
+pub mod abort_helpers;
+pub use abort_helpers::{cleanup_orphan_tool_uses, wait_for_abort};
 pub mod cost_tracker;
 pub mod error_handling;
 pub mod git_info;
