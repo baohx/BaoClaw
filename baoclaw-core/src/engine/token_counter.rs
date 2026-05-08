@@ -8,6 +8,9 @@
 //! This keeps estimates accurate to within a single turn, vs the 4-8× error
 //! that `chars / 4` produces on CJK-heavy contexts.
 
+// Scaffold-stage allows: imports and helpers below land in subsequent tasks
+// (calibrate/estimate/should_compact). Remove these once Tasks 2-3 fill in the
+// methods that consume Arc/Mutex/Usage.
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
@@ -16,6 +19,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Tracks input-token usage per session, calibrated against real API responses.
+#[derive(Debug)]
 pub struct TokenCounter {
     /// Last known input token count from API (authoritative).
     last_known_input_tokens: Option<u64>,
