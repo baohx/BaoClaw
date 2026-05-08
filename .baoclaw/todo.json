@@ -1,98 +1,134 @@
 [
   {
-    "text": "分析 BaoClaw 多子 Agent 并发执行的完整架构",
-    "completed": true,
+    "text": "排查网络中断后重新发指令立即退出的问题",
+    "completed": false,
     "priority": "high",
-    "created_at": "2026-04-14T14:19:12.336104013+00:00"
+    "created_at": "2026-04-28T07:22:07+08:00"
   },
   {
-    "text": "找出并发瓶颈：为什么实测 AgentTool 是串行的",
-    "completed": true,
+    "text": "修复 pbt_config_roundtrip.rs 测试缺少字段",
+    "completed": false,
     "priority": "high",
-    "created_at": "2026-04-14T14:19:16.861085317+00:00"
+    "created_at": "2026-04-27T16:02:06+08:00"
   },
   {
-    "text": "向用户报告完整分析结论和修改建议",
-    "completed": true,
+    "text": "Token 计数准确化 — 用 tiktoken 替代 chars/4 估算（中文误差 4-8x，是 500 根源之一）",
+    "completed": false,
     "priority": "high",
-    "created_at": "2026-04-14T14:20:07.061381341+00:00"
+    "created_at": "2026-05-06T08:30:00+08:00"
   },
   {
-    "text": "探索项目结构，理解整体架构",
-    "completed": true,
+    "text": "Agent Tool 真正并行 — 改造工具执行器支持异步并行队列",
+    "completed": false,
     "priority": "high",
-    "created_at": "2026-04-27T15:57:09.751381459+00:00"
+    "created_at": "2026-05-06T08:30:00+08:00"
   },
   {
-    "text": "审查 Rust 核心引擎 (baoclaw-core)",
-    "completed": true,
-    "priority": "high",
-    "created_at": "2026-04-27T15:57:29.403469737+00:00"
+    "text": "Telemetry Dashboard — 从本地 JSON 改为 Web 可视化面板（token 成本、错误聚合）",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-05-06T08:30:00+08:00"
+  },
+  {
+    "text": "Compact 质量追踪 — 记录压缩后信息丢失率，差则回退",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-05-06T08:30:00+08:00"
+  },
+  {
+    "text": "增量 Compact — 分段渐进式压缩替代全量总结",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-05-06T08:30:00+08:00"
+  },
+  {
+    "text": "子 Agent 间通信 — 多 subagent 共享中间结果（Map-Reduce 模式）",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-05-06T08:30:00+08:00"
+  },
+  {
+    "text": "插件热加载 — daemon 不重启加载新 tool/skill",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-05-06T08:30:00+08:00"
+  },
+  {
+    "text": "systemd service 化 — daemon 崩溃自动拉起",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-05-06T08:30:00+08:00"
+  },
+  {
+    "text": "更多 IM 接入 — 钉钉、飞书、企业微信",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-05-06T08:30:00+08:00"
+  },
+  {
+    "text": "VS Code 插件 — LSP 协议嵌入编辑器",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-05-06T08:30:00+08:00"
   },
   {
     "text": "审查 ts-ipc (IPC 层)",
     "completed": false,
-    "priority": "high",
-    "created_at": "2026-04-27T15:58:14.420168843+00:00"
-  },
-  {
-    "text": "搜索 Rust 侧逻辑/并发 bug",
-    "completed": true,
-    "priority": "high",
-    "created_at": "2026-04-27T15:59:05.824618454+00:00"
-  },
-  {
-    "text": "修复 pbt_config_roundtrip.rs 缺少字段",
-    "completed": false,
-    "priority": "high",
-    "created_at": "2026-04-27T16:02:06.067155643+00:00"
-  },
-  {
-    "text": "修复 install.sh 版本号不一致",
-    "completed": false,
-    "priority": "high",
-    "created_at": "2026-04-27T16:09:18.002045436+00:00"
+    "priority": "medium",
+    "created_at": "2026-04-27T15:58:14+08:00"
   },
   {
     "text": "检查 Telegram/WhatsApp 网关代码",
     "completed": false,
-    "priority": "medium",
-    "created_at": "2026-04-27T16:10:36.076730672+00:00"
+    "priority": "low",
+    "created_at": "2026-04-27T16:10:36+08:00"
   },
   {
-    "text": "分析当前 CLI 初始化流程和历史记录机制",
+    "text": "深入分析三大痛点：自动压缩、Ctrl+C 中断、Agent loop 信息显示",
     "completed": true,
     "priority": "high",
-    "created_at": "2026-04-28T06:53:41.317222289+00:00"
+    "created_at": "2026-05-08T03:48:33.224239904+00:00"
   },
   {
-    "text": "在启动流程中插入 auto-history 展示逻辑",
-    "completed": true,
-    "priority": "high",
-    "created_at": "2026-04-28T06:58:44.361684714+00:00"
-  },
-  {
-    "text": "排查网络中断后重新发指令立即退出的问题",
+    "text": "[P1/T1] TokenCounter 骨架 + tiktoken-rs 依赖",
     "completed": false,
     "priority": "high",
-    "created_at": "2026-04-28T07:22:07.718398115+00:00"
+    "created_at": "2026-05-08T05:09:23.217642031+00:00"
   },
   {
-    "text": "调查 agent loop 以 server error 500 结束的问题",
+    "text": "[P1/T2] tiktoken-based count_text_tokens + extract_text",
     "completed": false,
     "priority": "high",
-    "created_at": "2026-04-28T08:30:35.356988765+00:00"
+    "created_at": "2026-05-08T05:09:44.204482484+00:00"
   },
   {
-    "text": "修复：500错误应重试3次而非直接终止loop",
-    "completed": true,
+    "text": "[P1/T3] hybrid estimate() + calibrate() + should_compact()",
+    "completed": false,
     "priority": "high",
-    "created_at": "2026-04-28T08:41:40.121351858+00:00"
+    "created_at": "2026-05-08T05:09:53.236477583+00:00"
   },
   {
-    "text": "修复1: 500错误添加重试逻辑（3次指数退避）",
-    "completed": true,
+    "text": "[P1/T4] Wire TokenCounter into config + QueryLoopConfig",
+    "completed": false,
     "priority": "high",
-    "created_at": "2026-04-28T08:46:00.451693496+00:00"
+    "created_at": "2026-05-08T05:09:59.500106869+00:00"
+  },
+  {
+    "text": "[P1/T5] Replace estimate_tokens() call sites",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-08T05:10:45.006433961+00:00"
+  },
+  {
+    "text": "[P1/T6] Calibrate counter from API usage responses",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-08T05:10:59.275481925+00:00"
+  },
+  {
+    "text": "[P1/T7] End-to-end verification + token tag",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-08T05:11:16.825436305+00:00"
   }
 ]

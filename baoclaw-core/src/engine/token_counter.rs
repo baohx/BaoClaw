@@ -9,8 +9,11 @@
 //! that `chars / 4` produces on CJK-heavy contexts.
 
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
-use crate::models::message::{Message, MessageContent};
+use crate::models::message::{Message, MessageContent, Usage};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Tracks input-token usage per session, calibrated against real API responses.
 pub struct TokenCounter {
