@@ -97,7 +97,7 @@
   },
   {
     "text": "[P1/T2] tiktoken-based count_text_tokens + extract_text",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T05:09:44.204482484+00:00"
   },

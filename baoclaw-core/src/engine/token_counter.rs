@@ -76,6 +76,48 @@ impl TokenCounter {
             Err(_) => (text.chars().count() as u64).saturating_mul(3) / 4,
         }
     }
+
+    /// Called after each API response to anchor the counter to a known value.
+    /// `api_input_tokens` is the `usage.input_tokens` field from the response;
+    /// `message_count_at_call` is `messages.len()` *at the moment that call
+    /// was made* (i.e. before the assistant reply was appended).
+    pub fn calibrate(&mut self, api_input_tokens: u64, message_count_at_call: usize) {
+        self.last_known_input_tokens = Some(api_input_tokens);
+        self.last_known_message_count = message_count_at_call;
+    }
+
+    /// Estimate the total input tokens for the given message list.
+    /// Uses the most recent API baseline + tiktoken delta for messages added
+    /// since that baseline. Without any baseline yet, falls back to full
+    /// tiktoken-counting the entire message list.
+    pub fn estimate(&self, messages: &[Message]) -> u64 {
+        match self.last_known_input_tokens {
+            Some(baseline) if messages.len() >= self.last_known_message_count => {
+                let delta: u64 = messages[self.last_known_message_count..]
+                    .iter()
+                    .map(|m| Self::count_text_tokens(&Self::extract_text(m)))
+                    .sum();
+                baseline + delta
+            }
+            _ => messages
+                .iter()
+                .map(|m| Self::count_text_tokens(&Self::extract_text(m)))
+                .sum(),
+        }
+    }
+
+    /// Convenience accessor for the current estimate (matches API used elsewhere).
+    pub fn current_estimate(&self, messages: &[Message]) -> u64 {
+        self.estimate(messages)
+    }
+
+    /// Returns true when the estimated input tokens exceed
+    /// `context_window * threshold_ratio` — the signal to auto-compact.
+    pub fn should_compact(&self, messages: &[Message]) -> bool {
+        let est = self.estimate(messages);
+        let threshold = (self.context_window as f64 * self.threshold_ratio) as u64;
+        est > threshold
+    }
 }
 
 #[cfg(test)]
@@ -124,5 +166,42 @@ mod tests {
         // "Hello world" is 2 tokens in cl100k BPE.
         let n = TokenCounter::count_text_tokens("Hello world");
         assert_eq!(n, 2);
+    }
+
+    #[test]
+    fn test_estimate_no_baseline_uses_full_tiktoken() {
+        let c = TokenCounter::new(200_000, 0.7);
+        let msgs = vec![user_msg("Hello world")];
+        let est = c.estimate(&msgs);
+        // No baseline → full count from scratch.
+        // "Hello world" JSON-serialized ≈ 4 tokens; small upper bound.
+        assert!(est >= 2 && est < 100, "got {}", est);
+    }
+
+    #[test]
+    fn test_estimate_with_baseline_adds_delta() {
+        let mut c = TokenCounter::new(200_000, 0.7);
+        c.calibrate(12_000, 5); // API said 12k tokens at message #5
+        let msgs: Vec<Message> = (0..7).map(|i| user_msg(&format!("msg {}", i))).collect();
+        // 7 messages, baseline covers first 5, estimate adds messages 5 & 6
+        let est = c.estimate(&msgs);
+        assert!(est > 12_000, "must exceed baseline, got {}", est);
+        assert!(est < 13_000, "delta should be tiny, got {}", est);
+    }
+
+    #[test]
+    fn test_should_compact_triggers_at_threshold() {
+        let mut c = TokenCounter::new(200_000, 0.7);
+        c.calibrate(150_000, 0);
+        // 150k > 200k * 0.7 = 140k → should compact
+        assert!(c.should_compact(&[]));
+    }
+
+    #[test]
+    fn test_should_compact_false_below_threshold() {
+        let mut c = TokenCounter::new(200_000, 0.7);
+        c.calibrate(100_000, 0);
+        // 100k < 140k → no compact
+        assert!(!c.should_compact(&[]));
     }
 }
