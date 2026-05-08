@@ -735,6 +735,26 @@ async function main() {
   // Track tool_use_id → tool_name for smart result formatting
   const pendingTools = new Map<string, { name: string; input: unknown }>();
 
+  // ── Turn stack for nested rendering ──
+  type TurnInfo = { id: number; parent: number | null; label: string | null; start: number };
+  const turnStack: TurnInfo[] = [];
+  function turnDepth(): number { return turnStack.length; }
+  function turnPrefix(): string {
+    if (turnStack.length === 0) return '';
+    return turnStack.map(() => '│ ').join('');
+  }
+  function formatTokens(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return String(n);
+  }
+
+  // ── Session-cumulative token/cost tracking ──
+  let cumulativeInputTokens = 0;
+  let cumulativeOutputTokens = 0;
+  let cumulativeCostUsd = 0;
+  const CONTEXT_WINDOW = 200_000;
+
   client.onNotification('stream/event', (params: unknown) => {
     const event = params as Record<string, unknown>;
     if (!event || typeof event !== 'object') return;
@@ -766,8 +786,9 @@ async function main() {
         if (isStreaming) {
           // Flush accumulated text before showing tool use
           if (currentText.trim()) {
-            process.stdout.write(`\n${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
-            process.stdout.write(renderMarkdown(currentText));
+            process.stdout.write(`\n${turnPrefix()}${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
+            const renderedLines = renderMarkdown(currentText).split('\n');
+            process.stdout.write(renderedLines.map(l => turnPrefix() + l).join('\n'));
             process.stdout.write('\n');
             currentText = '';
           }
@@ -776,7 +797,7 @@ async function main() {
         toolCount++;
         const tu = event as { tool_name: string; input: unknown; tool_use_id: string };
         pendingTools.set(tu.tool_use_id, { name: tu.tool_name, input: tu.input });
-        console.log(formatToolUse(tu.tool_name, tu.input));
+        console.log(turnPrefix() + formatToolUse(tu.tool_name, tu.input));
         startSpinner(`${tu.tool_name}…`);
         break;
       }
@@ -786,13 +807,50 @@ async function main() {
         const tr = event as { tool_use_id: string; output: unknown; is_error: boolean };
         const toolInfo = pendingTools.get(tr.tool_use_id);
         pendingTools.delete(tr.tool_use_id);
-        console.log(formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input));
+        const logLevel = (globalThis as any).__baoclaw_log_level ?? 'verbose';
+        // quiet: skip all tool results; normal: skip success results
+        if (logLevel === 'quiet') break;
+        if (logLevel === 'normal' && !tr.is_error) break;
+        console.log(turnPrefix() + formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input));
+        break;
+      }
+
+      case 'turn_start': {
+        const t = event as { turn_id: number; parent_turn_id: number | null; agent_label: string | null };
+        turnStack.push({ id: t.turn_id, parent: t.parent_turn_id ?? null, label: t.agent_label ?? null, start: Date.now() });
+        const depthBar = turnStack.length > 1 ? turnStack.slice(0, -1).map(() => '│ ').join('') : '';
+        const which = t.parent_turn_id != null ? `Subagent Turn ${t.turn_id}` : `Turn ${t.turn_id}`;
+        const labelText = t.agent_label ? ` ${FG_GRAY}${t.agent_label}${RESET}` : '';
+        console.log(`${depthBar}${FG_ORANGE}┌─ ${which}${labelText}${RESET}`);
+        break;
+      }
+
+      case 'turn_end': {
+        const t = event as { turn_id: number; duration_ms: number; tool_count: number; input_tokens: number; output_tokens: number };
+        const info = turnStack.pop();
+        const depthBar = turnStack.map(() => '│ ').join('');
+        const seconds = (t.duration_ms / 1000).toFixed(1);
+        const totalTok = t.input_tokens + t.output_tokens;
+        cumulativeInputTokens += t.input_tokens;
+        cumulativeOutputTokens += t.output_tokens;
+        console.log(
+          `${depthBar}${FG_ORANGE}└─ Turn ${t.turn_id} done${RESET} ${DIM}${t.tool_count} tools, ${seconds}s, ${formatTokens(totalTok)} tokens${RESET}`
+        );
         break;
       }
 
       case 'progress': {
         const pg = event as { tool_use_id: string; data: Record<string, unknown> };
-        const info = pg.data?.sub_agent_tool || pg.data?.percent || pg.data?.message || '';
+        const msg = String(pg.data?.message ?? '');
+        // Highlight compaction events prominently
+        if (msg.toLowerCase().includes('compact')) {
+          stopSpinner();
+          console.log('');
+          console.log(`${FG_CYAN}━━━━━ 📦 ${msg} ━━━━━${RESET}`);
+          console.log('');
+          break;
+        }
+        const info = pg.data?.sub_agent_tool || pg.data?.percent || msg || '';
         if (spinnerInterval) {
           spinnerMessage = `${info}`;
         }
@@ -884,6 +942,16 @@ async function main() {
   
           const statsLine = statParts.join(`${FG_GRAY} │ ${RESET}`);
           console.log(`\n${FG_GRAY}  ─${RESET} ${statsLine} ${FG_GRAY}─${RESET}\n`);
+
+          // Token/cost status footer
+          if (result.total_cost_usd && result.total_cost_usd > 0) {
+            cumulativeCostUsd = result.total_cost_usd;
+          }
+          const pct = ((cumulativeInputTokens / CONTEXT_WINDOW) * 100).toFixed(0);
+          const costStr = cumulativeCostUsd > 0 ? `  💰 $${cumulativeCostUsd.toFixed(4)}` : '';
+          if (cumulativeInputTokens > 0) {
+            console.log(`${DIM}┃ 🔤 ${formatTokens(cumulativeInputTokens)} / ${formatTokens(CONTEXT_WINDOW)} (${pct}%)${costStr}${RESET}`);
+          }
         }
         // Always reset state
         currentText = '';
@@ -896,7 +964,9 @@ async function main() {
         stopSpinner();
         if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
         const fb = event as { from_model: string; to_model: string };
-        console.log(`\n  ${FG_YELLOW}⚠ Fallback${RESET} ${DIM}${fb.from_model}${RESET} ${FG_YELLOW}→${RESET} ${FG_GREEN}${fb.to_model}${RESET} ${DIM}(rate limited)${RESET}\n`);
+        console.log('');
+        console.log(`${FG_YELLOW}🔀 Model fallback: ${fb.from_model} → ${fb.to_model}${RESET}`);
+        console.log('');
         startSpinner(fb.to_model + '…');
         break;
       }
@@ -1039,6 +1109,23 @@ async function main() {
       toolCount = 0;
       queryStartTime = 0;
       console.log(`${FG_YELLOW}⚠ Aborted.${RESET}`);
+      rl.prompt();
+      return;
+    }
+
+    if (input.startsWith('/verbose')) {
+      const arg = input.slice('/verbose'.length).trim();
+      type LogLevel = 'quiet' | 'normal' | 'verbose';
+      const levels: LogLevel[] = ['quiet', 'normal', 'verbose'];
+      if (arg === '' || arg === 'help') {
+        console.log(`${DIM}Levels: quiet | normal | verbose${RESET}`);
+        console.log(`${DIM}Usage: /verbose <level>${RESET}`);
+      } else if (levels.includes(arg as LogLevel)) {
+        (globalThis as any).__baoclaw_log_level = arg;
+        console.log(`${FG_GREEN}✓ Log level: ${arg}${RESET}`);
+      } else {
+        console.log(`${FG_RED}Unknown level: ${arg}${RESET}`);
+      }
       rl.prompt();
       return;
     }
