@@ -157,7 +157,7 @@
   },
   {
     "text": "[P2/T5-6] WebFetch + WebSearch abort-aware",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:02:05.354800893+00:00"
   },

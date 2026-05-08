@@ -218,6 +218,16 @@ async fn call_tool_and_wrap(
     let tool_name = tool.name().to_string();
     let tool_use_id = request.id.clone();
 
+    // Early-exit if already aborted before we even start the tool.
+    if *context.abort_signal.borrow() {
+        return ToolExecutionResult {
+            tool_use_id,
+            tool_name,
+            output: serde_json::json!({"error": "Tool execution aborted by user."}),
+            is_error: true,
+        };
+    }
+
     let call_result = tool.call(request.input.clone(), context, progress).await;
     match call_result {
         Ok(result) => {
