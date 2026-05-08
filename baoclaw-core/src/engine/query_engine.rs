@@ -101,6 +101,22 @@ pub enum EngineEvent {
         from_model: String,
         to_model: String,
     },
+    /// Emitted at the start of each LLM turn (one API call + tool loop).
+    #[serde(rename = "turn_start")]
+    TurnStart {
+        turn_id: u32,
+        parent_turn_id: Option<u32>,
+        agent_label: Option<String>,
+    },
+    /// Emitted when a turn completes (after all tool calls for that turn).
+    #[serde(rename = "turn_end")]
+    TurnEnd {
+        turn_id: u32,
+        duration_ms: u64,
+        tool_count: u32,
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     #[serde(rename = "result")]
     Result(QueryResult),
     #[serde(rename = "error")]
@@ -593,6 +609,8 @@ impl QueryEngine {
             fallback_models: self.config.fallback_models.clone(),
             max_retries_per_model: self.config.max_retries_per_model,
             token_counter: Arc::clone(&self.token_counter),
+            parent_turn_id: None,
+            agent_label: None,
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -635,6 +653,10 @@ pub struct QueryLoopConfig {
     pub max_retries_per_model: u32,
     /// Tracks input-token usage for auto-compaction decisions.
     pub token_counter: Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>>,
+    /// For sub-agents: the turn_id of the parent agent's current turn.
+    pub parent_turn_id: Option<u32>,
+    /// For sub-agents: a short label describing the task (shown in CLI).
+    pub agent_label: Option<String>,
 }
 
 impl QueryLoopConfig {
@@ -766,6 +788,8 @@ async fn run_query_loop(
             fallback_models: config.fallback_models.clone(),
             max_retries_per_model: config.max_retries_per_model,
             token_counter: Arc::clone(&config.token_counter),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let request = build_api_request(&messages, &current_config);
 
@@ -2503,6 +2527,8 @@ mod tests {
             fallback_models: vec![],
             max_retries_per_model: 2,
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2535,6 +2561,8 @@ mod tests {
             fallback_models: vec![],
             max_retries_per_model: 2,
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2567,6 +2595,8 @@ mod tests {
             fallback_models: vec![],
             max_retries_per_model: 2,
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let messages = vec![
             Message {
@@ -2692,6 +2722,8 @@ mod tests {
             fallback_models: vec![],
             max_retries_per_model: 2,
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2724,6 +2756,8 @@ mod tests {
             fallback_models: vec![],
             max_retries_per_model: 2,
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2912,6 +2946,8 @@ mod tests {
             fallback_models: vec![],
             max_retries_per_model: 2,
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
         }
     }
 
