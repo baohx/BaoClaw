@@ -677,6 +677,13 @@ async fn run_query_loop(
     let mut cost_tracker = CostTracker::new();
     cost_tracker.reset_query();
 
+    // Per-turn tracking for TurnStart/TurnEnd events
+    let mut turn_id_counter: u32 = 0;
+    let mut turn_start_time = std::time::Instant::now();
+    let mut turn_tool_count: u32 = 0;
+    let mut turn_input_tokens_at_start: u64 = 0;
+    let mut turn_output_tokens_at_start: u64 = 0;
+
     // Open transcript writer if session_id is available
     let mut transcript_writer = config.session_id.as_ref().and_then(|sid| {
         TranscriptWriter::open(sid).ok()
@@ -750,6 +757,18 @@ async fn run_query_loop(
 
         // ── Token budget check: auto-compact if context exceeds safe limit ──
         // Uses TokenCounter with tiktoken + API calibration (vs the legacy chars/4).
+
+        // Emit TurnStart before the API call
+        turn_id_counter += 1;
+        turn_start_time = std::time::Instant::now();
+        turn_tool_count = 0;
+        turn_input_tokens_at_start = total_usage.input_tokens;
+        turn_output_tokens_at_start = total_usage.output_tokens;
+        let _ = tx.send(EngineEvent::TurnStart {
+            turn_id: turn_id_counter,
+            parent_turn_id: config.parent_turn_id,
+            agent_label: config.agent_label.clone(),
+        }).await;
         let (should_compact, current_tokens) = {
             let counter = config.token_counter.lock().await;
             let est = counter.current_estimate(&messages);
@@ -1316,6 +1335,14 @@ async fn run_query_loop(
 
             // No tools → query complete
             let text = extract_text(&assistant_content_blocks);
+            // Emit TurnEnd for the final turn (no tools)
+            let _ = tx.send(EngineEvent::TurnEnd {
+                turn_id: turn_id_counter,
+                duration_ms: turn_start_time.elapsed().as_millis() as u64,
+                tool_count: turn_tool_count,
+                input_tokens: total_usage.input_tokens.saturating_sub(turn_input_tokens_at_start),
+                output_tokens: total_usage.output_tokens.saturating_sub(turn_output_tokens_at_start),
+            }).await;
             let _ = tx.send(EngineEvent::Result(QueryResult {
                 status: QueryStatus::Complete,
                 text,
@@ -1330,6 +1357,7 @@ async fn run_query_loop(
 
         // Emit ToolUse events
         for tu in &tool_uses {
+            turn_tool_count += 1;
             let _ = tx.send(EngineEvent::ToolUse {
                 tool_name: tu.name.clone(),
                 input: tu.input.clone(),
@@ -1380,6 +1408,15 @@ async fn run_query_loop(
         // Build tool result user message and append to messages
         let tool_result_msg = build_tool_result_message(&tool_results);
         messages.push(tool_result_msg);
+
+        // Emit TurnEnd after tool results are processed
+        let _ = tx.send(EngineEvent::TurnEnd {
+            turn_id: turn_id_counter,
+            duration_ms: turn_start_time.elapsed().as_millis() as u64,
+            tool_count: turn_tool_count,
+            input_tokens: total_usage.input_tokens.saturating_sub(turn_input_tokens_at_start),
+            output_tokens: total_usage.output_tokens.saturating_sub(turn_output_tokens_at_start),
+        }).await;
 
         turn_count += 1;
     }
