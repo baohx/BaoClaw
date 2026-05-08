@@ -692,6 +692,12 @@ async fn run_query_loop(
     loop {
         // Check abort
         if config.is_aborted() {
+            // Clean up any orphan tool_use blocks before returning, so the
+            // message history stays API-legal for the next query.
+            let fixed = crate::engine::cleanup_orphan_tool_uses(messages);
+            if fixed > 0 {
+                eprintln!("Cleaned up {} orphan tool_use block(s) after abort", fixed);
+            }
             let _ = tx.send(EngineEvent::Result(QueryResult {
                 status: QueryStatus::Aborted,
                 text: None,
@@ -910,6 +916,10 @@ async fn run_query_loop(
             // vs the old 500ms polling loop.
             _ = crate::engine::wait_for_abort(config.abort_rx.clone()) => {
                 eprintln!("Query aborted during stream processing");
+                let fixed = crate::engine::cleanup_orphan_tool_uses(messages);
+                if fixed > 0 {
+                    eprintln!("Cleaned up {} orphan tool_use block(s) after stream abort", fixed);
+                }
                 let _ = tx.send(EngineEvent::Result(QueryResult {
                     status: QueryStatus::Aborted, text: None, stop_reason: None,
                     total_cost_usd: cost_tracker.total_cost(), usage: total_usage,

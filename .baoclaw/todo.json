@@ -163,7 +163,7 @@
   },
   {
     "text": "[P2/T7] Executor early-exit when aborted",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:02:10.708498201+00:00"
   },
