@@ -33,8 +33,10 @@ Thumbs.db
 # BaoClaw local config
 .baoclaw/mcp.local.json
 
-# Book
-/book/
+# Book (source tracked, PDF generated locally)
+/book/*.pdf
+/book/book-style.html
+/book/combined.md
 .baoclaw/backups/
 BAOCLAW.md
 .pdf

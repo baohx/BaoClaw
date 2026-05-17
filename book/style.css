@@ -1,0 +1,127 @@
+body {
+    font-family: "Noto Serif CJK SC", "Source Han Serif SC", "思源宋体", serif;
+    font-size: 10.5pt;
+    line-height: 1.8;
+    color: #222;
+}
+
+h1, h2, h3, h4 {
+    font-family: "Noto Sans CJK SC", "文泉驿微米黑", sans-serif;
+}
+
+h1 {
+    font-size: 22pt;
+    color: #1a1a1a;
+    border-bottom: 2px solid #2c3e50;
+    padding-bottom: 8px;
+    margin-top: 0;
+    page-break-before: always;
+}
+
+h1:first-of-type {
+    page-break-before: avoid;
+}
+
+h2 {
+    font-size: 16pt;
+    color: #2c3e50;
+    margin-top: 1.5em;
+    border-left: 4px solid #3498db;
+    padding-left: 12px;
+}
+
+h3 {
+    font-size: 13pt;
+    color: #34495e;
+    margin-top: 1.2em;
+}
+
+h4 {
+    font-size: 11pt;
+    color: #555;
+}
+
+p {
+    text-align: justify;
+    margin: 0.6em 0;
+}
+
+code {
+    font-family: "Consolas", "DejaVu Sans Mono", "Liberation Mono", monospace;
+    background-color: #f5f5f5;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9pt;
+    color: #c7254e;
+}
+
+pre {
+    background-color: #f8f9fa;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 14px;
+    overflow-x: auto;
+    font-size: 8.5pt;
+    line-height: 1.45;
+    page-break-inside: avoid;
+    margin: 1em 0;
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    color: #24292e;
+    font-size: 8.5pt;
+}
+
+blockquote {
+    border-left: 4px solid #3498db;
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    background-color: #f8f9fa;
+    color: #555;
+    font-style: italic;
+}
+
+blockquote p { text-indent: 0; }
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 8px 10px;
+    text-align: left;
+}
+
+th {
+    background-color: #2c3e50;
+    color: white;
+    font-family: "Noto Sans CJK SC", sans-serif;
+    font-weight: 600;
+}
+
+tr:nth-child(even) { background-color: #f9f9f9; }
+
+ul, ol { margin: 0.5em 0; padding-left: 2em; }
+li { margin: 0.3em 0; }
+
+hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 2em 0;
+}
+
+strong { color: #1a1a1a; }
+
+a { color: #3498db; text-decoration: none; }
+
+img { max-width: 100%; display: block; margin: 1em auto; }
+
+h1, h2, h3 { page-break-after: avoid; }
+pre, table, blockquote { page-break-inside: avoid; }
