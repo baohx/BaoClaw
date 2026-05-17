@@ -57,7 +57,16 @@ impl Tool for BashTool {
         _context: &ToolContext,
     ) -> ValidationResult {
         match input.get("command").and_then(|v| v.as_str()) {
-            Some(cmd) if !cmd.is_empty() => ValidationResult::Ok,
+            Some(cmd) if !cmd.is_empty() => {
+                // Security: check against dangerous command blocklist
+                if let Err(reason) = crate::engine::security::check_dangerous_command(cmd) {
+                    return ValidationResult::Invalid {
+                        message: format!("Command blocked for safety: {}", reason),
+                        code: Some("DANGEROUS_COMMAND".to_string()),
+                    };
+                }
+                ValidationResult::Ok
+            }
             _ => ValidationResult::Invalid {
                 message: "Missing or empty 'command' field".to_string(),
                 code: None,

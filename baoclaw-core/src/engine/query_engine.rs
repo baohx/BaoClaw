@@ -812,6 +812,10 @@ async fn run_query_loop(
     let mut cost_tracker = CostTracker::new();
     cost_tracker.reset_query();
 
+    // Iteration budget pressure tracking (Hermes-style 70/90/100 gradient)
+    let mut budget_warned_70: bool = false;
+    let mut budget_warned_90: bool = false;
+
     // Per-turn tracking for TurnStart/TurnEnd events
     let mut turn_id_counter: u32 = 0;
     let mut turn_start_time = std::time::Instant::now();
@@ -895,19 +899,84 @@ async fn run_query_loop(
             }
         }
 
-        // Check max_turns (after TurnStart so CLI can handle unmatched TurnStart)
+        // ── Iteration budget pressure gradient (70% warn → 90% urgent → 100% grace call) ──
         if let Some(max) = config.max_turns {
+            let ratio = turn_count as f32 / max as f32;
+
+            // 70%: Inject soft warning into conversation (hidden from user, model sees it)
+            if ratio >= 0.7 && !budget_warned_70 {
+                budget_warned_70 = true;
+                messages.push(Message {
+                    uuid: uuid::Uuid::new_v4().to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    content: MessageContent::User {
+                        message: ApiUserMessage {
+                            role: "user".to_string(),
+                            content: Value::String(
+                                "[System: Iteration budget at 70%. Prioritize wrapping up the current task.]".to_string()
+                            ),
+                        },
+                        is_meta: false,
+                        tool_use_result: None,
+                    },
+                });
+            }
+
+            // 90%: Inject urgent warning
+            if ratio >= 0.9 && !budget_warned_90 {
+                budget_warned_90 = true;
+                messages.push(Message {
+                    uuid: uuid::Uuid::new_v4().to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    content: MessageContent::User {
+                        message: ApiUserMessage {
+                            role: "user".to_string(),
+                            content: Value::String(
+                                "[System: Iteration budget at 90% (CRITICAL). You must produce a final answer now. Do NOT start new sub-tasks.]".to_string()
+                            ),
+                        },
+                        is_meta: false,
+                        tool_use_result: None,
+                    },
+                });
+            }
+
+            // 100%: Grace call — allow exactly one more API call for final summary
             if turn_count >= max {
-                let _ = tx.send(EngineEvent::Result(QueryResult {
-                    status: QueryStatus::MaxTurns,
-                    text: None,
-                    stop_reason: None,
-                    total_cost_usd: cost_tracker.total_cost(),
-                    usage: total_usage,
-                    num_turns: turn_count,
-                    duration_ms: start_time.elapsed().as_millis() as u64,
-                })).await;
-                return;
+                eprintln!("⚠ Iteration budget reached ({}/{}) — forcing final response", turn_count, max);
+                // Don't return immediately — let the loop continue for ONE final API call
+                // The loop will exit after this because the model won't produce tool_use blocks
+                // when told to produce a final answer.
+                // If the model still tries tool_use, the next iteration will hit >= max again
+                // and we return MaxTurns.
+                if turn_count > max {
+                    // Safety: second time hitting the limit, hard stop
+                    let _ = tx.send(EngineEvent::Result(QueryResult {
+                        status: QueryStatus::MaxTurns,
+                        text: None,
+                        stop_reason: None,
+                        total_cost_usd: cost_tracker.total_cost(),
+                        usage: total_usage,
+                        num_turns: turn_count,
+                        duration_ms: start_time.elapsed().as_millis() as u64,
+                    })).await;
+                    return;
+                }
+                // First time hitting limit: inject final-answer instruction and let one more API call happen
+                messages.push(Message {
+                    uuid: uuid::Uuid::new_v4().to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    content: MessageContent::User {
+                        message: ApiUserMessage {
+                            role: "user".to_string(),
+                            content: Value::String(
+                                "[System: Iteration budget EXHAUSTED. You MUST produce your final response NOW. Do NOT use any tools.]".to_string()
+                            ),
+                        },
+                        is_meta: false,
+                        tool_use_result: None,
+                    },
+                });
             }
         }
 

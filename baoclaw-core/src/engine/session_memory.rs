@@ -12,6 +12,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use crate::engine::security::validate_memory_content;
+
 /// Minimum turns before first summary generation.
 const FIRST_UPDATE_THRESHOLD: usize = 6;
 
@@ -83,6 +85,12 @@ impl SessionMemory {
 
     /// Write a new summary to memory (and persist to disk).
     pub fn update(&self, summary: String) {
+        // Security scan before persisting memory
+        if let Err(reason) = validate_memory_content(&summary) {
+            eprintln!("Memory content blocked by security scan: {}", reason);
+            return;
+        }
+
         let truncated = if summary.len() > MAX_SUMMARY_CHARS {
             format!("{}...\n\n[Summary truncated at {} chars]",
                 &summary.chars().take(MAX_SUMMARY_CHARS).collect::<String>(),
