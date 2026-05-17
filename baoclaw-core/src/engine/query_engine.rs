@@ -180,6 +180,102 @@ pub struct CompactResult {
     pub tokens_after: u64,
 }
 
+/// Tracks compact history to adaptively tune the keep_recent parameter.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AdaptiveCompactTracker {
+    /// History of compact results for feedback analysis.
+    pub history: Vec<CompactFeedback>,
+    /// Current adaptive keep_recent value (messages, not turns).
+    pub keep_recent: usize,
+    /// Running average compression ratio.
+    pub avg_compression_ratio: f64,
+    /// Running average information loss score (0.0 = no loss, 1.0 = severe).
+    pub avg_loss_score: f64,
+    /// Number of compacts performed.
+    pub compact_count: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CompactFeedback {
+    /// Compression ratio: tokens_saved / tokens_before.
+    pub compression_ratio: f64,
+    /// Tokens before compact.
+    pub tokens_before: u64,
+    /// Tokens after compact.
+    pub tokens_after: u64,
+    /// Whether the user re-asked about pre-compact content within next 3 turns.
+    pub user_repeated_topic: bool,
+    /// Timestamp.
+    pub timestamp: String,
+}
+
+impl AdaptiveCompactTracker {
+    pub fn new() -> Self {
+        Self {
+            history: Vec::new(),
+            keep_recent: 10, // start with default
+            avg_compression_ratio: 0.0,
+            avg_loss_score: 0.0,
+            compact_count: 0,
+        }
+    }
+
+    /// Record a compact result and adjust keep_recent for next time.
+    pub fn record_compact(&mut self, result: &CompactResult, user_repeated: bool) {
+        let ratio = if result.tokens_before > 0 {
+            result.tokens_saved as f64 / result.tokens_before as f64
+        } else {
+            0.0
+        };
+
+        self.history.push(CompactFeedback {
+            compression_ratio: ratio,
+            tokens_before: result.tokens_before,
+            tokens_after: result.tokens_after,
+            user_repeated_topic: user_repeated,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        });
+
+        // Keep only last 50 records
+        if self.history.len() > 50 {
+            self.history.drain(0..self.history.len() - 50);
+        }
+
+        self.compact_count += 1;
+
+        // Update running averages
+        self.avg_compression_ratio = self.history.iter()
+            .map(|h| h.compression_ratio)
+            .sum::<f64>() / self.history.len() as f64;
+
+        let loss_entries: Vec<f64> = self.history.iter()
+            .map(|h| if h.user_repeated_topic { 0.3 } else { 0.0 })
+            .collect();
+        self.avg_loss_score = loss_entries.iter().sum::<f64>() / loss_entries.len() as f64;
+
+        // Adaptive adjustment logic:
+        // If loss is high (>0.15), increase keep_recent to preserve more context
+        // If compression is poor (<0.3) and loss is low, decrease keep_recent to compact more aggressively
+        if self.avg_loss_score > 0.15 {
+            // Too much information loss — keep more messages
+            self.keep_recent = (self.keep_recent + 4).min(30);
+        } else if self.avg_compression_ratio < 0.3 && self.avg_loss_score < 0.05 {
+            // Poor compression, low loss — compact more aggressively
+            self.keep_recent = if self.keep_recent > 6 { self.keep_recent - 2 } else { 6 };
+        } else if self.avg_loss_score < 0.05 && self.avg_compression_ratio > 0.6 {
+            // Good compression, low loss — current setting works well
+            // Slight decrease to save more tokens
+            self.keep_recent = if self.keep_recent > 8 { self.keep_recent - 1 } else { 8 };
+        }
+        // else: moderate performance, keep current setting
+    }
+
+    /// Get the recommended keep_recent value.
+    pub fn recommended_keep_recent(&self) -> usize {
+        self.keep_recent
+    }
+}
+
 /// A cached rule file from `.baoclaw/rules/*.md`.
 #[derive(Clone, Debug)]
 pub struct CachedRule {
@@ -735,6 +831,8 @@ impl QueryEngine {
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -801,6 +899,10 @@ pub struct QueryLoopConfig {
     pub frozen_tools: Option<Vec<Value>>,
     /// Hash of the frozen content for cache invalidation diagnostics.
     pub frozen_hash: Option<u64>,
+    /// Adaptive compact tracker — learns optimal keep_recent from history.
+    pub adaptive_compact: AdaptiveCompactTracker,
+    /// Tool health tracker — learns success/failure rates.
+    pub tool_health: crate::engine::tool_health::ToolHealthTracker,
 }
 
 impl QueryLoopConfig {
@@ -1082,6 +1184,8 @@ async fn run_query_loop(
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         };
         let request = build_api_request(&messages, &current_config);
 
@@ -3565,6 +3669,8 @@ mod tests {
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3609,6 +3715,8 @@ mod tests {
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3653,6 +3761,8 @@ mod tests {
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         };
         let messages = vec![
             Message {
@@ -3790,6 +3900,8 @@ mod tests {
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3834,6 +3946,8 @@ mod tests {
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -4034,6 +4148,8 @@ mod tests {
             frozen_system_prompt: None,
             frozen_tools: None,
             frozen_hash: None,
+            adaptive_compact: AdaptiveCompactTracker::new(),
+            tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
         }
     }
 

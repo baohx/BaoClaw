@@ -20,3 +20,6 @@ pub mod tool_result_store;
 pub mod security;
 pub mod cross_session_db;
 pub mod user_profile;
+pub mod tool_health;
+pub mod intent_predictor;
+pub mod context_allocator;
