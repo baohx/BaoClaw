@@ -1,4 +1,4 @@
-# 🐾 BaoClaw v1.0.0
+# 🐾 BaoClaw v2.0.0
 
 **The AI coding agent that remembers, evolves, and follows you everywhere.**
 
@@ -94,6 +94,78 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 - **Ctrl+C** when idle → hint to press again or `/quit`
 - **Ctrl+C × 2** → disconnect from daemon
 - **Tab** → autocomplete commands and file paths
+
+### 🚀 v2.0 — Intelligence Layer (NEW)
+
+Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
+
+#### 🔍 Cross-Session Search (#5)
+- **SQLite + FTS5** full-text search across all past sessions
+- Search by keyword, get ranked results with context snippets
+- Find that solution you saw 3 weeks ago in seconds
+
+#### ❄️ Frozen Snapshot Caching (#6)
+- System prompt and tools list are built **once** and frozen for the entire session
+- Maximizes Anthropic prompt cache hit rate — only the dynamic reminder changes per turn
+- Reduces cost and latency on every API call
+
+#### 👤 User Profile (#7)
+- `~/.baoclaw/USER.md` — persistent user profile (name, language, coding style, tool preferences)
+- Auto-loaded into system prompt for personalized responses
+- Session stats merged automatically (total turns, cost, top tools)
+
+#### 🔄 Skill Self-Improvement Loop (#8)
+- **5-stage cycle**: Collect → Evaluate → Improve → Validate → Retire
+- Scores skills on relevance rate, success rate, user rating, and staleness
+- Auto-retires persistently poor skills, suggests improvements for mediocre ones
+- Runs periodically to keep your skill set healthy
+
+#### 📐 Adaptive Compact (#9)
+- `AdaptiveCompactTracker` learns the optimal `keep_recent` from compression history
+- If the user re-asks about pre-compact content → increase `keep_recent` (preserve more)
+- If compression ratio is poor and no information loss → decrease `keep_recent` (compact harder)
+- Range: 6–30 messages, auto-adjusted per session
+
+#### 🏥 Tool Health Monitoring (#10)
+- Tracks success/failure/timeout rates per tool in real time
+- **3 statuses**: Healthy → Degraded (3 consecutive failures) → Disabled (6 failures)
+- Degraded tools get warning messages in the system prompt
+- Auto-recovers after 5 consecutive successes
+
+#### 🎯 Intent Prediction (#11)
+- Predicts user intent (coding, debugging, testing, refactoring, git, research…) from message keywords
+- Transition matrix learns what intent typically follows what (e.g., CodeWriting → Testing)
+- High-confidence predictions trigger tool preloading hints in the system prompt
+
+#### 🧮 Context Window Allocator (#12)
+- Attention score = 0.5×relevance + 0.3×recency + 0.2×frequency
+- Mandatory blocks (system prompt, tools) always included
+- Optional blocks (memory, skills, search results) greedy-fill by score
+- Budget exceeded → lowest-scoring blocks trimmed first
+
+#### 🏖️ Sandbox Execution (#13)
+- Three backends: **Bubblewrap** (Linux namespaces) → **Docker** (containers) → None (direct)
+- Auto-detects best available backend at startup
+- Configurable: read-only/read-write mounts, network isolation, memory/CPU limits, timeouts
+- Wrap any command for sandboxed execution with a single `wrap_command()` call
+
+#### 🛡️ Prompt Injection Detection (#14)
+- **20 patterns** across 6 categories: instruction override, role hijack, data exfiltration, encoding tricks, hidden payloads, jailbreak
+- Heuristic scoring with diminishing returns + multi-category boost
+- Four severity levels: Clean → Suspicious → Dangerous → Critical
+- `sanitize()` method redacts detected patterns with `[REDACTED]` placeholders
+
+#### 🔐 Subagent Depth Policy (#15)
+- Maximum nesting depth: 3 levels
+- **Progressive tool restriction**: Depth 0 = all tools, Depth 1 = safe tools, Depth 2 = read-only, Depth 3 = minimal (FileRead + Bash only)
+- Per-depth budgets: turns cap (100→30→15→5), cost cap ($10→$2→$0.50→$0.10)
+- Exceeded budget → auto-terminate sub-agent
+
+#### 📡 Streaming Tool Executor (#16)
+- Real-time chunked output: Started → Progress → Stdout → Stderr → Completed → Error → Heartbeat
+- `StreamWriter` / `StreamReader` pair via `tokio::sync::mpsc`
+- Configurable timeout (5 min default), buffer size, max output (1MB default)
+- Concurrent stdout/stderr reading with `tokio::select!`
 
 ## Architecture
 
@@ -995,6 +1067,78 @@ Bash、文件读写编辑、Grep、Glob、Web 搜索、Web 抓取、记忆管理
 - `Ctrl+C`（空闲时）→ 提示再按一次退出
 - `Ctrl+C × 2` → 断开连接
 - `Tab` → 自动补全命令和文件路径
+
+### 🚀 v2.0 — 智能引擎层（全新）
+
+Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
+
+#### 🔍 跨会话搜索（#5）
+- **SQLite + FTS5** 全文检索所有历史会话
+- 关键词搜索，返回带上下文片段的排序结果
+- 3 周前看到的解决方案，秒级找到
+
+#### ❄️ 冻结快照缓存（#6）
+- 系统提示词和工具列表只在会话开始时构建一次，然后**冻结**
+- 最大化 Anthropic prompt cache 命中率——每 turn 只有动态提醒变化
+- 每次调用都省成本、降延迟
+
+#### 👤 用户画像（#7）
+- `~/.baoclaw/USER.md` — 持久化用户画像（姓名、语言、编码风格、工具偏好）
+- 自动注入系统提示词，实现个性化回复
+- 会话统计自动合并（总轮次、费用、常用工具）
+
+#### 🔄 Skill 自改进闭环（#8）
+- **5 阶段循环**：采集 → 评估 → 改进 → 验证 → 退役
+- 基于相关率、成功率、用户评分和时效性综合评分
+- 自动退役持续低效的 skill，对平庸 skill 生成改进建议
+- 定期运行，保持 skill 集健康
+
+#### 📐 自适应 Compact（#9）
+- `AdaptiveCompactTracker` 根据压缩历史学习最优 `keep_recent` 参数
+- 用户重复问压缩前内容 → 增大 `keep_recent`（保留更多）
+- 压缩率差且无信息丢失 → 减小 `keep_recent`（压缩更激进）
+- 范围 6–30 条消息，每会话自动调整
+
+#### 🏥 工具健康监控（#10）
+- 实时追踪每个工具的成功/失败/超时率
+- **三级状态**：健康 → 降级（连续 3 次失败）→ 禁用（连续 6 次）
+- 降级工具在系统提示词中显示警告信息
+- 连续 5 次成功后自动恢复
+
+#### 🎯 意图预测（#11）
+- 根据消息关键词预测用户意图（编码、调试、测试、重构、Git、研究…）
+- 转移矩阵学习意图→意图的先后关系（如 编码→测试）
+- 高置信度预测触发工具预加载提示
+
+#### 🧮 上下文窗口智能分配（#12）
+- 注意力评分 = 0.5×相关度 + 0.3×时效性 + 0.2×频率
+- 必选块（系统提示词、工具）始终包含
+- 可选块（记忆、skill、搜索结果）按评分贪心填充
+- 预算超限时优先裁剪低分块
+
+#### 🏖️ 沙箱执行（#13）
+- 三种后端：**Bubblewrap**（Linux 命名空间）→ **Docker**（容器）→ 无沙箱（直接执行）
+- 启动时自动检测最佳可用后端
+- 可配置：读写挂载、网络隔离、内存/CPU 限制、超时
+- 一行 `wrap_command()` 调用即可沙箱化任意命令
+
+#### 🛡️ Prompt 注入检测（#14）
+- **20 种模式**覆盖 6 大类：指令覆写、角色劫持、数据外泄、编码技巧、隐藏载荷、越狱
+- 启发式评分，多匹配递减收益 + 跨类别加成
+- 四级严重度：干净 → 可疑 → 危险 → 致命
+- `sanitize()` 方法用 `[REDACTED]` 替换检测到的模式
+
+#### 🔐 子代理深度策略（#15）
+- 最大嵌套深度：3 层
+- **逐层工具收紧**：Depth 0=全部工具，Depth 1=安全工具，Depth 2=只读，Depth 3=最小权限（仅 FileRead+Bash）
+- 每层预算：轮次上限（100→30→15→5）、费用上限（$10→$2→$0.50→$0.10）
+- 预算耗尽 → 自动终止子代理
+
+#### 📡 流式工具执行器（#16）
+- 实时分块输出：启动 → 进度 → 标准输出 → 标准错误 → 完成 → 错误 → 心跳
+- `StreamWriter` / `StreamReader` 对，基于 `tokio::sync::mpsc`
+- 可配置超时（默认 5 分钟）、缓冲区大小、最大输出（默认 1MB）
+- 通过 `tokio::select!` 并发读取 stdout 和 stderr
 
 ## 内部机制：引擎工作原理
 
