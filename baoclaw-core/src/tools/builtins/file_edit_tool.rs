@@ -190,6 +190,8 @@ mod tests {
             cwd: cwd.to_path_buf(),
             model: "test".to_string(),
             abort_signal: Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         }
     }
 
@@ -283,6 +285,7 @@ mod tests {
         let ctx = make_context(dir.path());
         let progress = NoopProgress;
 
+        // Relative path with '..' escaping cwd should still be rejected
         let result = tool
             .call(
                 json!({

@@ -40,6 +40,22 @@ impl OpenAiClient {
         }
     }
 
+    /// Pre-warm the TLS connection pool by sending a lightweight request.
+    pub async fn prewarm(&self) {
+        let url = format!("{}/v1/chat/completions", self.base_url);
+        match self.http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+        {
+            Ok(_) => eprintln!("API connection pre-warmed (OpenAI)"),
+            Err(e) => eprintln!("API pre-warm failed (non-fatal): {}", e),
+        }
+    }
+
     /// Convert Anthropic-format request to OpenAI chat completion request.
     fn convert_request(&self, req: &CreateMessageRequest) -> Value {
         let mut messages: Vec<Value> = Vec::new();

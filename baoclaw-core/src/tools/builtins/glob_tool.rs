@@ -186,6 +186,8 @@ mod tests {
             cwd: cwd.to_path_buf(),
             model: "test".to_string(),
             abort_signal: Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         }
     }
 

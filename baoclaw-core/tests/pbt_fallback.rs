@@ -18,6 +18,8 @@ fn make_config(n_fallbacks: usize, max_retries: u32) -> BaoclawConfig {
         max_retries_per_model: max_retries,
         api_type: "anthropic".to_string(),
         openai_base_url: None,
+        context_window: 200_000,
+        auto_compact_threshold_ratio: 0.7,
         extra: HashMap::new(),
     }
 }

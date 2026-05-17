@@ -28,6 +28,7 @@ fn make_api_client() -> Arc<UnifiedClient> {
         api_key: "test-key".to_string(),
         base_url: None,
         max_retries: None,
+        api_path: None,
     }))
 }
 
@@ -57,6 +58,16 @@ proptest! {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
+            token_counter: Arc::new(tokio::sync::Mutex::new(baoclaw_core::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            parent_turn_id: None,
+            agent_label: None,
+            session_memory: None,
+            compact_fail_count: 0,
+            recent_messages_for_rules: vec![],
+            file_cache: None,
+            tool_result_store: None,
+            initial_budget: None,
+            cached_rules_raw: vec![],
         };
 
         let system = build_system_prompt(&config);

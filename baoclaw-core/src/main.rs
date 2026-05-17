@@ -51,6 +51,10 @@ struct SharedState {
     evolution_engine: Arc<engine::evolution::EvolutionEngine>,
     cron_manager: Arc<engine::cron::CronManager>,
     project_registry: Arc<engine::projects::ProjectRegistry>,
+    /// Shared file cache (LRU) for reducing redundant file reads.
+    file_cache: Arc<tokio::sync::Mutex<engine::file_cache::FileCache>>,
+    /// Tool result store for persisting large outputs to disk.
+    tool_result_store: Option<Arc<engine::tool_result_store::ToolResultStore>>,
 }
 
 /// Socket directory for all BaoClaw daemon instances
@@ -151,6 +155,37 @@ async fn handle_shared_client(
         }
     });
 
+    // Spawn background task to forward cron results to this client.
+    // Cron jobs run independently (not tied to any session), so their
+    // results are delivered via a separate broadcast channel.
+    let conn_for_cron = Arc::clone(&conn);
+    let mut cron_rx = shared.cron_manager.subscribe();
+    let cron_broadcast_handle = tokio::spawn(async move {
+        loop {
+            match cron_rx.recv().await {
+                Ok(cron_result) => {
+                    let mut conn_guard = conn_for_cron.lock().await;
+                    let params = serde_json::json!({
+                        "job_id": cron_result.job_id,
+                        "job_name": cron_result.job_name,
+                        "text": cron_result.text,
+                        "timestamp": cron_result.timestamp,
+                    });
+                    if conn_guard.send_notification("cron_result", params).await.is_err() {
+                        break; // Client disconnected
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    eprintln!("Cron result receiver lagged by {} events", n);
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    break;
+                }
+            }
+        }
+    });
+
     // ── Shared-mode RPC loop ──
     loop {
         if shared.should_exit.load(Ordering::Relaxed) {
@@ -241,6 +276,7 @@ async fn handle_shared_client(
                                 let mut conn_guard = conn.lock().await;
                                 let _ = conn_guard.send_response(id, serde_json::json!("ok")).await;
                                 // Shutdown terminates the daemon for all clients
+                                eprintln!("Shutdown requested — setting should_exit flag");
                                 shared.should_exit.store(true, Ordering::Relaxed);
                                 break;
                             }
@@ -689,23 +725,52 @@ async fn handle_shared_client(
                                 let engine = session.engine_read().await;
                                 let messages = engine.get_messages();
                                 let start = if messages.len() > count { messages.len() - count } else { 0 };
-                                let tail: Vec<serde_json::Value> = messages[start..].iter().map(|m| {
+                                // Collect tool results from user messages to attach to tool_use blocks
+                                let tool_results: std::collections::HashMap<String, serde_json::Value> = messages[start..].iter()
+                                    .filter_map(|m| match &m.content {
+                                        crate::models::message::MessageContent::User { tool_use_result, .. } => {
+                                            tool_use_result.as_ref().map(|r| (r.tool_use_id.clone(), r.output.clone()))
+                                        }
+                                        _ => None,
+                                    }).collect();
+
+                                let tail: Vec<serde_json::Value> = messages[start..].iter().enumerate().map(|(idx, m)| {
+                                    let turn_num = start + idx + 1;
                                     match &m.content {
-                                        crate::models::message::MessageContent::User { message, .. } => {
+                                        crate::models::message::MessageContent::User { message, tool_use_result, .. } => {
                                             let text = match &message.content {
                                                 serde_json::Value::String(s) => s.clone(),
                                                 serde_json::Value::Array(arr) => {
                                                     arr.iter().filter_map(|b| {
                                                         if b.get("type").and_then(|t| t.as_str()) == Some("text") {
                                                             b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                                        } else if b.get("type").and_then(|t| t.as_str()) == Some("image") {
+                                                            Some("[image]".to_string())
+                                                        } else if b.get("type").and_then(|t| t.as_str()) == Some("document") {
+                                                            Some("[document]".to_string())
                                                         } else { None }
                                                     }).collect::<Vec<_>>().join(" ")
                                                 }
                                                 _ => serde_json::to_string(&message.content).unwrap_or_default(),
                                             };
-                                            serde_json::json!({"role": "user", "text": text, "timestamp": m.timestamp})
+                                            let is_tool_result = tool_use_result.is_some();
+                                            let mut entry = serde_json::json!({
+                                                "role": "user",
+                                                "text": text,
+                                                "timestamp": m.timestamp,
+                                                "turn": turn_num,
+                                            });
+                                            if is_tool_result {
+                                                entry["is_tool_result"] = serde_json::json!(true);
+                                                if let Some(tr) = tool_use_result {
+                                                    entry["tool_use_id"] = serde_json::json!(tr.tool_use_id);
+                                                    entry["result_output"] = tr.output.clone();
+                                                    entry["is_error"] = serde_json::json!(tr.is_error);
+                                                }
+                                            }
+                                            entry
                                         }
-                                        crate::models::message::MessageContent::Assistant { message, .. } => {
+                                        crate::models::message::MessageContent::Assistant { message, cost_usd, duration_ms } => {
                                             let text: String = message.content.iter().filter_map(|b| {
                                                 match b {
                                                     crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
@@ -714,32 +779,55 @@ async fn handle_shared_client(
                                             }).collect::<Vec<_>>().join("");
                                             let tools: Vec<serde_json::Value> = message.content.iter().filter_map(|b| {
                                                 match b {
-                                                    crate::models::message::ContentBlock::ToolUse { name, input, .. } => {
-                                                        // Include tool name + key input params for richer history display
-                                                        let mut info = serde_json::json!({"name": name});
+                                                    crate::models::message::ContentBlock::ToolUse { id, name, input } => {
+                                                        let mut info = serde_json::json!({"name": name, "id": id});
+                                                        let mut details: Vec<String> = Vec::new();
                                                         if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                                                            info["detail"] = serde_json::json!(cmd.chars().take(120).collect::<String>());
-                                                        } else if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
-                                                            info["detail"] = serde_json::json!(fp);
-                                                        } else if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
-                                                            info["detail"] = serde_json::json!(p);
-                                                        } else if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
-                                                            info["detail"] = serde_json::json!(q);
-                                                        } else if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
-                                                            info["detail"] = serde_json::json!(u.chars().take(80).collect::<String>());
+                                                            details.push(format!("command: {}", cmd));
+                                                        }
+                                                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
+                                                            details.push(format!("path: {}", fp));
+                                                        }
+                                                        if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
+                                                            details.push(format!("pattern: {}", p));
+                                                        }
+                                                        if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
+                                                            details.push(format!("query: {}", q));
+                                                        }
+                                                        if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
+                                                            details.push(format!("url: {}", u));
+                                                        }
+                                                        if let Some(p) = input.get("prompt").and_then(|v| v.as_str()) {
+                                                            details.push(format!("prompt: {}", p.chars().take(200).collect::<String>()));
+                                                        }
+                                                        if !details.is_empty() {
+                                                            info["detail"] = serde_json::json!(details.join(", "));
+                                                        }
+                                                        if let Some(result) = tool_results.get(id) {
+                                                            info["result"] = result.clone();
                                                         }
                                                         Some(info)
                                                     }
                                                     _ => None,
                                                 }
                                             }).collect();
-                                            let mut entry = serde_json::json!({"role": "assistant", "text": text, "timestamp": m.timestamp});
+                                            let mut entry = serde_json::json!({
+                                                "role": "assistant",
+                                                "text": text,
+                                                "timestamp": m.timestamp,
+                                                "turn": turn_num,
+                                                "cost_usd": cost_usd,
+                                                "duration_ms": duration_ms,
+                                            });
                                             if !tools.is_empty() {
                                                 entry["tools"] = serde_json::json!(tools);
                                             }
+                                            if let Some(usage) = &message.usage {
+                                                entry["usage"] = serde_json::json!(usage);
+                                            }
                                             entry
                                         }
-                                        _ => serde_json::json!({"role": "system", "timestamp": m.timestamp}),
+                                        _ => serde_json::json!({"role": "system", "timestamp": m.timestamp, "turn": turn_num}),
                                     }
                                 }).collect();
                                 let total = messages.len();
@@ -812,8 +900,9 @@ async fn handle_shared_client(
         }
     }
 
-    // Cancel the broadcast receiver task
+    // Cancel the broadcast receiver tasks
     broadcast_handle.abort();
+    cron_broadcast_handle.abort();
 }
 
 /// Handle a single client connection. Each client gets its own QueryEngine
@@ -892,6 +981,11 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     auto_compact_threshold_ratio: shared_clone.baoclaw_config.auto_compact_threshold_ratio,
                     parent_turn_id: None,
                     agent_label: None,
+                    session_memory: Some(Arc::new(
+                        crate::engine::session_memory::SessionMemory::load(&session_id_clone)
+                    )),
+                    file_cache: Some(Arc::clone(&shared_clone.file_cache)),
+                    tool_result_store: shared_clone.tool_result_store.as_ref().map(Arc::clone),
                 })
             },
         ).await;
@@ -901,18 +995,79 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
             &work_cwd.to_string_lossy(), None
         ).await;
 
-        // Resume session history if new or empty
+        // ── Resume session history: summary-first strategy ──
+        // Inspired by Claude Code: load pre-written summary + recent tail,
+        // NEVER rebuild the full history or do on-demand API summarization.
         let current_msg_count = session.engine_read().await.get_messages().len();
         if is_new || current_msg_count == 0 {
             let cwd_str_for_resume = work_cwd.to_string_lossy().to_string();
             if let Some(rid) = engine::transcript::find_latest_session_for_cwd(&cwd_str_for_resume) {
                 match engine::transcript::TranscriptWriter::load(&rid) {
                     Ok(entries) => {
-                        let messages = engine::transcript::rebuild_messages_from_transcript(&entries);
+                        let entry_count = entries.len();
+                        let old_summary_obj = crate::engine::session_memory::SessionMemory::load(&rid);
+                        let old_summary = old_summary_obj.get();
+                        let has_summary = old_summary_obj.is_available();
+
+                        // ── Three-tier loading strategy ──
+                        let messages = if has_summary {
+                            // Tier 1 (best): pre-written summary exists
+                            // Load summary + last 200 entries only — instant
+                            let tail_size = 200.min(entry_count);
+                            eprintln!("Session resume: loading pre-written summary + {} recent entries (of {} total)",
+                                tail_size, entry_count);
+                            engine::transcript::rebuild_messages_from_transcript_limited(
+                                &entries, tail_size, Some(&old_summary),
+                            )
+                        } else if entry_count <= 400 {
+                            // Tier 2: small session, no summary — safe to rebuild all
+                            eprintln!("Session resume: small session ({} entries), rebuilding all", entry_count);
+                            engine::transcript::rebuild_messages_from_transcript(&entries)
+                        } else {
+                            // Tier 3 (fallback): large session with NO summary
+                            // Don't rebuild all (would cause 10-min auto-compact).
+                            // Load last 200 entries with a warning header instead.
+                            let tail_size = 200.min(entry_count);
+                            eprintln!(
+                                "WARNING: Large session ({} entries) with no pre-written summary. \
+                                 Loading only last {} entries. Context from earlier turns may be lost. \
+                                 (Summary will be generated during this session for next time.)",
+                                entry_count, tail_size
+                            );
+                            let tail_entries = &entries[entry_count - tail_size..];
+                            let mut msgs = engine::transcript::rebuild_messages_from_transcript(tail_entries);
+
+                            // Prepend a warning so the LLM knows context is incomplete
+                            if !msgs.is_empty() {
+                                let warning = crate::models::message::Message {
+                                    uuid: uuid::Uuid::new_v4().to_string(),
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    content: crate::models::message::MessageContent::System {
+                                        subtype: crate::models::message::SystemSubtype::CompactBoundary,
+                                        content: format!(
+                                            "[Session resumed — {} earlier conversation entries were omitted because no summary was available. \
+                                             The current session will generate one for next time.]",
+                                            entry_count - tail_size
+                                        ),
+                                    },
+                                };
+                                msgs.insert(0, warning);
+                            }
+                            msgs
+                        };
+
                         if !messages.is_empty() {
                             let mut engine = session.engine_write().await;
                             engine.set_messages(messages);
-                            eprintln!("Resumed session {} ({} messages)", rid, engine.get_messages().len());
+
+                            // Load and apply persisted token baseline
+                            engine.load_token_baseline(&rid).await;
+
+                            // Seed the new session's memory with the old summary
+                            engine.seed_session_memory(&old_summary);
+
+                            eprintln!("Resumed session {} ({} entries → {} messages)",
+                                rid, entry_count, engine.get_messages().len());
                         }
                     }
                     Err(e) => eprintln!("Failed to resume session {}: {}", rid, e),
@@ -934,11 +1089,95 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         })).await;
 
         // Enter shared-mode RPC loop
+        let hook_cwd = work_cwd.to_string_lossy().to_string();
         handle_shared_client(conn, shared, session.clone(), client_id, broadcast_rx, work_cwd, session_id_clone.clone()).await;
 
         // Client disconnect handling (Task 6.1)
         let is_last = session.remove_client(client_id).await;
         if is_last {
+            // ── Session-close evolution hook ──
+            // Extract structured summary before removing the session.
+            {
+                let engine = session.engine_read().await;
+                let messages = engine.get_messages();
+                let usage = engine.get_usage().clone();
+                let model = engine.get_model().to_string();
+                let messages_clone = messages.to_vec();
+                drop(engine);
+
+                // Estimate session duration from first and last message timestamps
+                let duration_secs = if messages_clone.len() >= 2 {
+                    let first_ts = &messages_clone.first().unwrap().timestamp;
+                    let last_ts = &messages_clone.last().unwrap().timestamp;
+                    (|| -> Option<u64> {
+                        let t1 = chrono::DateTime::parse_from_rfc3339(first_ts).ok()?;
+                        let t2 = chrono::DateTime::parse_from_rfc3339(last_ts).ok()?;
+                        Some((t2 - t1).num_seconds().max(0) as u64)
+                    })().unwrap_or(0)
+                } else {
+                    0
+                };
+
+                // Estimate total cost from token usage (Claude Sonnet pricing)
+                let estimated_cost = (usage.input_tokens as f64 * 3.0e-6)
+                    + (usage.output_tokens as f64 * 15.0e-6)
+                    + (usage.cache_read_input_tokens.unwrap_or(0) as f64 * 0.3e-6);
+
+                // ── Save session memory on close if not yet written ──
+                // This ensures that even if the background updater never ran
+                // (e.g., short session), the next startup will have a summary.
+                {
+                    let engine = session.engine_read().await;
+                    if let Some(ref sm) = engine.get_session_memory() {
+                        if !sm.is_available() && messages_clone.len() >= 4 {
+                            eprintln!("Session close: generating heuristic session memory ({} messages)",
+                                messages_clone.len());
+
+                            let mut summary_parts = vec![
+                                "# Session Summary".to_string(),
+                            ];
+
+                            // Extract user messages as task list
+                            let mut task_descriptions = Vec::new();
+                            for msg in &messages_clone {
+                                if let crate::models::message::MessageContent::User { message, .. } = &msg.content {
+                                    if let serde_json::Value::String(s) = &message.content {
+                                        let first_line = s.lines().next().unwrap_or("");
+                                        if !first_line.is_empty() && first_line.len() < 200 {
+                                            task_descriptions.push(first_line.to_string());
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !task_descriptions.is_empty() {
+                                summary_parts.push("## Tasks Discussed".to_string());
+                                for (i, task) in task_descriptions.iter().take(20).enumerate() {
+                                    summary_parts.push(format!("{}. {}", i + 1, task));
+                                }
+                            }
+
+                            summary_parts.push(format!("\n## Stats\n- Messages: {}\n- Duration: {}s\n- Cost: ${:.4}",
+                                messages_clone.len(), duration_secs, estimated_cost));
+
+                            let summary = summary_parts.join("\n");
+                            sm.update(summary);
+                            eprintln!("Session memory saved on close ({} chars)", sm.get().len());
+                        }
+                    }
+                }
+
+                shared_clone.evolution_engine.on_session_close(
+                    &session_id_clone,
+                    &hook_cwd,
+                    &model,
+                    &messages_clone,
+                    &usage,
+                    estimated_cost,
+                    duration_secs,
+                ).await;
+            }
+
             shared_clone.session_registry.remove(&session_id_clone).await;
             eprintln!("Shared session '{}' removed (last client disconnected)", session_id_clone);
         }
@@ -1069,23 +1308,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Pre-warm the API connection pool in the background (TCP + TLS handshake
+    // before the first real request, saving 100-300ms on first query).
+    {
+        let prewarm_client = Arc::clone(&api_client);
+        tokio::spawn(async move {
+            prewarm_client.prewarm().await;
+        });
+    }
+
     // Allow tools to access ~/.baoclaw/ in addition to project cwd
     let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let baoclaw_home = std::path::PathBuf::from(&home_dir).join(".baoclaw");
     let additional_dirs = vec![baoclaw_home];
 
-    // Read-only tool subset for sub-agent use
-    let read_only_tools: Vec<Arc<dyn tools::Tool>> = vec![
-        Arc::new(FileReadTool::new(additional_dirs.clone())),
-        Arc::new(GrepTool::new()),
-        Arc::new(GlobTool::new()),
-        Arc::new(WebFetchTool::new()),
-    ];
-
     // Create evolution engine for self-improvement
     let evolution_engine = Arc::new(engine::evolution::EvolutionEngine::new(std::path::Path::new(&cwd_str)));
 
-    let engine_tools: Vec<Arc<dyn tools::Tool>> = vec![
+    // Build the core tool list (everything except AgentTool itself, which is added after)
+    let core_tools: Vec<Arc<dyn tools::Tool>> = vec![
         Arc::new(BashTool::new()),
         Arc::new(FileReadTool::new(additional_dirs.clone())),
         Arc::new(FileWriteTool::new(additional_dirs.clone())),
@@ -1097,9 +1338,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(MemoryTool::new()),
         Arc::new(ProjectNoteTool::new()),
         Arc::new(tools::builtins::SkillTool::new(PathBuf::from(&cwd_str))),
-        Arc::new(AgentTool::new(Arc::clone(&api_client), read_only_tools)),
         Arc::new(tools::builtins::EvolveTool::new(Arc::clone(&evolution_engine))),
     ];
+
+    // AgentTool gets the full core tool set so sub-agents can write, edit, run bash, etc.
+    let agent_tool = AgentTool::new_with_full_tools(Arc::clone(&api_client), core_tools.clone());
+
+    let mut engine_tools: Vec<Arc<dyn tools::Tool>> = core_tools;
+    engine_tools.push(Arc::new(agent_tool));
 
     // ToolSearchTool needs the full tool list, so register it last
     let engine_tools: Vec<Arc<dyn tools::Tool>> = {
@@ -1200,10 +1446,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         total_cost_usd: 0.0,
     }));
 
-    // If daemon mode, ignore SIGHUP so we survive terminal close
+    // If daemon mode, fully detach from controlling terminal:
+    //   1. setsid() — new session + new process group, no controlling terminal
+    //   2. Ignore SIGHUP — extra safety against accidental kills
+    // This prevents zombie accumulation: without setsid(), the daemon's ppid
+    // stays as the launching terminal shell. When the terminal exits, orphaned
+    // children get reparented to init slowly, and any subprocess zombies in the
+    // daemon won't be reaped promptly.
     if is_daemon {
         #[cfg(unix)]
         unsafe {
+            libc::setsid();
             libc::signal(libc::SIGHUP, libc::SIG_IGN);
         }
     }
@@ -1228,7 +1481,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         baoclaw_config,
         cli_thinking_config,
         cli_resume_session_id,
-        session_id,
+        session_id: session_id.clone(),
         should_exit: Arc::clone(&should_exit),
         session_registry: Arc::new(SessionRegistry::new()),
         skill_prompt: combined_append_prompt,
@@ -1236,7 +1489,96 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         evolution_engine,
         cron_manager: Arc::new(engine::cron::CronManager::new()),
         project_registry: Arc::new(engine::projects::ProjectRegistry::new()),
+        file_cache: Arc::new(tokio::sync::Mutex::new(engine::file_cache::FileCache::default_capacity())),
+        tool_result_store: Some(Arc::new(engine::tool_result_store::ToolResultStore::for_session(&session_id))),
     };
+
+    // ══════════════════════════════════════════════════════════
+    // Start cron scheduler — runs periodic jobs in background.
+    // Each job gets a fresh QueryEngine to execute its prompt,
+    // and results are broadcast to all connected clients.
+    // ══════════════════════════════════════════════════════════
+    {
+        let cron_manager = Arc::clone(&shared.cron_manager);
+        let cron_tools = shared.engine_tools.clone();
+        let cron_api_client = Arc::clone(&shared.api_client);
+        let cron_baoclaw_config = shared.baoclaw_config.clone();
+        let cron_thinking_config = shared.cli_thinking_config.clone();
+        let cron_append_prompt = shared.skill_prompt.clone();
+        let cron_session_id = shared.session_id.clone();
+        let cron_file_cache = Arc::clone(&shared.file_cache);
+        let cron_tool_result_store = shared.tool_result_store.as_ref().map(Arc::clone);
+
+        let run_fn: Arc<dyn Fn(String, Option<String>) -> tokio::task::JoinHandle<String> + Send + Sync> =
+            Arc::new(move |prompt: String, cwd: Option<String>| {
+                let tools = cron_tools.clone();
+                let api_client = Arc::clone(&cron_api_client);
+                let baoclaw_config = cron_baoclaw_config.clone();
+                let thinking_config = cron_thinking_config.clone();
+                let append_prompt = cron_append_prompt.clone();
+                let session_id = cron_session_id.clone();
+                let file_cache = Arc::clone(&cron_file_cache);
+                let tool_result_store = cron_tool_result_store.as_ref().map(Arc::clone);
+
+                let job_session_id = format!("cron-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+
+                tokio::spawn(async move {
+                    let cwd_path = cwd.map(PathBuf::from)
+                        .unwrap_or_else(|| std::env::var("HOME")
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|_| PathBuf::from("/tmp")));
+
+                    let mut engine = QueryEngine::new(QueryEngineConfig {
+                        cwd: cwd_path,
+                        tools,
+                        api_client,
+                        model: baoclaw_config.model.clone(),
+                        thinking_config,
+                        max_turns: Some(10),
+                        max_budget_usd: Some(0.5),
+                        verbose: false,
+                        custom_system_prompt: None,
+                        append_system_prompt: append_prompt,
+                        session_id: Some(job_session_id),
+                        fallback_models: baoclaw_config.fallback_models.clone(),
+                        max_retries_per_model: baoclaw_config.max_retries_per_model,
+                        context_window: baoclaw_config.context_window,
+                        auto_compact_threshold_ratio: baoclaw_config.auto_compact_threshold_ratio,
+                        parent_turn_id: None,
+                        agent_label: Some("cron".to_string()),
+                        session_memory: None,
+                        file_cache: Some(file_cache),
+                        tool_result_store,
+                    });
+
+                    let mut rx = engine.submit_message(prompt).await;
+                    let mut result = String::new();
+                    while let Some(event) = rx.recv().await {
+                        match event {
+                            EngineEvent::AssistantChunk { content, .. } => result.push_str(&content),
+                            EngineEvent::Result(qr) => {
+                                if let Some(text) = qr.text {
+                                    if !text.is_empty() && result.is_empty() {
+                                        result = text;
+                                    }
+                                }
+                                break;
+                            }
+                            EngineEvent::Error(_) => break,
+                            _ => {}
+                        }
+                    }
+                    if result.is_empty() {
+                        result = "(no output)".to_string();
+                    }
+                    result
+                })
+            });
+
+        tokio::spawn(async move {
+            cron_manager.start_scheduler(run_fn).await;
+        });
+    }
 
     // ══════════════════════════════════════════════════════════
     // Main accept loop — spawns a task per client connection
@@ -1247,6 +1589,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let should_exit_clone = Arc::clone(&should_exit);
     loop {
         if should_exit.load(Ordering::Relaxed) {
+            eprintln!("should_exit detected — breaking accept loop");
             break;
         }
         eprintln!("Waiting for client connection...");
@@ -1266,7 +1609,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         match accept_result {
-            None => break, // should_exit was set
+            None => {
+                eprintln!("should_exit watcher fired — breaking accept loop");
+                break;
+            }
             Some(Ok(conn)) => {
                 eprintln!("Client connected");
                 let client_shared = shared.clone();

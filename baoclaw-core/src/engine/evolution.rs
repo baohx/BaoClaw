@@ -11,6 +11,33 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tokio::sync::Mutex;
 
+// ── Session Summary (for session-close hook) ──
+
+/// Structured summary of a completed session, extracted on session close.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub timestamp: String,
+    pub cwd: String,
+    pub model: String,
+    pub duration_secs: u64,
+    /// Number of user→assistant turns
+    pub turn_count: usize,
+    /// All user messages (truncated to 200 chars each)
+    pub user_topics: Vec<String>,
+    /// Tool usage frequency: (tool_name, count)
+    pub tool_usage: Vec<(String, u32)>,
+    /// Tools that returned errors: (tool_name, error_preview)
+    pub errors: Vec<(String, String)>,
+    /// Total token usage
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_read: u64,
+    pub total_cost_usd: f64,
+    /// Skills that were loaded/used during this session
+    pub skills_used: Vec<String>,
+}
+
 // ── Configuration ──
 
 const EVOLUTION_DIR: &str = "evolution";
@@ -18,6 +45,8 @@ const SKILL_CREATION_THRESHOLD: usize = 3; // min tool calls to consider a task 
 const SELF_EVAL_INTERVAL: usize = 15;      // evaluate every N completed tasks
 const TRAJECTORY_FILE: &str = "trajectories.jsonl";
 const SKILL_STATS_FILE: &str = "skill_stats.json";
+const SESSION_SUMMARIES_FILE: &str = "session_summaries.jsonl";
+const PENDING_REVIEW_FILE: &str = "pending_review.json";
 
 // ── Data structures ──
 
@@ -275,9 +304,97 @@ impl EvolutionEngine {
     }
 
     /// Build a system prompt fragment for the evolution system.
-    /// Includes pending evaluations and skill candidates.
+    /// Includes pending evaluations, session reviews, and skill candidates.
     pub async fn build_prompt_fragment(&self, _cwd: &Path) -> Option<String> {
         let mut parts = Vec::new();
+
+        // Check for pending session review (from previous session's close hook)
+        let dir = self.base_dir.lock().await;
+        let review_path = dir.join(PENDING_REVIEW_FILE);
+        if review_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&review_path) {
+                if let Ok(review) = serde_json::from_str::<Value>(&content) {
+                    // Consume the review file
+                    let _ = std::fs::remove_file(&review_path);
+
+                    let session_id = review.get("session_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let turn_count = review.get("turn_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let topics = review.get("user_topics")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str())
+                                .take(10)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let tools = review.get("tools_used")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str())
+                                .take(10)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let errors_count = review.get("errors_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let skills = review.get("skills_used")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str())
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+
+                    let topics_str = if topics.is_empty() {
+                        "  (none)".to_string()
+                    } else {
+                        topics.iter()
+                            .enumerate()
+                            .map(|(i, t)| format!("  {}. {}{}", i + 1,
+                                t.chars().take(100).collect::<String>(),
+                                if t.len() > 100 { "..." } else { "" }))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    };
+
+                    let tools_str = if tools.is_empty() {
+                        "  (none)".to_string()
+                    } else {
+                        tools.iter().map(|t| format!("  - {}", t)).collect::<Vec<_>>().join("\n")
+                    };
+
+                    parts.push(format!(
+                        "# 🔁 Last Session Review (Auto-Generated)\n\
+                        The previous session `{}` had {} turns. Here's what happened:\n\
+                        \n\
+                        ## User Topics:\n{}\n\
+                        \n\
+                        ## Tools Used:\n{}\n\
+                        \n\
+                        ## Errors: {}\n\
+                        \n\
+                        ## Skills Loaded: {}\n\
+                        \n\
+                        **Self-improvement nudge**: Reflect on the above. Ask yourself:\n\
+                        - Were there repetitive patterns that should become a skill?\n\
+                        - Did any errors reveal a gap in your knowledge or approach?\n\
+                        - Should any preferences or decisions be saved to long-term memory?\n\
+                        - Was there a workflow that could be streamlined?\n\
+                        \n\
+                        If yes, use the `Evolve` tool to create/improve skills, or `MemoryTool` to save insights.\n",
+                        session_id,
+                        turn_count,
+                        topics_str,
+                        tools_str,
+                        errors_count,
+                        if skills.is_empty() { "none".to_string() } else { skills.join(", ") },
+                    ));
+                }
+            }
+        }
+        drop(dir); // release lock before calling other methods
 
         // Check for pending self-evaluation
         if let Some(eval) = self.check_pending_eval().await {
@@ -313,6 +430,152 @@ impl EvolutionEngine {
         } else {
             Some(parts.join("\n"))
         }
+    }
+
+    /// ── Session-close hook ──
+    ///
+    /// Called when the last client disconnects from a shared session.
+    /// Extracts a structured summary from the session transcript and writes it
+    /// to `session_summaries.jsonl`.  Also generates a `pending_review.json` that
+    /// the *next* session's system prompt will pick up, guiding the LLM to
+    /// reflect on what it learned.
+    ///
+    /// This is pure Rust — no LLM call, fast and reliable.
+    pub async fn on_session_close(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        model: &str,
+        messages: &[crate::models::message::Message],
+        total_usage: &crate::models::message::Usage,
+        total_cost_usd: f64,
+        session_duration_secs: u64,
+    ) {
+        use crate::models::message::{MessageContent, ContentBlock};
+
+        let mut user_topics: Vec<String> = Vec::new();
+        let mut tool_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut errors: Vec<(String, String)> = Vec::new();
+        let mut skills_used: Vec<String> = Vec::new();
+        let mut turn_count: usize = 0;
+
+        for msg in messages {
+            match &msg.content {
+                MessageContent::User { message, tool_use_result, .. } => {
+                    // Extract user text topics
+                    if tool_use_result.is_none() {
+                        let text = extract_text_from_value(&message.content);
+                        if !text.is_empty() {
+                            let truncated: String = text.chars().take(200).collect();
+                            user_topics.push(truncated);
+                            turn_count += 1;
+                        }
+                    }
+                    // Extract tool-result errors
+                    if let Some(tr) = tool_use_result {
+                        if tr.is_error {
+                            let output_str = match &tr.output {
+                                Value::String(s) => s.clone(),
+                                other => serde_json::to_string(other).unwrap_or_default(),
+                            };
+                            let preview: String = output_str.chars().take(150).collect();
+                            errors.push(("tool_result".to_string(), preview));
+                        }
+                    }
+                }
+                MessageContent::Assistant { message, .. } => {
+                    for block in &message.content {
+                        match block {
+                            ContentBlock::ToolUse { name, input, .. } => {
+                                *tool_counts.entry(name.clone()).or_insert(0) += 1;
+
+                                // Detect skill loading (Skill tool calls)
+                                if name == "Skill" {
+                                    if let Some(s) = input.get("skill").and_then(|v| v.as_str()) {
+                                        if s != "__list__" && !skills_used.contains(&s.to_string()) {
+                                            skills_used.push(s.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            ContentBlock::Text { .. } => {}
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Sort tool usage by count descending
+        let mut tool_usage: Vec<(String, u32)> = tool_counts.into_iter().collect();
+        tool_usage.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Limit errors to 10
+        errors.truncate(10);
+
+        let summary = SessionSummary {
+            session_id: session_id.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            cwd: cwd.to_string(),
+            model: model.to_string(),
+            duration_secs: session_duration_secs,
+            turn_count,
+            user_topics,
+            tool_usage,
+            errors,
+            total_input_tokens: total_usage.input_tokens,
+            total_output_tokens: total_usage.output_tokens,
+            total_cache_read: total_usage.cache_read_input_tokens.unwrap_or(0),
+            total_cost_usd,
+            skills_used,
+        };
+
+        // ── Persist to session_summaries.jsonl ──
+        let dir = self.base_dir.lock().await;
+        let _ = std::fs::create_dir_all(&*dir);
+        let summaries_path = dir.join(SESSION_SUMMARIES_FILE);
+
+        if let Ok(line) = serde_json::to_string(&summary) {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&summaries_path)
+            {
+                let _ = writeln!(f, "{}", line);
+            }
+        }
+
+        // ── Generate pending_review.json for next session ──
+        // Only if the session had enough content to be worth reviewing
+        if summary.turn_count >= 2 {
+            let review = serde_json::json!({
+                "type": "session_review",
+                "session_id": summary.session_id,
+                "timestamp": summary.timestamp,
+                "cwd": summary.cwd,
+                "turn_count": summary.turn_count,
+                "duration_secs": summary.duration_secs,
+                "total_cost_usd": summary.total_cost_usd,
+                "tools_used": summary.tool_usage.iter()
+                    .map(|(name, count)| format!("{} ({}×)", name, count))
+                    .collect::<Vec<_>>(),
+                "user_topics": summary.user_topics,
+                "errors_count": summary.errors.len(),
+                "skills_used": summary.skills_used,
+            });
+            let review_path = dir.join(PENDING_REVIEW_FILE);
+            if let Ok(json) = serde_json::to_string_pretty(&review) {
+                let _ = std::fs::write(&review_path, json);
+            }
+        }
+
+        eprintln!(
+            "Evolution: session-close hook for '{}' — {} turns, {} tools, {} errors, ${:.4} cost",
+            session_id, summary.turn_count, summary.tool_usage.len(),
+            summary.errors.len(), summary.total_cost_usd
+        );
     }
 
     /// Export trajectories in a format suitable for RLHF/DPO fine-tuning.
@@ -367,6 +630,24 @@ impl EvolutionEngine {
         }
 
         training_pairs
+    }
+}
+
+/// Extract plain text from a serde_json::Value that could be a string or
+/// an array of content blocks (Claude API format).
+fn extract_text_from_value(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Array(blocks) => {
+            let mut texts = Vec::new();
+            for block in blocks {
+                if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                    texts.push(text.to_string());
+                }
+            }
+            texts.join(" ")
+        }
+        _ => String::new(),
     }
 }
 

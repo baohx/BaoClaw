@@ -262,6 +262,8 @@ mod tests {
             cwd: std::path::PathBuf::from("/tmp"),
             model: "test".to_string(),
             abort_signal: std::sync::Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         }
     }
 }

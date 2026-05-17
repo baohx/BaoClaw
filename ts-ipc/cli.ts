@@ -208,10 +208,62 @@ function formatToolResult(output: unknown, isError: boolean, toolName?: string, 
     return `  ${prefix} ${DIM}${o.file_path ?? ''}${o.bytes_written ? ' (' + o.bytes_written + ' bytes)' : ''}${RESET}`;
   }
 
-  // ── FileEdit ──
+  // ── FileEdit: git diff side-by-side ──
   if (toolName === 'FileEdit' || toolName === 'Edit') {
     if (isError && typeof o.error === 'string') return `  ${prefix} ${FG_RED}${o.error}${RESET}`;
-    return `  ${prefix} ${DIM}${o.file_path ?? ''}${RESET}`;
+    const filePath = String(o.file_path ?? '');
+    const oldStr = String(o.old_string ?? '');
+    const newStr = String(o.new_string ?? '');
+    if (!oldStr && !newStr) return `  ${prefix} ${DIM}${filePath}${RESET}`;
+
+    // ── Side-by-side diff rendering ──
+    const oldLines = oldStr.split('\n');
+    const newLines = newStr.split('\n');
+    const maxLines = Math.max(oldLines.length, newLines.length);
+    const halfWidth = Math.min(55, Math.floor((process.stdout.columns || 120) / 2) - 3);
+    const showLines = Math.min(maxLines, 20); // cap display
+
+    let diffLines: string[] = [];
+    diffLines.push(`  ${DIM}${filePath}${RESET}`);
+
+    // Header
+    const leftHeader = `${FG_RED}─ removed (old)${RESET}`;
+    const rightHeader = `${FG_GREEN}─ added (new)${RESET}`;
+    diffLines.push(`  ${leftHeader.padEnd(halfWidth + 10)} │ ${rightHeader}`);
+    diffLines.push(`  ${'─'.repeat(halfWidth)}─┼─${'─'.repeat(halfWidth)}`);
+
+    for (let i = 0; i < showLines; i++) {
+      const oLine = i < oldLines.length ? oldLines[i] : '';
+      const nLine = i < newLines.length ? newLines[i] : '';
+
+      const oPad = oLine.length > halfWidth ? oLine.slice(0, halfWidth - 1) + '…' : oLine;
+      const nPad = nLine.length > halfWidth ? nLine.slice(0, halfWidth - 1) + '…' : nLine;
+
+      const hasOld = i < oldLines.length;
+      const hasNew = i < newLines.length;
+
+      // Color: red for removed, green for added, white for unchanged context
+      let isChanged = oLine !== nLine;
+      let leftColor = !hasOld ? DIM : isChanged ? FG_RED : DIM;
+      let rightColor = !hasNew ? DIM : isChanged ? FG_GREEN : DIM;
+      let leftMarker = !hasOld ? ' ' : isChanged ? '-' : ' ';
+      let rightMarker = !hasNew ? ' ' : isChanged ? '+' : ' ';
+
+      const left = `${leftColor}${leftMarker} ${oPad.padEnd(halfWidth)}${RESET}`;
+      const right = `${rightColor}${rightMarker} ${nPad.padEnd(halfWidth)}${RESET}`;
+      diffLines.push(`  ${left} │ ${right}`);
+    }
+
+    if (maxLines > showLines) {
+      diffLines.push(`  ${DIM}  … (${maxLines - showLines} more lines)${RESET}`);
+    }
+
+    // Stats
+    const removed = oldLines.filter((l, i) => i >= newLines.length || l !== newLines[i]).length;
+    const added = newLines.filter((l, i) => i >= oldLines.length || l !== oldLines[i]).length;
+    diffLines.push(`  ${FG_RED}-${removed}${RESET}  ${FG_GREEN}+${added}${RESET}`);
+
+    return diffLines.join('\n');
   }
 
   // ── GrepTool ──
@@ -475,34 +527,80 @@ async function showHistory(client: IpcClient, count: number) {
   try {
     const result = await client.request<{ messages: any[]; count: number; total: number }>('talkTail', { count });
     if (result.count === 0) return;
-    console.log(`\n${FG_ORANGE}${BOLD}Recent History${RESET} ${DIM}(${result.count} of ${result.total})${RESET}\n`);
-    for (const m of result.messages) {
+    console.log(`\n${FG_ORANGE}${BOLD}━━━ History ━━━${RESET} ${DIM}(${result.count} of ${result.total} messages)${RESET}\n`);
+
+    // Track turn numbers for display
+    for (let i = 0; i < result.messages.length; i++) {
+      const m = result.messages[i];
+      // Skip pure tool-result user messages (they're shown inline under assistant tools)
+      if (m.role === 'user' && m.is_tool_result) continue;
+
       const ts = m.timestamp ? `${DIM}${m.timestamp.slice(11, 19)}${RESET}` : '';
+      const turnLabel = m.turn ? `${DIM}#${m.turn}${RESET} ` : '';
+
       if (m.role === 'user') {
-        const preview = (m.text || '').slice(0, 100);
-        console.log(`  ${ts} ${FG_BRIGHT_WHITE}${BOLD}You${RESET}  ${preview}${preview.length >= 100 ? '…' : ''}`);
+        const text = m.text || '';
+        console.log(`${turnLabel}${ts} ${FG_BRIGHT_WHITE}${BOLD}You${RESET}`);
+        // Show full text, indented, wrapped at terminal width
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (line.trim()) {
+            console.log(`    ${FG_WHITE}${line}${RESET}`);
+          }
+        }
       } else if (m.role === 'assistant') {
-        const preview = (m.text || '').slice(0, 100);
+        const text = m.text || '';
+        const cost = m.cost_usd ? `$${Number(m.cost_usd).toFixed(4)}` : '';
+        const dur = m.duration_ms ? `${(m.duration_ms / 1000).toFixed(1)}s` : '';
+        const usage = m.usage;
+        const tokenInfo = usage
+          ? `${FG_CYAN}${usage.input_tokens || 0}in/${usage.output_tokens || 0}out${usage.cache_read_input_tokens ? ` (${usage.cache_read_input_tokens}cache)` : ''}${RESET}`
+          : '';
+        const stats = [cost, dur, tokenInfo].filter(Boolean).join(' · ');
+
         const toolBadge = m.tools && m.tools.length > 0
           ? ` ${FG_MAGENTA}[${m.tools.length} tool${m.tools.length > 1 ? 's' : ''}]${RESET}`
           : '';
-        console.log(`  ${ts} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge}  ${DIM}${preview}${preview.length >= 100 ? '…' : ''}${RESET}`);
-        // Show tool details if available
+
+        console.log(`${turnLabel}${ts} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge} ${stats ? `${DIM}${stats}${RESET}` : ''}`);
+
+        // Show full assistant text, indented
+        if (text.trim()) {
+          const lines = text.split('\n');
+          for (const line of lines) {
+            console.log(`    ${line}`);
+          }
+        }
+
+        // Show tool call details with results
         if (m.tools && m.tools.length > 0) {
           for (const t of m.tools) {
             const toolName = t.name || '';
             const detail = t.detail || '';
-            const shortDetail = detail
-              ? `       ${DIM}↳${RESET} ${FG_GRAY}${toolName}${RESET}: ${FG_GRAY}${detail.length > 80 ? detail.slice(0, 80) + '…' : detail}${RESET}`
-              : `       ${DIM}↳${RESET} ${FG_GRAY}${toolName}${RESET}`;
-            console.log(shortDetail);
+            console.log(`    ${FG_MAGENTA}├─ ${toolName}${RESET}${detail ? ` ${DIM}${detail}${RESET}` : ''}`);
+            // Show tool result if available (truncated to ~500 chars for readability)
+            if (t.result) {
+              const resultStr = typeof t.result === 'string' ? t.result : JSON.stringify(t.result, null, 2);
+              const resultLines = resultStr.split('\n').slice(0, 15); // Max 15 lines
+              for (const rl of resultLines) {
+                console.log(`    ${FG_GRAY}│  ${rl.slice(0, 120)}${RESET}`);
+              }
+              if (resultStr.split('\n').length > 15 || resultStr.length > 1800) {
+                console.log(`    ${FG_GRAY}│  ... (${resultStr.length} chars total)${RESET}`);
+              }
+            }
           }
         }
-      } else {
+      } else if (m.role === 'system') {
         console.log(`  ${ts} ${DIM}[system]${RESET}`);
       }
+
+      // Add separator between turns
+      if (i < result.messages.length - 1) {
+        console.log();
+      }
     }
-    console.log();
+    console.log(`\n${DIM}${'─'.repeat(50)}${RESET}\n`);
   } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
 }
 
@@ -522,6 +620,11 @@ async function startNewDaemon(binaryPath: string): Promise<string> {
 
   // Don't let the child keep the parent alive
   child.unref();
+
+  // Prevent zombie: ensure daemon child is reaped even after we unref'd.
+  // Without this, if the daemon crashes, its zombie persists because
+  // we removed all listeners and the parent never waitpid()'s it.
+  child.on('exit', () => {});
 
   let stderr = '';
   child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
@@ -559,7 +662,7 @@ async function startNewDaemon(binaryPath: string): Promise<string> {
 const COMMANDS = [
   '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
-  '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory',
+  '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory', '/debug',
   '/projects', '/cron', '/history',
 ];
 
@@ -648,6 +751,8 @@ async function main() {
       }
     }
   }
+  // --debug flag: enable timing instrumentation for the first query
+  const cliDebugMode = args.includes('--debug');
 
   // Check API key
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -735,6 +840,29 @@ async function main() {
   // Track tool_use_id → tool_name for smart result formatting
   const pendingTools = new Map<string, { name: string; input: unknown }>();
 
+  // ── Debug timing mode ──
+  let debugMode = cliDebugMode;
+  let firstQueryDone = false; // only instrument the very first query per session
+  // Sub-step timestamps for the current query
+  let debugSubmitTime = 0;        // when submitMessage was sent
+  let debugFirstEventTime = 0;    // TTFB: first stream event (thinking_chunk / assistant_chunk)
+  let debugThinkingStartTime = 0; // when first thinking_chunk arrived
+  let debugThinkingEndTime = 0;   // when first assistant_chunk arrived (or tool_use if no assistant_chunk)
+  let debugToolTimes = new Map<string, { name: string; start: number; end: number }>();
+
+  function resetDebugTimers() {
+    debugSubmitTime = 0;
+    debugFirstEventTime = 0;
+    debugThinkingStartTime = 0;
+    debugThinkingEndTime = 0;
+    debugToolTimes.clear();
+  }
+
+  function fmtMs(ms: number): string {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  }
+
   // ── Turn stack for nested rendering ──
   type TurnInfo = { id: number; parent: number | null; label: string | null; start: number };
   const turnStack: TurnInfo[] = [];
@@ -766,6 +894,14 @@ async function main() {
         if (!isStreaming) {
           isStreaming = true;
         }
+        // Debug: record TTFB and end of thinking phase
+        if (debugMode && !firstQueryDone) {
+          const now = Date.now();
+          if (!debugFirstEventTime) debugFirstEventTime = now;
+          if (debugThinkingStartTime > 0 && !debugThinkingEndTime) {
+            debugThinkingEndTime = now;
+          }
+        }
         currentText += content;
         break;
       }
@@ -777,6 +913,12 @@ async function main() {
           process.stdout.write(`\n${FG_GRAY}${ITALIC}💭 Thinking...${RESET}\n`);
           isStreaming = true;
         }
+        // Debug: record TTFB and thinking start
+        if (debugMode && !firstQueryDone) {
+          const now = Date.now();
+          if (!debugFirstEventTime) debugFirstEventTime = now;
+          if (!debugThinkingStartTime) debugThinkingStartTime = now;
+        }
         process.stdout.write(`${FG_GRAY}${content}${RESET}`);
         break;
       }
@@ -784,6 +926,10 @@ async function main() {
       case 'tool_use': {
         stopSpinner();
         if (isStreaming) {
+          // Debug: if thinking was ongoing, mark end of thinking at tool_use
+          if (debugMode && !firstQueryDone && debugThinkingStartTime > 0 && !debugThinkingEndTime) {
+            debugThinkingEndTime = Date.now();
+          }
           // Flush accumulated text before showing tool use
           if (currentText.trim()) {
             process.stdout.write(`\n${turnPrefix()}${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
@@ -797,6 +943,10 @@ async function main() {
         toolCount++;
         const tu = event as { tool_name: string; input: unknown; tool_use_id: string };
         pendingTools.set(tu.tool_use_id, { name: tu.tool_name, input: tu.input });
+        // Debug: record tool start time
+        if (debugMode && !firstQueryDone) {
+          debugToolTimes.set(tu.tool_use_id, { name: tu.tool_name, start: Date.now(), end: 0 });
+        }
         console.log(turnPrefix() + formatToolUse(tu.tool_name, tu.input));
         startSpinner(`${tu.tool_name}…`);
         break;
@@ -805,6 +955,11 @@ async function main() {
       case 'tool_result': {
         stopSpinner();
         const tr = event as { tool_use_id: string; output: unknown; is_error: boolean };
+        // Debug: record tool end time
+        if (debugMode && !firstQueryDone && debugToolTimes.has(tr.tool_use_id)) {
+          const entry = debugToolTimes.get(tr.tool_use_id)!;
+          entry.end = Date.now();
+        }
         const toolInfo = pendingTools.get(tr.tool_use_id);
         pendingTools.delete(tr.tool_use_id);
         const logLevel = (globalThis as any).__baoclaw_log_level ?? 'verbose';
@@ -953,6 +1108,44 @@ async function main() {
             console.log(`${DIM}┃ 🔤 ${formatTokens(cumulativeInputTokens)} / ${formatTokens(CONTEXT_WINDOW)} (${pct}%)${costStr}${RESET}`);
           }
         }
+        // ── Debug timing report (first query only) ──
+        if (debugMode && !firstQueryDone && debugSubmitTime > 0) {
+          firstQueryDone = true;
+          const now = Date.now();
+          const totalWall = now - debugSubmitTime;
+          const ttfb = debugFirstEventTime ? fmtMs(debugFirstEventTime - debugSubmitTime) : 'n/a';
+          const thinkingDur = (debugThinkingStartTime > 0 && debugThinkingEndTime > 0)
+            ? fmtMs(debugThinkingEndTime - debugThinkingStartTime) : 'n/a';
+          const firstTokenLatency = debugFirstEventTime ? fmtMs(debugFirstEventTime - debugSubmitTime) : 'n/a';
+
+          let toolBreakdown = '';
+          let toolTotal = 0;
+          for (const [id, t] of debugToolTimes) {
+            if (t.end > 0) {
+              const dur = t.end - t.start;
+              toolTotal += dur;
+              toolBreakdown += `\n    ${FG_WHITE}${t.name}${RESET}  ${FG_CYAN}${fmtMs(dur)}${RESET}`;
+            }
+          }
+
+          console.log(`\n  ${FG_YELLOW}${BOLD}⏱ Debug Timing (first query)${RESET}`);
+          console.log(`    ${FG_WHITE}Total wall time:${RESET}    ${FG_CYAN}${fmtMs(totalWall)}${RESET}`);
+          console.log(`    ${FG_WHITE}TTFB (first byte):${RESET}  ${FG_CYAN}${ttfb}${RESET}`);
+          if (debugThinkingStartTime > 0) {
+            console.log(`    ${FG_WHITE}Thinking:${RESET}           ${FG_CYAN}${thinkingDur}${RESET}`);
+          }
+          if (debugThinkingEndTime > 0) {
+            const genStart = debugThinkingEndTime;
+            const genDur = now - genStart;
+            console.log(`    ${FG_WHITE}Generation:${RESET}         ${FG_CYAN}${fmtMs(genDur)}${RESET}`);
+          }
+          if (toolBreakdown) {
+            console.log(`    ${FG_WHITE}Tools total:${RESET}        ${FG_CYAN}${fmtMs(toolTotal)}${RESET}`);
+            console.log(toolBreakdown);
+          }
+          console.log('');
+          resetDebugTimers();
+        }
         // Always reset state
         currentText = '';
         toolCount = 0;
@@ -976,6 +1169,9 @@ async function main() {
         if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
         const err = event as { code: string; message: string };
         console.log(`\n  ${FG_RED}✗ ${BOLD}${err.code || 'Error'}${RESET}${FG_RED}: ${err.message}${RESET}\n`);
+        // Fully reset all streaming state to prevent stale echo on next input
+        currentText = '';
+        toolCount = 0;
         queryStartTime = 0; // mark idle
         break;
       }
@@ -1019,18 +1215,25 @@ async function main() {
 
   // Ctrl+C handling: abort current task if busy, otherwise show hint
   let ctrlCCount = 0;
+  // Track whether we are inside handleLine to allow SIGINT to break out
+  let abortRequested = false;
   rl.on('SIGINT', async () => {
     if (queryStartTime > 0) {
-      // Task in progress — send abort and immediately reset state
+      // Task in progress — reset ALL state immediately, fire-and-forget abort
       stopSpinner();
-      console.log(`\n${FG_YELLOW}⚠ Aborting...${RESET}`);
-      try { await client.request('abort'); } catch {}
+      // Clear any partial streaming output on the current line
+      readline.clearLine(process.stdout, 0);
+      process.stdout.write('\r');
+      console.log(`${FG_YELLOW}⚠ Aborted${RESET}\n`);
+      // Fire-and-forget: don't await the abort RPC (it may hang if daemon is stuck)
+      client.request('abort').catch(() => {});
       // Reset state immediately — don't wait for daemon's result event
       currentText = '';
       isStreaming = false;
       toolCount = 0;
       queryStartTime = 0;
-      console.log(`${FG_YELLOW}⚠ Aborted${RESET}\n`);
+      processingInput = false;
+      abortRequested = true;
       ctrlCCount = 0;
       rl.prompt();
     } else {
@@ -1067,6 +1270,19 @@ async function main() {
     pasteBuffer.push(line);
     if (pasteTimer) clearTimeout(pasteTimer);
     pasteTimer = setTimeout(async () => {
+      // Flush any remaining text the user is still editing on the readline prompt line.
+      // When pasting multi-line content, the last line often stays in readline's
+      // internal buffer without triggering a 'line' event (no trailing \n).
+      const pendingLine = (rl as any).line;
+      if (typeof pendingLine === 'string' && pendingLine.length > 0) {
+        pasteBuffer.push(pendingLine);
+        // Clear readline's internal buffer and refresh the prompt line
+        (rl as any).line = '';
+        (rl as any).cursor = 0;
+        readline.moveCursor(process.stdout, 0, 0);
+        readline.clearLine(process.stdout, 0);
+      }
+
       const lines = pasteBuffer;
       pasteBuffer = [];
       pasteTimer = null;
@@ -1079,10 +1295,77 @@ async function main() {
         return;
       }
 
-      // Multi-line paste: join with newlines
+      // Multi-line paste — clear readline's native echo of the first line to avoid
+      // double-display (readline already echoed it, and handleLine will print "You …" again)
+      readline.moveCursor(process.stdout, 0, -(lines.length > 1 ? 1 : 0));
+      for (let i = 0; i < lines.length; i++) {
+        readline.clearLine(process.stdout, 0);
+        readline.moveCursor(process.stdout, 0, -1);
+      }
+      readline.moveCursor(process.stdout, 0, 1);
+      process.stdout.write('\r');
+
       const combined = lines.join('\n').trim();
       if (!combined) { rl.prompt(); return; }
-      await handleInput(combined);
+
+      // ── Threshold for summarizing paste (≥5 lines or ≥2KB) ──
+      const PASTE_LINE_THRESHOLD = 5;
+      const PASTE_SIZE_THRESHOLD = 2048;
+
+      if (lines.length >= PASTE_LINE_THRESHOLD || combined.length >= PASTE_SIZE_THRESHOLD) {
+        const totalLines = lines.length;
+        const totalBytes = Buffer.byteLength(combined, 'utf-8');
+        const sizeStr = totalBytes >= 1024 ? `${(totalBytes / 1024).toFixed(1)}KB` : `${totalBytes}B`;
+
+        // Detect content type for better summary
+        const firstLine = lines[0].trim();
+        let contentType = 'text';
+        if (firstLine.startsWith('{') || firstLine.startsWith('[')) contentType = 'JSON';
+        else if (firstLine.startsWith('<') || firstLine.startsWith('<?xml') || firstLine.startsWith('<!DOCTYPE')) contentType = 'XML/HTML';
+        else if (firstLine.startsWith('#!') || firstLine.startsWith('import ') || firstLine.startsWith('use ') || firstLine.startsWith('fn ') || firstLine.startsWith('function ') || firstLine.startsWith('const ') || firstLine.startsWith('pub ')) contentType = 'code';
+        else if (firstLine.startsWith('diff --git') || firstLine.startsWith('---') || firstLine.startsWith('+++')) contentType = 'git diff';
+        else if (firstLine.startsWith('commit ') || firstLine.startsWith('Author:')) contentType = 'git log';
+        else if (lines.some(l => l.trim().startsWith('error') || l.trim().startsWith('Error') || l.trim().startsWith('panic'))) contentType = 'error log';
+        else if (lines.some(l => /^\s*\d{4}-\d{2}-\d{2}/.test(l.trim()))) contentType = 'log';
+
+        const head = lines.slice(0, 2).join('\n');
+        const tail = lines.slice(-1).join('\n');
+        const headPreview = head.length > 80 ? head.slice(0, 80) + '…' : head;
+        const tailPreview = totalLines > 3 && tail.length > 60 ? '…\n' + tail.slice(0, 60) + '…' : '';
+
+        // Show paste summary
+        console.log('');
+        console.log(`  ${FG_YELLOW}📋 Pasted ${totalLines} lines (${sizeStr}) of ${contentType}${RESET}`);
+        if (headPreview) console.log(`  ${DIM}${headPreview}${RESET}`);
+        if (tailPreview) console.log(`  ${DIM}${tailPreview}${RESET}`);
+        console.log(`  ${DIM}─── Enter additional instructions (or press Enter to send as-is) ───${RESET}`);
+
+        // Pause readline, let user type additional instructions
+        rl.pause();
+        const { createInterface } = await import('readline');
+        const mlRl = createInterface({ input: process.stdin, output: process.stdout });
+        const extraInput: string = await new Promise(resolve => {
+          mlRl.question(`  ${FG_CYAN}➤${RESET} `, (answer: string) => {
+            mlRl.close();
+            resolve(answer.trim());
+          });
+        });
+        rl.resume();
+
+        // Build final message: summary header + full content + extra instructions
+        let finalMessage = `[User pasted ${totalLines} lines (${sizeStr}) of ${contentType}]\n\n${combined}`;
+        if (extraInput) {
+          finalMessage += `\n\n[User's additional instruction: ${extraInput}]`;
+          console.log(`  ${DIM}✓ Appended instruction: "${extraInput.slice(0, 80)}${extraInput.length > 80 ? '…' : ''}"${RESET}`);
+        } else {
+          console.log(`  ${DIM}✓ Sending paste content as-is${RESET}`);
+        }
+        console.log('');
+        await handleInput(finalMessage);
+      } else {
+        // Short paste: just join and send
+        await handleInput(combined);
+      }
     }, 50);
   });
 
@@ -1096,8 +1379,31 @@ async function main() {
 
     if (input === '/shutdown') {
       console.log(`\n${DIM}Shutting down daemon...${RESET}`);
+      // Get daemon PID from the .json metadata next to the socket
+      let daemonPid: number | null = null;
+      try {
+        const socketDir = path.join(os.tmpdir(), 'baoclaw-sockets');
+        for (const file of fs.readdirSync(socketDir)) {
+          if (!file.endsWith('.json')) continue;
+          try {
+            const meta = JSON.parse(fs.readFileSync(path.join(socketDir, file), 'utf-8'));
+            if (meta.socket === socketPath) { daemonPid = meta.pid; break; }
+          } catch {}
+        }
+      } catch {}
       try { await client.request('shutdown'); } catch {}
       await client.disconnect();
+      // Wait for daemon to exit gracefully, then force-kill if needed
+      if (daemonPid) {
+        const deadline = Date.now() + 3000;
+        while (Date.now() < deadline) {
+          try { process.kill(daemonPid, 0); } catch { break; } // process gone
+          await new Promise(r => setTimeout(r, 200));
+        }
+        try { process.kill(daemonPid, 0); // still alive?
+          process.kill(daemonPid, 'SIGKILL');
+        } catch {}
+      }
       process.exit(0);
     }
 
@@ -1484,6 +1790,17 @@ async function main() {
       const arg = input.slice('/history'.length).trim();
       const count = parseInt(arg, 10) || 10;
       await showHistory(client, count);
+      rl.prompt();
+      return;
+    }
+
+    if (input === '/debug') {
+      debugMode = !debugMode;
+      if (debugMode) {
+        firstQueryDone = false;
+        resetDebugTimers();
+      }
+      console.log(`\n${debugMode ? FG_GREEN + BOLD + 'Debug timing ON' + RESET + DIM + ' (will show detailed sub-step timing for the next query)' : FG_YELLOW + 'Debug timing OFF' + RESET}\n`);
       rl.prompt();
       return;
     }
@@ -1883,6 +2200,11 @@ async function main() {
           toolCount = 0;
           queryStartTime = Date.now();
           startSpinner('Thinking...');
+          // Debug: record submit time
+          if (debugMode && !firstQueryDone) {
+            resetDebugTimers();
+            debugSubmitTime = Date.now();
+          }
           try {
             await client.request('submitMessage', { prompt: transcript });
           } catch (err) {
@@ -2030,6 +2352,7 @@ async function main() {
       console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model${RESET}`);
       console.log(`  ${FG_WHITE}/history${RESET}    ${DIM}Recent conversation: /history [n]${RESET}`);
       console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
+      console.log(`  ${FG_WHITE}/debug${RESET}      ${DIM}Toggle timing debug for next query${RESET}`);
       console.log();
 
       console.log(`  ${FG_GRAY}── Projects & Git ──${RESET}`);
@@ -2164,6 +2487,11 @@ async function main() {
     }
 
     try {
+      // Debug: record submit time for first query timing
+      if (debugMode && !firstQueryDone) {
+        resetDebugTimers();
+        debugSubmitTime = Date.now();
+      }
       await client.request('submitMessage', submitPayload);
     } catch (err) {
       stopSpinner();

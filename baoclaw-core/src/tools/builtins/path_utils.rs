@@ -1,7 +1,11 @@
 use std::path::{Path, PathBuf};
 
 /// Resolve and validate a file path, preventing path traversal attacks.
-/// Returns the canonical path if it's within the allowed boundaries.
+/// Returns the normalized path.
+///
+/// - Absolute paths are allowed unconditionally (the caller has full control).
+/// - Relative paths are resolved against `cwd` and must stay within the
+///   working directory boundaries (cwd + additional_dirs) to prevent `..` escapes.
 pub fn resolve_and_validate_path(
     path: &str,
     cwd: &Path,
@@ -12,14 +16,15 @@ pub fn resolve_and_validate_path(
     }
 
     let raw = Path::new(path);
-    let absolute = if raw.is_absolute() {
-        raw.to_path_buf()
-    } else {
-        cwd.join(raw)
-    };
 
-    // Normalize the path by resolving `.` and `..` components without requiring
-    // the path to exist on disk (canonicalize requires existence).
+    // Absolute paths: normalize and allow directly
+    if raw.is_absolute() {
+        let normalized = normalize_path(raw);
+        return Ok(normalized);
+    }
+
+    // Relative paths: resolve against cwd, then check boundaries
+    let absolute = cwd.join(raw);
     let normalized = normalize_path(&absolute);
 
     if !is_within_boundaries(&normalized, cwd, additional_dirs) {
@@ -96,10 +101,12 @@ mod tests {
     }
 
     #[test]
-    fn test_reject_absolute_path_outside_cwd() {
+    fn test_allow_absolute_path_outside_cwd() {
+        // Absolute paths are now allowed unconditionally
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("/etc/passwd", cwd, &[]);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/etc/passwd"));
     }
 
     #[test]
@@ -111,11 +118,13 @@ mod tests {
     }
 
     #[test]
-    fn test_reject_path_outside_additional_dirs() {
+    fn test_allow_absolute_path_outside_additional_dirs() {
+        // Absolute paths are now allowed regardless of additional_dirs
         let cwd = Path::new("/home/user/project");
         let additional = vec![PathBuf::from("/opt/shared")];
         let result = resolve_and_validate_path("/opt/other/data.txt", cwd, &additional);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/opt/other/data.txt"));
     }
 
     #[test]

@@ -107,7 +107,7 @@ pub async fn execute_tool(
     match call_result {
         Ok(result) => {
             let max_size = tool.max_result_size_chars();
-            let output = truncate_if_needed(result.data, max_size);
+            let output = maybe_persist_or_truncate(result.data, max_size, context, &tool_use_id);
             ToolExecutionResult {
                 tool_use_id,
                 tool_name,
@@ -232,7 +232,7 @@ async fn call_tool_and_wrap(
     match call_result {
         Ok(result) => {
             let max_size = tool.max_result_size_chars();
-            let output = truncate_if_needed(result.data, max_size);
+            let output = maybe_persist_or_truncate(result.data, max_size, context, &tool_use_id);
             ToolExecutionResult {
                 tool_use_id,
                 tool_name,
@@ -255,6 +255,44 @@ fn truncate_if_needed(data: Value, max_size_chars: usize) -> Value {
     if serialized.len() <= max_size_chars {
         return data;
     }
+    let truncated: String = serialized.chars().take(max_size_chars).collect();
+    Value::String(format!(
+        "{}\n\n[Result truncated: output exceeded {} characters]",
+        truncated, max_size_chars
+    ))
+}
+
+/// Try to persist large tool results to disk; fall back to truncation.
+///
+/// If a `ToolResultStore` is available in the context and the serialized
+/// output exceeds the threshold, the full content is written to a file and
+/// the in-context value is replaced with a `<persisted-output>` block.
+/// Otherwise the old truncation logic is used.
+fn maybe_persist_or_truncate(data: Value, max_size_chars: usize, context: &ToolContext, tool_use_id: &str) -> Value {
+    let serialized = match serde_json::to_string(&data) {
+        Ok(s) => s,
+        Err(_) => return data,
+    };
+
+    // Under the size limit — no action needed
+    if serialized.len() <= max_size_chars {
+        return data;
+    }
+
+    // Try persisting via ToolResultStore
+    if let Some(ref store) = context.tool_result_store {
+        // Extract string content from the Value for persistence
+        let content_str = match &data {
+            Value::String(s) => s.clone(),
+            other => serde_json::to_string(other).unwrap_or_default(),
+        };
+
+        if let Some(formatted) = store.persist_and_format(&content_str, tool_use_id) {
+            return Value::String(formatted);
+        }
+    }
+
+    // Fallback: truncate
     let truncated: String = serialized.chars().take(max_size_chars).collect();
     Value::String(format!(
         "{}\n\n[Result truncated: output exceeded {} characters]",
@@ -498,6 +536,8 @@ mod tests {
             cwd: PathBuf::from("/tmp"),
             model: "test-model".to_string(),
             abort_signal: Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         }
     }
 

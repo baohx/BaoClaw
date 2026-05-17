@@ -15,8 +15,16 @@
 #![allow(unused_imports)]
 
 use crate::models::message::{Message, MessageContent, Usage};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+/// Persisted token counter state for fast startup recovery.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct TokenBaseline {
+    pub last_known_input_tokens: u64,
+    pub last_known_message_count: usize,
+}
 
 /// Tracks input-token usage per session, calibrated against real API responses.
 #[derive(Debug)]
@@ -115,9 +123,115 @@ impl TokenCounter {
     /// `context_window * threshold_ratio` — the signal to auto-compact.
     pub fn should_compact(&self, messages: &[Message]) -> bool {
         let est = self.estimate(messages);
+        self.should_compact_given(est)
+    }
+
+    /// Returns true when the given pre-computed estimate exceeds the compact threshold.
+    /// Avoids redundant `estimate()` calls when the value is already known.
+    pub fn should_compact_given(&self, est: u64) -> bool {
         let threshold = (self.context_window as f64 * self.threshold_ratio) as u64;
         est > threshold
     }
+
+    // ── Multi-level budget management ──────────────────────────────────
+
+    /// Effective window = context_window − summary_output_reserve − compact_buffer.
+    /// Reserves 20K tokens for the compact summary output and 13K as a
+    /// buffer so we never right up against the hard limit.
+    pub fn effective_window(&self) -> u64 {
+        self.context_window.saturating_sub(33_000)
+    }
+
+    /// Warning threshold — roughly 20K tokens below the effective window.
+    pub fn warning_threshold(&self) -> u64 {
+        self.effective_window().saturating_sub(20_000)
+    }
+
+    /// Blocking threshold — roughly 3K tokens below the effective window.
+    /// At this point we MUST compact before the next API call.
+    pub fn blocking_threshold(&self) -> u64 {
+        self.effective_window().saturating_sub(3_000)
+    }
+
+    /// Compact threshold (the original threshold_ratio-based level).
+    pub fn compact_threshold(&self) -> u64 {
+        (self.context_window as f64 * self.threshold_ratio) as u64
+    }
+
+    /// Return the current budget status for the given message list.
+    pub fn budget_status(&self, messages: &[Message]) -> BudgetStatus {
+        let est = self.estimate(messages);
+        self.budget_status_given(est)
+    }
+
+    /// Return the budget status for a pre-computed estimate.
+    /// Avoids redundant `estimate()` calls when the value is already known.
+    pub fn budget_status_given(&self, est: u64) -> BudgetStatus {
+        if est > self.blocking_threshold() {
+            BudgetStatus::Blocking
+        } else if est > self.warning_threshold() {
+            BudgetStatus::Warning
+        } else if est > self.compact_threshold() {
+            BudgetStatus::Compact
+        } else {
+            BudgetStatus::Normal
+        }
+    }
+
+    // ── Baseline persistence ─────────────────────────────────────────
+
+    /// Persist the current calibration state to disk for fast recovery.
+    ///
+    /// Writes to `~/.baoclaw/sessions/{session_id}.baseline.json`.
+    /// No-op if no calibration has been performed yet.
+    pub fn save_baseline(&self, session_id: &str) {
+        if let Some(tokens) = self.last_known_input_tokens {
+            let baseline = TokenBaseline {
+                last_known_input_tokens: tokens,
+                last_known_message_count: self.last_known_message_count,
+            };
+            if let Some(path) = Self::baseline_path(session_id) {
+                if let Ok(data) = serde_json::to_string(&baseline) {
+                    let _ = std::fs::write(&path, data);
+                }
+            }
+        }
+    }
+
+    /// Load a persisted baseline for the given session.
+    /// Returns `None` if no baseline file exists or it is invalid.
+    pub fn load_baseline(session_id: &str) -> Option<TokenBaseline> {
+        let path = Self::baseline_path(session_id)?;
+        let data = std::fs::read_to_string(&path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    /// Restore calibration state from a previously saved baseline.
+    pub fn apply_baseline(&mut self, baseline: TokenBaseline) {
+        self.last_known_input_tokens = Some(baseline.last_known_input_tokens);
+        self.last_known_message_count = baseline.last_known_message_count;
+    }
+
+    /// Return the path for a session's baseline file.
+    fn baseline_path(session_id: &str) -> Option<PathBuf> {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok()?;
+        Some(PathBuf::from(home).join(".baoclaw").join("sessions").join(format!("{}.baseline.json", session_id)))
+    }
+}
+
+/// Multi-level token budget status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BudgetStatus {
+    /// Well within limits.
+    Normal,
+    /// Above the compact threshold — consider pre-emptive compaction.
+    Compact,
+    /// Approaching the limit — compact soon.
+    Warning,
+    /// At or past the effective limit — must compact before next API call.
+    Blocking,
 }
 
 #[cfg(test)]

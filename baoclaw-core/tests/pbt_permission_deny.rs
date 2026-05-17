@@ -83,6 +83,8 @@ fn make_context() -> ToolContext {
         cwd: PathBuf::from("/tmp"),
         model: "test".to_string(),
         abort_signal: Arc::new(rx),
+        file_cache: None,
+        tool_result_store: None,
     }
 }
 

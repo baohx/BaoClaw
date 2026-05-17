@@ -101,6 +101,9 @@ impl TaskManager {
                 auto_compact_threshold_ratio: 0.7,
                 parent_turn_id: None,
                 agent_label: None,
+                session_memory: None,
+                file_cache: None,
+                tool_result_store: None,
             };
 
             let mut engine = QueryEngine::new(config);

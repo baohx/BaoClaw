@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use crate::engine::file_cache::FileCache;
+use crate::engine::tool_result_store::ToolResultStore;
 
 /// Tool execution result
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -120,6 +124,23 @@ pub trait Tool: Send + Sync {
     fn user_facing_name(&self, _input: Option<&Value>) -> String {
         self.name().to_string()
     }
+
+    /// Whether this tool should be deferred (lazy-loaded) in the prompt.
+    ///
+    /// Deferred tools emit only a lightweight stub (name + short description)
+    /// in the API request.  The full schema is loaded on-demand when the model
+    /// invokes the tool via Tool Search.  This keeps the cached prefix small
+    /// and stable — adding/removing MCP tools won't invalidate the cache.
+    fn is_deferred(&self) -> bool {
+        false
+    }
+
+    /// Short one-line description for deferred tool stubs.
+    /// Defaults to the first line of `prompt()`.
+    fn short_description(&self) -> String {
+        let prompt = self.prompt();
+        prompt.lines().next().unwrap_or("").to_string()
+    }
 }
 
 /// Context available to tools during execution
@@ -128,6 +149,10 @@ pub struct ToolContext {
     pub cwd: PathBuf,
     pub model: String,
     pub abort_signal: Arc<tokio::sync::watch::Receiver<bool>>,
+    /// Shared file cache for reducing redundant file reads.
+    pub file_cache: Option<Arc<Mutex<FileCache>>>,
+    /// Tool result store for persisting large outputs to disk.
+    pub tool_result_store: Option<Arc<ToolResultStore>>,
 }
 
 /// Tool execution errors

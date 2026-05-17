@@ -8,7 +8,7 @@ use crate::tools::trait_def::*;
 
 /// AgentTool — creates an independent sub-agent QueryEngine to execute a sub-task.
 ///
-/// The sub-agent has its own message history and uses a read-only tool subset,
+/// The sub-agent has its own message history and uses the full tool set,
 /// sharing the parent's API client.
 pub struct AgentTool {
     api_client: Arc<UnifiedClient>,
@@ -17,7 +17,8 @@ pub struct AgentTool {
 }
 
 impl AgentTool {
-    pub fn new(
+    /// Create an AgentTool with the full tool set (sub-agents can read, write, bash, etc.)
+    pub fn new_with_full_tools(
         api_client: Arc<UnifiedClient>,
         available_tools: Vec<Arc<dyn Tool>>,
     ) -> Self {
@@ -62,7 +63,7 @@ impl Tool for AgentTool {
     }
 
     fn is_read_only(&self, _input: &Value) -> bool {
-        true
+        false
     }
 
     fn is_concurrency_safe(&self, _input: &Value) -> bool {
@@ -71,8 +72,9 @@ impl Tool for AgentTool {
 
     fn prompt(&self) -> String {
         "Create an independent sub-agent to execute a task. The sub-agent has its own \
-         conversation history and uses read-only tools. Useful for parallel research, \
-         code analysis, or information gathering tasks."
+         conversation history and full access to all tools (read, write, bash, search, etc.). \
+         Useful for delegating complex multi-step tasks that require file modifications, \
+         code execution, or parallel work."
             .to_string()
     }
 
@@ -116,8 +118,9 @@ impl Tool for AgentTool {
             max_budget_usd: None,
             verbose: false,
             custom_system_prompt: Some(
-                "You are a sub-agent. Complete the given task using available tools. \
-                 Be concise and focused."
+                "You are a sub-agent with full tool access. You can read and write files, \
+                 execute bash commands, search the web, and use all other available tools. \
+                 Complete the given task thoroughly. Be concise but thorough."
                     .to_string(),
             ),
             append_system_prompt: None,
@@ -133,6 +136,9 @@ impl Tool for AgentTool {
                 let preview: String = prompt.chars().take(40).collect();
                 if prompt.chars().count() > 40 { format!("{}…", preview) } else { preview }
             }),
+            session_memory: None, // Sub-agents do not use session memory
+            file_cache: None,     // Sub-agents share parent's context
+            tool_result_store: None, // Sub-agents don't persist tool results
         };
 
         let mut sub_engine = QueryEngine::new(sub_engine_config);
@@ -204,31 +210,31 @@ mod tests {
 
     #[test]
     fn test_agent_tool_name() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         assert_eq!(tool.name(), "AgentTool");
     }
 
     #[test]
     fn test_agent_tool_aliases() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         assert_eq!(tool.aliases(), vec!["Agent"]);
     }
 
     #[test]
-    fn test_agent_tool_is_read_only() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
-        assert!(tool.is_read_only(&json!({})));
+    fn test_agent_tool_is_not_read_only() {
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
+        assert!(!tool.is_read_only(&json!({})));
     }
 
     #[test]
     fn test_agent_tool_is_concurrency_safe() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         assert!(tool.is_concurrency_safe(&json!({})));
     }
 
     #[test]
     fn test_agent_tool_input_schema() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         let schema = tool.input_schema();
         assert_eq!(schema.schema_type, "object");
         assert_eq!(schema.required, Some(vec!["prompt".to_string()]));
@@ -241,18 +247,20 @@ mod tests {
 
     #[test]
     fn test_agent_tool_default_max_turns() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         assert_eq!(tool.default_max_turns, 10);
     }
 
     #[tokio::test]
     async fn test_agent_tool_validate_missing_prompt() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         let (_tx, rx) = tokio::sync::watch::channel(false);
         let ctx = ToolContext {
             cwd: std::path::PathBuf::from("/tmp"),
             model: "test".to_string(),
             abort_signal: Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         };
         let result = tool.validate_input(&json!({}), &ctx).await;
         assert!(matches!(result, ValidationResult::Invalid { .. }));
@@ -260,12 +268,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_tool_validate_empty_prompt() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         let (_tx, rx) = tokio::sync::watch::channel(false);
         let ctx = ToolContext {
             cwd: std::path::PathBuf::from("/tmp"),
             model: "test".to_string(),
             abort_signal: Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         };
         let result = tool.validate_input(&json!({"prompt": ""}), &ctx).await;
         assert!(matches!(result, ValidationResult::Invalid { .. }));
@@ -273,12 +283,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_tool_validate_valid_prompt() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         let (_tx, rx) = tokio::sync::watch::channel(false);
         let ctx = ToolContext {
             cwd: std::path::PathBuf::from("/tmp"),
             model: "test".to_string(),
             abort_signal: Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         };
         let result = tool
             .validate_input(&json!({"prompt": "do something"}), &ctx)
@@ -288,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_agent_tool_prompt_description() {
-        let tool = AgentTool::new(make_api_client(), vec![]);
+        let tool = AgentTool::new_with_full_tools(make_api_client(), vec![]);
         let prompt = tool.prompt();
         assert!(prompt.contains("sub-agent"));
     }

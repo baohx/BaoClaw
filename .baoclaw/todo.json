@@ -1,7 +1,7 @@
 [
   {
     "text": "排查网络中断后重新发指令立即退出的问题",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-04-28T07:22:07+08:00"
   },
@@ -226,5 +226,251 @@
     "completed": true,
     "priority": "high",
     "created_at": "2026-05-08T06:18:52.274146196+00:00"
+  },
+  {
+    "text": "Task 1: Add cache_control to CreateMessageRequest in client.rs",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-14T09:09:17.880667515+00:00"
+  },
+  {
+    "text": "Task 2: Split build_system_prompt into static + dynamic parts (cache-safe)",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-05-14T09:10:35.360435020+00:00"
+  },
+  {
+    "text": "Task 3: Move Git Status out of system prompt into system-reminder message",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-05-14T09:11:50.098850975+00:00"
+  },
+  {
+    "text": "Task 4: Implement cache_control breakpoints in build_api_request",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-05-14T09:13:12.593699641+00:00"
+  },
+  {
+    "text": "Task 5: Implement cache-safe forking in compact_messages",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-05-14T09:14:13.723177872+00:00"
+  },
+  {
+    "text": "Task 6: Sort tools deterministically in build_api_request",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-05-14T09:15:28.444164144+00:00"
+  },
+  {
+    "text": "Task 7: Add tool stubs with lazy loading for deferred tools",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-05-14T09:16:28.616424934+00:00"
+  },
+  {
+    "text": "Task 8: Build and verify all changes compile",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-05-14T09:17:32.740926542+00:00"
+  },
+  {
+    "text": "Task 1: 在 main.rs 中构造 run_fn 闭包 + 启动 cron scheduler",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T10:27:57.573969420+00:00"
+  },
+  {
+    "text": "Task 2: 在 handle_shared_client 中订阅 cron 结果广播并转发给客户端",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-05-15T10:27:57.574986831+00:00"
+  },
+  {
+    "text": "Task 3: 编译验证 + 单元测试",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-05-15T10:27:57.576886284+00:00"
+  },
+  {
+    "text": "改进 daemon 端 talkTail：返回完整文本、工具结果、cost/duration/usage、模型信息",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T16:04:50.535261954+00:00"
+  },
+  {
+    "text": "改进 CLI 端 showHistory：展示完整文本、工具调用详情、token/cost 统计",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T16:05:04.209254635+00:00"
+  },
+  {
+    "text": "evolution.rs: 新增 SessionSummary 结构体 + on_session_close() 方法",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:24:06.423714702+00:00"
+  },
+  {
+    "text": "evolution.rs: 新增 SessionSummary + on_session_close() + build_session_review_prompt()",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:24:17.510279225+00:00"
+  },
+  {
+    "text": "evolution.rs: 新增 SessionSummary 结构体 + on_session_close() 方法",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:24:31.594774169+00:00"
+  },
+  {
+    "text": "evolution.rs: 新增 SessionSummary + on_session_close() + enhance build_prompt_fragment()",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:24:44.896988370+00:00"
+  },
+  {
+    "text": "evolution.rs: 新增 SessionSummary + on_session_close() + build_session_review_prompt()",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:25:25.993870152+00:00"
+  },
+  {
+    "text": "CLI 多行粘贴缩略：粘贴超过 N 行时，自动缩略成概述 + 允许追加指导指令",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:45:07.831073138+00:00"
+  },
+  {
+    "text": "问题1: CLI 多行粘贴缩略 — 粘贴超5行时自动缩略成概述+允许追加指令",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:45:32.905705654+00:00"
+  },
+  {
+    "text": "问题1: CLI 多行粘贴缩略 — 粘贴超5行时自动缩略成概述+允许追加指令",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:45:57.252682752+00:00"
+  },
+  {
+    "text": "问题1: CLI 多行粘贴缩略 — 粘贴超阈值时缩略成概述，允许追加指令",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:46:20.768587749+00:00"
+  },
+  {
+    "text": "问题1: CLI 多行粘贴缩略 — 粘贴超阈值时缩略成概述，弹出引导让用户追加指令",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:46:44.423336459+00:00"
+  },
+  {
+    "text": "问题1: CLI 多行粘贴缩略 — 超5行时显示摘要概述，暂停让用户输入追加指令后一起发送",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-15T23:47:08.420928109+00:00"
+  },
+  {
+    "text": "Bug 1: 多行粘贴最后一行丢失 — pasteBuffer + 50ms timer 机制导致最后一行在下次输入才出现",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T00:25:37.269603616+00:00"
+  },
+  {
+    "text": "Bug 2: Ctrl+C 在 thinking 时不响应 — readline SIGINT handler 在 submitMessage await 期间无法中断",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T00:25:46.800475318+00:00"
+  },
+  {
+    "text": "Bug 3: 红色报错行重复显示 — error event 后残留状态未清理，下次 input 时被重新输出",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T00:25:55.353795737+00:00"
+  },
+  {
+    "text": "Bug 4: 多行输入第一行重复显示 — readline 原生 echo 显示了第一行，handleLine 的 console.log 又显示了一遍",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T00:28:37.091398286+00:00"
+  },
+  {
+    "text": "Feature: Debug 模式 — /debug 命令，统计 TTFB、thinking 时间、tool 执行时间",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T00:28:49.225259758+00:00"
+  },
+  {
+    "text": "TTFB 优化分析：467ms 主要耗时拆解与优化方案",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T07:34:48.660775921+00:00"
+  },
+  {
+    "text": "优化1: Git info 刷新改为后台异步，不阻塞主请求路径（节省 ~30-50ms）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T07:35:00.169422711+00:00"
+  },
+  {
+    "text": "优化2: 增大连接池 idle timeout 从 90s → 600s，防止冷启动握手（节省 ~80ms）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T07:35:41.021064749+00:00"
+  },
+  {
+    "text": "TTFB优化实施: (1) 连接池idle 90s→600s (2) git info后台刷新不阻塞 (3) 去掉冗余Progress事件发送",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T07:36:29.178887885+00:00"
+  },
+  {
+    "text": "Optimization 1: Increase pool_idle_timeout to 600s and add tcp_keepalive",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T07:37:33.130883359+00:00"
+  },
+  {
+    "text": "Optimization 2: Make git info refresh non-blocking after first turn",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T07:37:33.132715138+00:00"
+  },
+  {
+    "text": "Optimization 3: Remove unnecessary Progress events from critical path",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T07:37:33.133504739+00:00"
+  },
+  {
+    "text": "Task 1: 重写 session_memory.rs — 添加 is_available、截断、path_for",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T10:28:36.932656876+00:00"
+  },
+  {
+    "text": "Task 2: query_engine 中每N轮后台spawn摘要更新",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T10:36:34.712208692+00:00"
+  },
+  {
+    "text": "Task 3: 重写 main.rs session 恢复逻辑 — 摘要优先三层策略",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T10:55:39.488595541+00:00"
+  },
+  {
+    "text": "Task 3b: 修复 pre-query auto-compact — 大 session 不触发 API compact",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T10:59:38.269073182+00:00"
+  },
+  {
+    "text": "Task 4: daemon 关闭时保存 session memory（heuristic 摘要）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-16T11:03:54.404607722+00:00"
   }
 ]

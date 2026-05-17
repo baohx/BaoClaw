@@ -143,7 +143,7 @@ else
 fi
 
 export BAOCLAW_CORE_BIN="$BAOCLAW_HOME/bin/baoclaw-core"
-exec npx --prefix "$BAOCLAW_HOME/ts-ipc" tsx "$BAOCLAW_HOME/ts-ipc/cli.ts"
+exec npx --prefix "$BAOCLAW_HOME/ts-ipc" tsx "$BAOCLAW_HOME/ts-ipc/cli.ts" "$@"
 LAUNCHER
 
 chmod +x "$BIN_DIR/baoclaw"

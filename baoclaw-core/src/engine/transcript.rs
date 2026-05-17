@@ -178,6 +178,42 @@ pub fn rebuild_messages_from_transcript(entries: &[TranscriptEntry]) -> Vec<crat
     messages
 }
 
+/// Rebuild messages from transcript entries, limited to the last `max_entries`.
+///
+/// If the entry count exceeds `max_entries`, only the tail is rebuilt.
+/// When a `summary` is provided and truncation occurs, a `CompactBoundary`
+/// system message is prepended so the LLM has context about earlier turns.
+pub fn rebuild_messages_from_transcript_limited(
+    entries: &[TranscriptEntry],
+    max_entries: usize,
+    summary: Option<&str>,
+) -> Vec<crate::models::message::Message> {
+    use crate::models::message::{Message, MessageContent, SystemSubtype};
+
+    if entries.len() <= max_entries {
+        return rebuild_messages_from_transcript(entries);
+    }
+
+    let limited = &entries[entries.len() - max_entries..];
+    let mut messages = rebuild_messages_from_transcript(limited);
+
+    if let Some(summary_text) = summary {
+        if !summary_text.is_empty() {
+            let boundary = Message {
+                uuid: uuid::Uuid::new_v4().to_string(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                content: MessageContent::System {
+                    subtype: SystemSubtype::CompactBoundary,
+                    content: format!("[Session Memory — earlier context]\n{}", summary_text),
+                },
+            };
+            messages.insert(0, boundary);
+        }
+    }
+
+    messages
+}
+
 
 /// Find the most recent session file for a given cwd.
 ///

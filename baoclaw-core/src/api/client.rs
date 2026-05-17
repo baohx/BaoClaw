@@ -46,6 +46,37 @@ pub struct CreateMessageRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
+impl CreateMessageRequest {
+    /// Build a cache-safe compaction request that shares the same system prompt,
+    /// tools, and conversation history as the main dialogue, appending only a
+    /// summarisation instruction as the final user message.
+    ///
+    /// This ensures the compaction API call reuses the cached prefix from the
+    /// main conversation, adding cost only for the final summarisation message.
+    pub fn for_cache_safe_compaction(
+        main_request: &CreateMessageRequest,
+        old_messages: &[serde_json::Value],
+        summary_instruction: &str,
+    ) -> Self {
+        let mut messages = old_messages.to_vec();
+        messages.push(serde_json::json!({
+            "role": "user",
+            "content": summary_instruction,
+        }));
+
+        Self {
+            model: main_request.model.clone(),
+            messages,
+            system: main_request.system.clone(),
+            tools: main_request.tools.clone(),
+            max_tokens: 4096,
+            stream: true,
+            thinking: None,
+            metadata: None,
+        }
+    }
+}
+
 // --- SSE stream event types ---
 
 /// SSE stream events from the Anthropic API.
@@ -245,6 +276,23 @@ fn parse_next_sse_event(buffer: &mut String) -> Option<Result<ApiStreamEvent, Ap
         return None;
     }
 
+    // Check if the JSON is an API error response (e.g. from third-party providers
+    // that return {"error":{"code":"...","message":"..."}} instead of a standard
+    // Anthropic SSE event). These arrive as SSE data lines but lack the "type" field.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+        if let Some(error_obj) = value.get("error") {
+            let code = error_obj.get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let message = error_obj.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown API error");
+            return Some(Err(ApiError::BadRequest {
+                message: format!("{}: {}", code, message),
+            }));
+        }
+    }
+
     // Parse the JSON data into an ApiStreamEvent
     match serde_json::from_str::<ApiStreamEvent>(data) {
         Ok(event) => Some(Ok(event)),
@@ -269,7 +317,8 @@ impl AnthropicClient {
         let mut builder = reqwest::Client::builder()
             // Long timeouts for streaming — SSE connections can stay open for minutes
             .connect_timeout(std::time::Duration::from_secs(30))
-            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .pool_idle_timeout(std::time::Duration::from_secs(600))
+            .tcp_keepalive(std::time::Duration::from_secs(30))
             // Explicitly request identity encoding headers — decompression is automatic
             // via the gzip/brotli/deflate features
             .user_agent("baoclaw/1.0.0");
@@ -297,6 +346,39 @@ impl AnthropicClient {
     /// Returns the configured max retries.
     pub fn max_retries(&self) -> u32 {
         self.max_retries
+    }
+
+    /// Pre-warm the TLS connection pool by sending a lightweight request.
+    /// The response is discarded — this just ensures the TCP + TLS + HTTP/2
+    /// handshake is done before the first real API call, saving 100-300ms.
+    pub async fn prewarm(&self) {
+        // Determine the URL to prewarm (same logic as create_message_stream)
+        let url = match &self.api_path {
+            Some(p) if p.is_empty() => self.base_url.clone(),
+            Some(p) => format!("{}{}", self.base_url, p),
+            None => {
+                if self.base_url.contains("/v1/messages") || self.base_url.contains("/v1/chat") {
+                    self.base_url.clone()
+                } else if self.base_url.ends_with("/v1") {
+                    format!("{}/messages", self.base_url)
+                } else {
+                    format!("{}/v1/messages", self.base_url)
+                }
+            }
+        };
+
+        match self.http_client
+            .post(&url)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", API_VERSION)
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+        {
+            Ok(_) => eprintln!("API connection pre-warmed (Anthropic)"),
+            Err(e) => eprintln!("API pre-warm failed (non-fatal): {}", e),
+        }
     }
 
     /// Sends a streaming message creation request and returns an async stream of SSE events.

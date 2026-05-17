@@ -11,7 +11,57 @@ pub struct GitInfo {
     pub untracked_files: Vec<String>,
 }
 
-/// Collect git information for the given working directory.
+/// Collect git information asynchronously using tokio::process.
+///
+/// Runs all 3 git commands in parallel via `tokio::join!`, reducing latency
+/// from ~90ms serial to ~30ms parallel.
+pub async fn get_git_info_async(cwd: &Path) -> Option<GitInfo> {
+    use tokio::process::Command as AsyncCommand;
+
+    // Run all three git commands in parallel
+    let inside_fut = AsyncCommand::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(cwd)
+        .output();
+    let branch_fut = AsyncCommand::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(cwd)
+        .output();
+    let status_fut = AsyncCommand::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(cwd)
+        .output();
+
+    let (inside_res, branch_res, status_res) = tokio::join!(inside_fut, branch_fut, status_fut);
+
+    // Check inside work tree
+    let inside = inside_res.ok()?;
+    if !inside.status.success() {
+        return None;
+    }
+
+    // Parse branch
+    let branch = branch_res
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    // Parse porcelain status
+    let status_output = status_res.ok()?;
+    let status_text = String::from_utf8_lossy(&status_output.stdout);
+    let (staged, modified, untracked) = parse_porcelain_status(&status_text);
+
+    Some(GitInfo {
+        branch,
+        has_changes: !staged.is_empty() || !modified.is_empty() || !untracked.is_empty(),
+        staged_files: staged,
+        modified_files: modified,
+        untracked_files: untracked,
+    })
+}
+
+/// Collect git information for the given working directory (synchronous).
 ///
 /// Returns `None` if the directory is not inside a git repository
 /// or if the `git` binary is unavailable.

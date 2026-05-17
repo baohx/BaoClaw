@@ -93,12 +93,74 @@ impl Tool for FileReadTool {
         let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
             .map_err(|e| ToolError::ExecutionFailed(e))?;
 
+        let offset = input.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let limit = input.get("limit").and_then(|v| v.as_u64());
+
+        // Check file cache for full-file reads (no offset/limit)
+        if offset == 0 && limit.is_none() {
+            if let Some(ref cache_arc) = context.file_cache {
+                let mut cache = cache_arc.lock().await;
+                let status = cache.check(&resolved);
+                match status {
+                    crate::engine::file_cache::CacheStatus::Hit => {
+                        cache.touch(&resolved);
+                        let stub = cache.build_stub(&resolved).unwrap_or_else(|| {
+                            "[File cache hit: content unchanged.]".to_string()
+                        });
+                        // Still need line_count for the response
+                        let content = tokio::fs::read_to_string(&resolved)
+                            .await
+                            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read file: {}", e)))?;
+                        let line_count = content.lines().count();
+                        return Ok(ToolResult {
+                            data: json!({
+                                "content": stub,
+                                "file_path": resolved.to_string_lossy(),
+                                "total_lines": line_count,
+                                "lines_read": line_count,
+                                "offset": 0,
+                                "cache_hit": true,
+                            }),
+                            is_error: false,
+                        });
+                    }
+                    _ => {
+                        // Miss or Changed — read the file and update cache
+                        let content = tokio::fs::read_to_string(&resolved)
+                            .await
+                            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read file: {}", e)))?;
+                        cache.record(&resolved, &content);
+
+                        let lines: Vec<&str> = content.lines().collect();
+                        let total_lines = lines.len();
+                        let result_content = content;
+
+                        return Ok(ToolResult {
+                            data: json!({
+                                "content": result_content,
+                                "file_path": resolved.to_string_lossy(),
+                                "total_lines": total_lines,
+                                "lines_read": total_lines,
+                                "offset": 0,
+                            }),
+                            is_error: false,
+                        });
+                    }
+                }
+            }
+        }
+
+        // No cache or partial read — normal read
         let content = tokio::fs::read_to_string(&resolved)
             .await
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read file: {}", e)))?;
 
-        let offset = input.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let limit = input.get("limit").and_then(|v| v.as_u64());
+        // Record partial reads too (so cache is aware of this file)
+        if offset == 0 && limit.is_none() {
+            if let Some(ref cache_arc) = context.file_cache {
+                cache_arc.lock().await.record(&resolved, &content);
+            }
+        }
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
@@ -143,6 +205,8 @@ mod tests {
             cwd: cwd.to_path_buf(),
             model: "test".to_string(),
             abort_signal: Arc::new(rx),
+            file_cache: None,
+            tool_result_store: None,
         }
     }
 

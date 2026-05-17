@@ -43,6 +43,14 @@ impl UnifiedClient {
         Self::OpenAi(OpenAiClient::new(config))
     }
 
+    /// Pre-warm the TLS connection pool for the active backend.
+    pub async fn prewarm(&self) {
+        match self {
+            Self::Anthropic(c) => c.prewarm().await,
+            Self::OpenAi(c) => c.prewarm().await,
+        }
+    }
+
     pub async fn create_message_stream(
         &self,
         request: CreateMessageRequest,

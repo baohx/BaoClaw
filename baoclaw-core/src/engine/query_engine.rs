@@ -10,7 +10,9 @@ use crate::api::unified::UnifiedClient;
 use crate::api::fallback::{FallbackAction, FallbackController};
 use crate::config::BaoclawConfig;
 use crate::engine::cost_tracker::CostTracker;
-use crate::engine::git_info::{get_git_info, GitInfo};
+use crate::engine::git_info::{get_git_info, get_git_info_async, GitInfo};
+use crate::engine::session_memory::SessionMemory;
+use crate::engine::token_counter::BudgetStatus;
 use crate::engine::transcript::{TranscriptEntry, TranscriptEntryType, TranscriptWriter};
 use crate::models::message::{ContentBlock, Message, MessageContent, ApiAssistantMessage, ApiUserMessage, Usage};
 use crate::tools::executor::{execute_tools, ToolExecutionResult, ToolUseRequest};
@@ -47,6 +49,12 @@ pub struct QueryEngineConfig {
     pub parent_turn_id: Option<u32>,
     /// For sub-agents: a short label describing the task (shown in CLI).
     pub agent_label: Option<String>,
+    /// Session memory for rolling summaries (optional — only created when session_id is set).
+    pub session_memory: Option<Arc<SessionMemory>>,
+    /// Shared file cache for reducing redundant file reads.
+    pub file_cache: Option<Arc<tokio::sync::Mutex<crate::engine::file_cache::FileCache>>>,
+    /// Tool result store for persisting large outputs to disk.
+    pub tool_result_store: Option<Arc<crate::engine::tool_result_store::ToolResultStore>>,
 }
 
 /// Thinking mode configuration for the LLM.
@@ -172,6 +180,14 @@ pub struct CompactResult {
     pub tokens_after: u64,
 }
 
+/// A cached rule file from `.baoclaw/rules/*.md`.
+#[derive(Clone, Debug)]
+pub struct CachedRule {
+    pub filename: String,
+    pub content: String,
+    pub paths_pattern: Option<String>,
+}
+
 /// The core QueryEngine that orchestrates LLM calls, tool execution, and message management.
 pub struct QueryEngine {
     config: QueryEngineConfig,
@@ -181,6 +197,14 @@ pub struct QueryEngine {
     abort_rx: watch::Receiver<bool>,
     total_usage: Usage,
     token_counter: Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>>,
+    /// Consecutive compact failures — triggers circuit breaker at MAX_COMPACT_FAILURES.
+    compact_fail_count: usize,
+    /// Cached project instructions (loaded once in new()).
+    cached_project_instructions: Option<String>,
+    /// Cached rule files (loaded once in new()).
+    cached_rules_raw: Vec<CachedRule>,
+    /// Cached git info (loaded once in new(), refreshed async each turn).
+    cached_git_info: Option<GitInfo>,
 }
 
 impl QueryEngine {
@@ -193,6 +217,10 @@ impl QueryEngine {
                 config.auto_compact_threshold_ratio,
             ),
         ));
+        // Pre-load caches (once, avoid re-reading every turn)
+        let cached_project_instructions = load_project_instructions(&config.cwd);
+        let cached_rules_raw = load_all_rule_files(&config.cwd);
+        let cached_git_info = get_git_info(&config.cwd);
         Self {
             config,
             messages: Vec::new(),
@@ -201,12 +229,23 @@ impl QueryEngine {
             abort_rx,
             total_usage: EMPTY_USAGE,
             token_counter,
+            compact_fail_count: 0,
+            cached_project_instructions,
+            cached_rules_raw,
+            cached_git_info,
         }
     }
 
     /// Signal the engine to abort the current operation.
     pub fn abort(&self) {
         let _ = self.abort_tx.send(true);
+    }
+
+    /// Manually refresh the cached project instructions and rules.
+    pub fn refresh_context_cache(&mut self) {
+        self.cached_project_instructions = load_project_instructions(&self.config.cwd);
+        self.cached_rules_raw = load_all_rule_files(&self.config.cwd);
+        self.cached_git_info = get_git_info(&self.config.cwd);
     }
 
     /// Check whether the engine has been aborted.
@@ -222,6 +261,33 @@ impl QueryEngine {
     /// Replace the conversation message history (used for session resume).
     pub fn set_messages(&mut self, messages: Vec<Message>) {
         self.messages = messages;
+    }
+
+    /// Load and apply a persisted token baseline for fast startup.
+    pub async fn load_token_baseline(&self, session_id: &str) {
+        if let Some(baseline) = crate::engine::token_counter::TokenCounter::load_baseline(session_id) {
+            let mut counter = self.token_counter.lock().await;
+            counter.apply_baseline(baseline);
+        }
+    }
+
+    /// Seed the new session's memory with a summary from a previous session.
+    pub fn seed_session_memory(&self, summary: &str) {
+        if let Some(ref sm) = self.config.session_memory {
+            if !summary.is_empty() {
+                sm.update(summary.to_string());
+            }
+        }
+    }
+
+    /// Get a reference to the session memory (if configured).
+    pub fn get_session_memory(&self) -> &Option<Arc<SessionMemory>> {
+        &self.config.session_memory
+    }
+
+    /// Expose the token counter Arc for external use.
+    pub fn token_counter_arc(&self) -> Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>> {
+        Arc::clone(&self.token_counter)
     }
 
     /// Get a reference to the accumulated usage statistics.
@@ -537,10 +603,15 @@ impl QueryEngine {
         // Reset abort flag for the new query
         let _ = self.abort_tx.send(false);
 
+        let (tx, rx) = mpsc::channel(256);
+
+        let _ = tx.send(EngineEvent::Progress {
+            tool_use_id: String::new(),
+            data: serde_json::json!({"message": "Cleaning up previous state..."}),
+        }).await;
+
         // Clean up any mess from previous errors/aborts before adding new message
         self.cleanup_incomplete_tool_calls();
-
-        let (tx, rx) = mpsc::channel(256);
 
         // Build user message content: plain string or multimodal array
         let content = if let Some(att) = attachments {
@@ -576,22 +647,61 @@ impl QueryEngine {
         self.messages.push(user_msg);
 
         // ── Token budget check: auto-compact if context is too large ──
+        let _ = tx.send(EngineEvent::Progress {
+            tool_use_id: String::new(),
+            data: serde_json::json!({"message": "Estimating token usage..."}),
+        }).await;
         // Threshold and context window come from BaoclawConfig (default 70% of 200K).
         // The TokenCounter uses tiktoken + API-calibrated baselines for accuracy.
-        let should_compact = {
+        // Pre-compute both should_compact and budget_status in a single lock+estimate pass.
+        let (should_compact, initial_budget) = {
             let counter = self.token_counter.lock().await;
-            counter.should_compact(&self.messages) && self.messages.len() > 5
+            let est = counter.current_estimate(&self.messages);
+            let should = counter.should_compact_given(est) && self.messages.len() > 5;
+            let budget = counter.budget_status_given(est);
+            (should, (budget, est))
         };
         if should_compact {
-            let current_tokens = self.token_counter.lock().await.current_estimate(&self.messages);
-            eprintln!("Token budget exceeded ({} tokens), auto-compacting before query", current_tokens);
-            match self.compact().await {
-                Ok(result) => {
-                    eprintln!("Auto-compact: {} -> {} tokens (saved {})",
-                        result.tokens_before, result.tokens_after, result.tokens_saved);
+            // Pre-query compact: only allowed for reasonably-sized message lists.
+            // If we just resumed with thousands of messages (Tier-3 fallback),
+            // compacting here would trigger a 10-min API call — use session_memory
+            // instead (no API call needed).
+            let msg_count = self.messages.len();
+            if msg_count <= 500 {
+                eprintln!("Pre-query auto-compact ({} messages, {} tokens)", msg_count, initial_budget.1);
+                match self.compact().await {
+                    Ok(result) => {
+                        eprintln!("Auto-compact: {} -> {} tokens (saved {})",
+                            result.tokens_before, result.tokens_after, result.tokens_saved);
+                        self.compact_fail_count = 0;
+                    }
+                    Err(e) => {
+                        eprintln!("Auto-compact failed: {}, continuing anyway", e.message);
+                        self.compact_fail_count += 1;
+                    }
                 }
-                Err(e) => {
-                    eprintln!("Auto-compact failed: {}, continuing anyway", e.message);
+            } else {
+                // Too many messages — session resume must have loaded too much.
+                // Do a quick session_memory_compact instead (no API call).
+                eprintln!("Pre-query: {} messages is too many for API compact, trying session_memory_compact", msg_count);
+                if let Some(ref sm) = self.config.session_memory {
+                    if sm.is_available() {
+                        let mut msgs = self.messages.to_vec();
+                        if session_memory_compact(&mut msgs, &sm.get()) {
+                            self.messages = msgs;
+                            eprintln!("Session-memory compact applied ({} messages remaining)", self.messages.len());
+                        }
+                    } else {
+                        // Last resort: just keep last 100 messages
+                        let tail: Vec<_> = self.messages[self.messages.len().saturating_sub(100)..].to_vec();
+                        eprintln!("Emergency tail-trim: {} → {} messages", msg_count, tail.len());
+                        self.messages = tail;
+                    }
+                } else {
+                    // No session_memory at all — keep last 100
+                    let tail: Vec<_> = self.messages[self.messages.len().saturating_sub(100)..].to_vec();
+                    eprintln!("Emergency tail-trim (no session_memory): {} → {} messages", msg_count, tail.len());
+                    self.messages = tail;
                 }
             }
         }
@@ -605,8 +715,8 @@ impl QueryEngine {
             cwd: self.config.cwd.clone(),
             custom_system_prompt: self.config.custom_system_prompt.clone(),
             append_system_prompt: self.config.append_system_prompt.clone(),
-            project_instructions: load_project_instructions(&self.config.cwd),
-            git_info: get_git_info(&self.config.cwd),
+            project_instructions: self.cached_project_instructions.clone(),
+            git_info: self.cached_git_info.clone(),
             thinking_config: self.config.thinking_config.clone(),
             abort_rx: self.abort_rx.clone(),
             session_id: self.config.session_id.clone(),
@@ -615,6 +725,13 @@ impl QueryEngine {
             token_counter: Arc::clone(&self.token_counter),
             parent_turn_id: self.config.parent_turn_id,
             agent_label: self.config.agent_label.clone(),
+            session_memory: self.config.session_memory.as_ref().map(Arc::clone),
+            compact_fail_count: self.compact_fail_count,
+            recent_messages_for_rules: self.messages.clone(),
+            file_cache: self.config.file_cache.as_ref().map(Arc::clone),
+            tool_result_store: self.config.tool_result_store.as_ref().map(Arc::clone),
+            initial_budget: Some(initial_budget),
+            cached_rules_raw: self.cached_rules_raw.clone(),
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -661,6 +778,20 @@ pub struct QueryLoopConfig {
     pub parent_turn_id: Option<u32>,
     /// For sub-agents: a short label describing the task (shown in CLI).
     pub agent_label: Option<String>,
+    /// Session memory (cloned Arc for the spawned task).
+    pub session_memory: Option<Arc<SessionMemory>>,
+    /// Consecutive compact failures — shared with the engine for circuit breaker.
+    pub compact_fail_count: usize,
+    /// Recent messages snapshot for rules path-matching (refreshed each turn).
+    pub recent_messages_for_rules: Vec<Message>,
+    /// Shared file cache for reducing redundant file reads.
+    pub file_cache: Option<Arc<tokio::sync::Mutex<crate::engine::file_cache::FileCache>>>,
+    /// Tool result store for persisting large outputs to disk.
+    pub tool_result_store: Option<Arc<crate::engine::tool_result_store::ToolResultStore>>,
+    /// Pre-computed budget status from submit_message_with_attachments (first turn only).
+    pub initial_budget: Option<(BudgetStatus, u64)>,
+    /// Cached rule files (loaded once, filtered in-memory per turn).
+    pub cached_rules_raw: Vec<CachedRule>,
 }
 
 impl QueryLoopConfig {
@@ -672,7 +803,7 @@ impl QueryLoopConfig {
 /// The core query loop that calls the LLM, processes tool uses, and loops until done.
 async fn run_query_loop(
     messages: &mut Vec<Message>,
-    config: QueryLoopConfig,
+    mut config: QueryLoopConfig,
     tx: mpsc::Sender<EngineEvent>,
 ) {
     let start_time = std::time::Instant::now();
@@ -723,7 +854,19 @@ async fn run_query_loop(
     let mut fallback_controller = FallbackController::new(&fallback_config);
 
     loop {
-        // Check abort
+        // Emit TurnStart immediately — user sees "Turn N" without any delay
+        turn_id_counter += 1;
+        turn_start_time = std::time::Instant::now();
+        turn_tool_count = 0;
+        turn_input_tokens_at_start = total_usage.input_tokens;
+        turn_output_tokens_at_start = total_usage.output_tokens;
+        let _ = tx.send(EngineEvent::TurnStart {
+            turn_id: turn_id_counter,
+            parent_turn_id: config.parent_turn_id,
+            agent_label: config.agent_label.clone(),
+        }).await;
+
+        // Check abort (after TurnStart so CLI can handle unmatched TurnStart)
         if config.is_aborted() {
             // Clean up any orphan tool_use blocks before returning, so the
             // message history stays API-legal for the next query.
@@ -743,7 +886,16 @@ async fn run_query_loop(
             return;
         }
 
-        // Check max_turns
+        // ── Git info refresh (non-blocking after first turn) ──
+        // First turn or every 10th turn: refresh git info.
+        // Other turns: use cached value to save ~30-50ms on TTFB.
+        if turn_count == 0 || turn_count % 10 == 0 {
+            if let Some(fresh_git) = get_git_info_async(&config.cwd).await {
+                config.git_info = Some(fresh_git);
+            }
+        }
+
+        // Check max_turns (after TurnStart so CLI can handle unmatched TurnStart)
         if let Some(max) = config.max_turns {
             if turn_count >= max {
                 let _ = tx.send(EngineEvent::Result(QueryResult {
@@ -759,39 +911,68 @@ async fn run_query_loop(
             }
         }
 
-        // ── Token budget check: auto-compact if context exceeds safe limit ──
-        // Uses TokenCounter with tiktoken + API calibration (vs the legacy chars/4).
+        // ── Micro-compact: clear old tool results (> 60 min, > 500 chars) ──
+        micro_compact(messages, 3600);
 
-        // Emit TurnStart before the API call
-        turn_id_counter += 1;
-        turn_start_time = std::time::Instant::now();
-        turn_tool_count = 0;
-        turn_input_tokens_at_start = total_usage.input_tokens;
-        turn_output_tokens_at_start = total_usage.output_tokens;
-        let _ = tx.send(EngineEvent::TurnStart {
-            turn_id: turn_id_counter,
-            parent_turn_id: config.parent_turn_id,
-            agent_label: config.agent_label.clone(),
-        }).await;
-        let (should_compact, current_tokens) = {
+        // ── Multi-level budget check ──
+        // Use pre-computed budget from submit_message_with_attachments on first turn
+        // to avoid redundant lock + tiktoken estimation.
+        let (budget_status, current_tokens) = if turn_count == 0 {
+            if let Some(precomputed) = config.initial_budget.take() {
+                precomputed
+            } else {
+                let counter = config.token_counter.lock().await;
+                let est = counter.current_estimate(&messages);
+                (counter.budget_status_given(est), est)
+            }
+        } else {
             let counter = config.token_counter.lock().await;
             let est = counter.current_estimate(&messages);
-            (counter.should_compact(&messages) && messages.len() > 5, est)
+            (counter.budget_status_given(est), est)
         };
-        if should_compact {
-            eprintln!("Token budget exceeded ({} tokens), auto-compacting mid-loop", current_tokens);
-            let _ = tx.send(EngineEvent::Progress {
-                tool_use_id: String::new(),
-                data: serde_json::json!({"message": format!("Context approaching limit ({} est. tokens), compacting...", current_tokens)}),
-            }).await;
-            match compact_messages(messages, tx.clone(), &config).await {
-                Ok(_) => {
-                    eprintln!("Mid-loop auto-compact succeeded");
-                }
-                Err(e) => {
-                    eprintln!("Mid-loop auto-compact failed: {}, continuing anyway", e.message);
+
+        match budget_status {
+            BudgetStatus::Warning => {
+                eprintln!("Token budget warning: {} tokens (approaching limit)", current_tokens);
+            }
+            BudgetStatus::Blocking | BudgetStatus::Compact if messages.len() > 5 => {
+                eprintln!("Token budget {} ({} tokens), auto-compacting mid-loop",
+                    if budget_status == BudgetStatus::Blocking { "BLOCKING" } else { "compact" },
+                    current_tokens);
+                let _ = tx.send(EngineEvent::Progress {
+                    tool_use_id: String::new(),
+                    data: serde_json::json!({"message": format!("Context approaching limit ({} est. tokens), compacting...", current_tokens)}),
+                }).await;
+
+                // Circuit breaker: skip compact after too many consecutive failures.
+                if config.compact_fail_count >= MAX_COMPACT_FAILURES {
+                    eprintln!(
+                        "Compact circuit breaker: {} consecutive failures, skipping",
+                        config.compact_fail_count
+                    );
+                } else {
+                    // Try session_memory_compact first (no API call needed).
+                    let session_ok = config.session_memory.as_ref().map_or(false, |sm| {
+                        session_memory_compact(messages, &sm.get())
+                    });
+
+                    if !session_ok {
+                        match compact_messages(messages, tx.clone(), &config).await {
+                            Ok(_) => {
+                                eprintln!("Mid-loop auto-compact succeeded");
+                                config.compact_fail_count = 0;
+                            }
+                            Err(e) => {
+                                eprintln!("Mid-loop auto-compact failed: {}, continuing anyway", e.message);
+                                config.compact_fail_count += 1;
+                            }
+                        }
+                    } else {
+                        config.compact_fail_count = 0;
+                    }
                 }
             }
+            _ => {} // Normal
         }
 
         // Build API request using the current model from fallback controller
@@ -813,8 +994,26 @@ async fn run_query_loop(
             token_counter: Arc::clone(&config.token_counter),
             parent_turn_id: None,
             agent_label: None,
+            session_memory: config.session_memory.as_ref().map(Arc::clone),
+            compact_fail_count: config.compact_fail_count,
+            recent_messages_for_rules: messages.clone(),
+            file_cache: config.file_cache.as_ref().map(Arc::clone),
+            tool_result_store: config.tool_result_store.as_ref().map(Arc::clone),
+            initial_budget: None,
+            cached_rules_raw: config.cached_rules_raw.clone(),
         };
         let request = build_api_request(&messages, &current_config);
+
+        // Show what we're about to send
+        let _ = tx.send(EngineEvent::Progress {
+            tool_use_id: String::new(),
+            data: serde_json::json!({
+                "message": format!("Calling {} ({} messages, ~{} tokens)...",
+                    current_config.model,
+                    messages.len(),
+                    current_tokens),
+            }),
+        }).await;
 
         // Call LLM API (streaming) with rate-limit fallback handling and timeout
         let stream_result = tokio::time::timeout(
@@ -824,6 +1023,14 @@ async fn run_query_loop(
         let stream_result = match stream_result {
             Ok(r) => r,
             Err(_) => {
+                // Remove the user message that caused the timeout so it won't
+                // appear as a duplicate on the next query attempt.
+                if let Some(last) = messages.last() {
+                    if matches!(&last.content, MessageContent::User { .. }) {
+                        eprintln!("API timeout, removing last user message to keep history clean");
+                        messages.pop();
+                    }
+                }
                 let _ = tx.send(EngineEvent::Error(EngineError {
                     code: "timeout".to_string(),
                     message: "API call timed out after 5 minutes".to_string(),
@@ -851,13 +1058,20 @@ async fn run_query_loop(
                         continue; // retry with new model
                     }
                     FallbackAction::Exhausted { models_tried, total_retries } => {
+                        let error_msg = format!(
+                            "All models exhausted after {} retries. Tried: {}",
+                            total_retries,
+                            models_tried.join(", ")
+                        );
+                        if let Some(last) = messages.last() {
+                            if matches!(&last.content, MessageContent::User { .. }) {
+                                eprintln!("All models exhausted, removing last user message to keep history clean");
+                                messages.pop();
+                            }
+                        }
                         let _ = tx.send(EngineEvent::Error(EngineError {
                             code: "all_models_exhausted".to_string(),
-                            message: format!(
-                                "All models exhausted after {} retries. Tried: {}",
-                                total_retries,
-                                models_tried.join(", ")
-                            ),
+                            message: error_msg,
                             details: Some(serde_json::json!({
                                 "models_tried": models_tried,
                                 "total_retries": total_retries,
@@ -895,9 +1109,16 @@ async fn run_query_loop(
                         continue; // retry with new model
                     }
                     _ => {
+                        let error_msg = format!("Server error {} after exhausting retries and fallbacks", status);
+                        if let Some(last) = messages.last() {
+                            if matches!(&last.content, MessageContent::User { .. }) {
+                                eprintln!("Server error exhausted, removing last user message to keep history clean");
+                                messages.pop();
+                            }
+                        }
                         let _ = tx.send(EngineEvent::Error(EngineError {
                             code: "api_server_error".to_string(),
-                            message: format!("Server error {} after exhausting retries and fallbacks", status),
+                            message: error_msg,
                             details: None,
                         })).await;
                         return;
@@ -909,8 +1130,18 @@ async fn run_query_loop(
                 let msg_lower = message.to_lowercase();
                 if msg_lower.contains("context") || msg_lower.contains("token") || msg_lower.contains("too large") || msg_lower.contains("too long") {
                     eprintln!("Bad request (likely context overflow), auto-compacting...");
+                    if config.compact_fail_count >= MAX_COMPACT_FAILURES {
+                        eprintln!("Compact circuit breaker: {} consecutive failures, trying reactive compact", config.compact_fail_count);
+                        reactive_compact(messages, None);
+                        let _ = tx.send(EngineEvent::Progress {
+                            tool_use_id: String::new(),
+                            data: serde_json::json!({"message": "Reactive compact applied, retrying..."}),
+                        }).await;
+                        continue;
+                    }
                     match compact_messages(messages, tx.clone(), &config).await {
                         Ok(_) => {
+                            config.compact_fail_count = 0;
                             let _ = tx.send(EngineEvent::Progress {
                                 tool_use_id: String::new(),
                                 data: serde_json::json!({"message": "Auto-compacted context and retrying..."}),
@@ -918,8 +1149,18 @@ async fn run_query_loop(
                             continue; // retry with compacted messages
                         }
                         Err(_) => {
-                            // Compaction failed, send the original error
+                            config.compact_fail_count += 1;
+                            // Compaction failed, try reactive compact as fallback
+                            reactive_compact(messages, None);
                         }
+                    }
+                }
+                // Clean up: remove the user message that caused the bad request,
+                // so the next query doesn't send duplicate/invalid messages.
+                if let Some(last) = messages.last() {
+                    if matches!(&last.content, MessageContent::User { .. }) {
+                        eprintln!("Bad request, removing last user message to keep history clean");
+                        messages.pop();
                     }
                 }
                 let _ = tx.send(EngineEvent::Error(EngineError {
@@ -995,7 +1236,15 @@ async fn run_query_loop(
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                current_tool_input_json = String::new();
+                                // Some APIs send the full input in content_block_start
+                                // instead of streaming via input_json_delta. Pre-seed
+                                // current_tool_input_json if a non-empty input is present.
+                                current_tool_input_json = match content_block.get("input") {
+                                    Some(v) if v.is_object() && !v.as_object().unwrap().is_empty() => {
+                                        serde_json::to_string(v).unwrap_or_default()
+                                    }
+                                    _ => String::new(),
+                                };
                             }
                             "thinking" => {
                                 current_thinking_text = String::new();
@@ -1045,6 +1294,10 @@ async fn run_query_loop(
                                 }
                             }
                             "tool_use" => {
+                                if current_tool_input_json.trim().is_empty() {
+                                    eprintln!("[WARN] tool_use '{}' (id={}) has empty input_json — model returned no arguments",
+                                        current_tool_name, current_tool_id);
+                                }
                                 let input: Value = serde_json::from_str(&current_tool_input_json)
                                     .unwrap_or(Value::Object(serde_json::Map::new()));
                                 assistant_content_blocks.push(ContentBlock::ToolUse {
@@ -1097,6 +1350,9 @@ async fn run_query_loop(
                             if start_usage.input_tokens > 0 {
                                 let mut counter = config.token_counter.lock().await;
                                 counter.calibrate(start_usage.input_tokens, messages.len());
+                                if let Some(ref sid) = config.session_id {
+                                    counter.save_baseline(sid);
+                                }
                             }
                         }
                     }
@@ -1322,6 +1578,12 @@ async fn run_query_loop(
                             let recent = messages[split..].to_vec();
                             messages.clear();
                             messages.extend(recent);
+
+                            // If still too many messages, drop oldest turns
+                            // as a last-resort escape.
+                            if messages.len() > 10 {
+                                reactive_compact(messages, None);
+                            }
                         }
                     }
                 }
@@ -1385,6 +1647,8 @@ async fn run_query_loop(
             cwd: config.cwd.clone(),
             model: config.model.clone(),
             abort_signal: Arc::new(config.abort_rx.clone()),
+            file_cache: config.file_cache.as_ref().map(Arc::clone),
+            tool_result_store: config.tool_result_store.as_ref().map(Arc::clone),
         };
         let progress = NoopProgressSender;
         let tool_results = execute_tools(&config.tools, &tool_uses, &tool_context, &progress).await;
@@ -1423,6 +1687,26 @@ async fn run_query_loop(
         }).await;
 
         turn_count += 1;
+
+        // ── Background session memory update ──
+        // Fire-and-forget: spawn a background task to update the session summary
+        // every N turns.  The summary is persisted to .memory.md and loaded
+        // instantly on next session startup.
+        if let Some(ref sm) = config.session_memory {
+            let current_count = messages.len();
+            if sm.should_update(current_count) {
+                let msgs_clone = messages.clone();
+                let sm_arc = Arc::clone(sm);
+                let api = Arc::clone(&config.api_client);
+                let mdl = config.model.clone();
+                let existing = sm.get();
+                tokio::spawn(async move {
+                    update_session_memory_background(
+                        msgs_clone, sm_arc, api, mdl, existing,
+                    ).await;
+                });
+            }
+        }
     }
 }
 
@@ -1443,6 +1727,249 @@ pub fn load_project_instructions(cwd: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// A parsed rule file from `.baoclaw/rules/*.md`.
+struct RuleFile {
+    /// Rule content (with YAML frontmatter stripped).
+    content: String,
+    /// Optional glob pattern from frontmatter `paths` field.
+    paths_pattern: Option<String>,
+}
+
+/// Load rules from `.baoclaw/rules/*.md`, optionally filtering by `recent_file_paths`.
+///
+/// Rules without a `paths` frontmatter field are loaded unconditionally.
+/// Rules with `paths` are only included when at least one entry in
+/// `recent_file_paths` matches the glob pattern.
+pub fn load_rules_with_paths(cwd: &Path, recent_file_paths: &[String]) -> Vec<String> {
+    let rules_dir = cwd.join(".baoclaw").join("rules");
+    let entries = match std::fs::read_dir(&rules_dir) {
+        Ok(rd) => rd,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut matched_rules: Vec<String> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let rule = parse_rule_file(&content);
+        let should_include = match &rule.paths_pattern {
+            None => true,
+            Some(pattern) => {
+                // Use glob matching: include if any recent file path matches
+                match glob::Pattern::new(pattern) {
+                    Ok(glob_pattern) => {
+                        recent_file_paths.iter().any(|fp| {
+                            // Try matching against the full path or just the filename
+                            glob_pattern.matches(fp) || glob_pattern.matches(std::path::Path::new(fp).file_name().and_then(|n| n.to_str()).unwrap_or(""))
+                        })
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: invalid glob pattern '{}' in {}: {}", pattern, path.display(), e);
+                        // If pattern is invalid, include the rule anyway
+                        true
+                    }
+                }
+            }
+        };
+
+        if should_include && !rule.content.trim().is_empty() {
+            matched_rules.push(format!(
+                "# Rule: {}\n\n{}",
+                path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown"),
+                rule.content
+            ));
+        }
+    }
+
+    matched_rules
+}
+
+/// Parse a rule file, extracting YAML frontmatter if present.
+///
+/// Supports `---` delimited frontmatter with a `paths` field:
+/// ```markdown
+/// ---
+/// paths: "src/**/*.rs"
+/// ---
+/// Rule content here.
+/// ```
+fn parse_rule_file(content: &str) -> RuleFile {
+    let trimmed = content.trim();
+
+    // Check for YAML frontmatter
+    if trimmed.starts_with("---") {
+        // Find closing ---
+        if let Some(rest) = trimmed.get(3..) {
+            if let Some(end_idx) = rest.find("---") {
+                let frontmatter = &rest[..end_idx];
+                let body = rest[end_idx + 3..].trim();
+
+                // Parse paths from frontmatter (simple line-based parsing)
+                let paths_pattern = frontmatter
+                    .lines()
+                    .find_map(|line| {
+                        let line = line.trim();
+                        if line.starts_with("paths:") || line.starts_with("paths :") {
+                            let value = line.splitn(2, ':').nth(1)?.trim();
+                            // Strip quotes if present
+                            let value = value.trim_matches('"').trim_matches('\'');
+                            if value.is_empty() {
+                                None
+                            } else {
+                                Some(value.to_string())
+                            }
+                        } else {
+                            None
+                        }
+                    });
+
+                return RuleFile {
+                    content: body.to_string(),
+                    paths_pattern,
+                };
+            }
+        }
+    }
+
+    // No frontmatter
+    RuleFile {
+        content: trimmed.to_string(),
+        paths_pattern: None,
+    }
+}
+
+/// Load all rule files from `.baoclaw/rules/*.md` into cached structures.
+/// This is called once in `QueryEngine::new()` and the results are reused
+/// across turns, avoiding repeated file I/O.
+fn load_all_rule_files(cwd: &Path) -> Vec<CachedRule> {
+    let rules_dir = cwd.join(".baoclaw").join("rules");
+    let entries = match std::fs::read_dir(&rules_dir) {
+        Ok(rd) => rd,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut rules = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let rule = parse_rule_file(&content);
+        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
+        rules.push(CachedRule {
+            filename,
+            content: rule.content,
+            paths_pattern: rule.paths_pattern,
+        });
+    }
+    rules
+}
+
+/// Filter cached rules against recent file paths using glob matching.
+/// Replaces `load_rules_with_paths` for in-memory cached rules.
+fn filter_cached_rules(cached: &[CachedRule], recent_file_paths: &[String]) -> Vec<String> {
+    cached.iter()
+        .filter(|rule| {
+            match &rule.paths_pattern {
+                None => true,
+                Some(pattern) => {
+                    match glob::Pattern::new(pattern) {
+                        Ok(glob_pattern) => {
+                            recent_file_paths.iter().any(|fp| {
+                                glob_pattern.matches(fp) || glob_pattern.matches(
+                                    std::path::Path::new(fp).file_name().and_then(|n| n.to_str()).unwrap_or("")
+                                )
+                            })
+                        }
+                        Err(_) => true, // Invalid pattern → include anyway
+                    }
+                }
+            }
+        })
+        .filter(|rule| !rule.content.trim().is_empty())
+        .map(|rule| format!("# Rule: {}\n\n{}", rule.filename, rule.content))
+        .collect()
+}
+
+/// Extract file paths mentioned in the most recent N messages.
+///
+/// Looks for file_path, file, path, pattern, cwd, and directory fields in
+/// tool inputs and text content.
+fn extract_recent_file_paths(messages: &[Message], max_messages: usize) -> Vec<String> {
+    let start = messages.len().saturating_sub(max_messages);
+    let mut paths = Vec::new();
+
+    for msg in &messages[start..] {
+        match &msg.content {
+            MessageContent::User { message, .. } => {
+                // Look for file_path in tool_result content
+                if let Value::Array(blocks) = &message.content {
+                    for block in blocks {
+                        if let Some(content) = block.get("content").and_then(|c| c.as_str()) {
+                            // Extract file paths that appear in tool results
+                            for line in content.lines().take(50) {
+                                if line.contains('/') || line.contains("\\.") {
+                                    paths.push(line.trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Value::String(text) = &message.content {
+                    // Simple heuristic: extract path-like strings from text
+                    for word in text.split_whitespace() {
+                        if (word.contains('/') || word.contains(".rs") || word.contains(".ts")
+                            || word.contains(".js") || word.contains(".py")
+                            || word.contains(".md") || word.contains(".toml"))
+                            && word.len() > 5 && word.len() < 300
+                        {
+                            paths.push(word.to_string());
+                        }
+                    }
+                }
+            }
+            MessageContent::Assistant { message, .. } => {
+                for block in &message.content {
+                    if let ContentBlock::ToolUse { input, .. } = block {
+                        // Extract file_path from tool inputs
+                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
+                            paths.push(fp.to_string());
+                        }
+                        if let Some(p) = input.get("path").and_then(|v| v.as_str()) {
+                            paths.push(p.to_string());
+                        }
+                        if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
+                            paths.push(p.to_string());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Deduplicate while preserving order
+    let mut seen = std::collections::HashSet::new();
+    paths.retain(|p| seen.insert(p.clone()));
+
+    // Limit to reasonable count
+    paths.truncate(50);
+    paths
 }
 
 /// Compact messages in-place: summarize old messages via API and replace with a boundary.
@@ -1518,29 +2045,43 @@ async fn compact_messages(
     } else {
         raw_summary
     };
-    let summary_prompt = format!(
+    let summary_instruction = format!(
         "Summarize the following conversation history concisely, \
          preserving key context, decisions, and file changes:\n\n{}",
         truncated_summary
     );
 
-    // Call API (non-streaming) for summary
-    let request = CreateMessageRequest {
-        model: config.model.clone(),
-        messages: vec![serde_json::json!({
-            "role": "user",
-            "content": summary_prompt,
-        })],
-        system: Some(vec![serde_json::json!({
-            "type": "text",
-            "text": "You are a conversation summariser. Produce a concise summary.",
-        })]),
-        tools: None,
-        max_tokens: 4096,
-        stream: true,
-        thinking: None,
-        metadata: None,
-    };
+    // Cache-Safe Forking: build the compaction request using the EXACT SAME
+    // system prompt, tools, and conversation history as the main dialogue.
+    // This ensures the API can reuse the cached prefix from the main session,
+    // and only pays for the new summarisation message at the end.
+    //
+    // Old approach (broken): separate system prompt ("You are a summariser")
+    // + no tools + no history → zero cache reuse, full price every time.
+    let main_request = build_api_request(messages, config);
+    let old_api_messages: Vec<serde_json::Value> = old_messages.iter().filter_map(|msg| {
+        match &msg.content {
+            MessageContent::User { message, .. } => {
+                Some(serde_json::json!({
+                    "role": message.role,
+                    "content": message.content,
+                }))
+            }
+            MessageContent::Assistant { message, .. } => {
+                let content_value = serde_json::to_value(&message.content).unwrap_or(Value::Array(vec![]));
+                Some(serde_json::json!({
+                    "role": message.role,
+                    "content": content_value,
+                }))
+            }
+            _ => None,
+        }
+    }).collect();
+    let request = CreateMessageRequest::for_cache_safe_compaction(
+        &main_request,
+        &old_api_messages,
+        &summary_instruction,
+    );
 
     let stream_result = config.api_client.create_message_stream(request).await;
     let mut stream = match stream_result {
@@ -1605,6 +2146,157 @@ async fn compact_messages(
     }).await;
 
     Ok(())
+}
+
+/// Maximum consecutive compact failures before the circuit breaker trips.
+const MAX_COMPACT_FAILURES: usize = 3;
+
+/// Micro-compact: replace old, large tool-result content with placeholders.
+///
+/// Called before each API call in the query loop.  Tool results older than
+/// `idle_threshold_secs` (default 60 min) and larger than 500 chars are
+/// replaced with a size annotation, freeing context budget without an API
+/// summarisation round-trip.
+fn micro_compact(messages: &mut Vec<Message>, idle_threshold_secs: u64) {
+    let now = std::time::SystemTime::now();
+    let threshold = std::time::Duration::from_secs(idle_threshold_secs);
+
+    // Skip the last few messages (they are the current turn — keep intact).
+    let skip_recent = 4usize;
+    let start = messages.len().saturating_sub(skip_recent);
+
+    for msg in messages[..start].iter_mut() {
+        // Compute age from the message timestamp.
+        let age = match chrono::DateTime::parse_from_rfc3339(&msg.timestamp) {
+            Ok(ts) => {
+                let msg_time = std::time::SystemTime::from(ts.with_timezone(&chrono::Utc));
+                now.duration_since(msg_time).unwrap_or(std::time::Duration::ZERO)
+            }
+            Err(_) => continue,
+        };
+
+        if age < threshold {
+            continue;
+        }
+
+        // Replace large tool-result payloads with a placeholder.
+        if let MessageContent::User { message, .. } = &mut msg.content {
+            if let Value::Array(blocks) = &mut message.content {
+                for block in blocks.iter_mut() {
+                    if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                        if let Some(content) = block.get_mut("content") {
+                            let output_str = content.to_string();
+                            if output_str.len() > 500 {
+                                *content = serde_json::json!(
+                                    format!("[Old tool result cleared — originally {} chars]", output_str.len())
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Lightweight compact path using the session memory.
+///
+/// If a session memory summary already exists, use it as the CompactBoundary
+/// and keep only the most recent messages — no API summarisation call needed.
+pub(crate) fn session_memory_compact(
+    messages: &mut Vec<Message>,
+    summary_text: &str,
+) -> bool {
+    if summary_text.is_empty() {
+        return false;
+    }
+
+    let keep_recent: usize = 10;
+    if messages.len() <= keep_recent {
+        return false;
+    }
+
+    let boundary = Message {
+        uuid: uuid::Uuid::new_v4().to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        content: MessageContent::System {
+            subtype: crate::models::message::SystemSubtype::CompactBoundary,
+            content: format!("[Session Memory]\n{}", summary_text),
+        },
+    };
+
+    let recent = messages[messages.len() - keep_recent..].to_vec();
+    *messages = vec![boundary];
+    messages.extend(recent);
+
+    eprintln!(
+        "Session-memory compact: replaced {} old messages, kept {} recent",
+        messages.len() - keep_recent - 1,
+        keep_recent
+    );
+    true
+}
+
+/// Reactive compact — drop the oldest turns when all other compaction has
+/// failed and we still can't fit the context window.
+///
+/// Groups messages into assistant+user "turns" and drops the oldest 20% (or
+/// enough to hit `target_reduction` estimated tokens).
+fn reactive_compact(messages: &mut Vec<Message>, target_reduction: Option<usize>) {
+    if messages.len() <= 4 {
+        return;
+    }
+
+    // Group into turns: each turn starts with a user message and includes
+    // the following assistant message (and any tool-result user messages).
+    let mut turn_starts: Vec<usize> = Vec::new();
+    for (i, msg) in messages.iter().enumerate() {
+        match &msg.content {
+            MessageContent::User { message, tool_use_result, .. } => {
+                // A turn-starting user message is one that is NOT a tool_result.
+                if tool_use_result.is_none() {
+                    // Also skip if content is an array of tool_result blocks.
+                    let is_tool_result_array = match &message.content {
+                        Value::Array(arr) => arr.iter().all(|b| {
+                            b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
+                        }),
+                        _ => false,
+                    };
+                    if !is_tool_result_array {
+                        turn_starts.push(i);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if turn_starts.len() <= 2 {
+        // Not enough turns to drop.
+        return;
+    }
+
+    let drop_count = match target_reduction {
+        Some(target) => {
+            // Estimate tokens per turn (rough: total / turn_count).
+            let total_tokens = estimate_tokens(messages) as usize;
+            let tokens_per_turn = total_tokens / turn_starts.len().max(1);
+            (target / tokens_per_turn.max(1)).max(1).min(turn_starts.len() / 2)
+        }
+        None => (turn_starts.len() / 5).max(1), // default: drop 20%
+    };
+
+    if drop_count >= turn_starts.len() {
+        return;
+    }
+
+    let drop_to = turn_starts[drop_count];
+    eprintln!(
+        "Reactive compact: dropping {} oldest turns ({} messages)",
+        drop_count,
+        drop_to
+    );
+    *messages = messages[drop_to..].to_vec();
 }
 
 /// Validate and fix tool_use/tool_result pairing in messages before API call.
@@ -1717,7 +2409,7 @@ fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> CreateMe
     let validated_messages = validate_and_fix_tool_messages(messages);
 
     // Convert messages to API format
-    let api_messages: Vec<Value> = validated_messages.iter().filter_map(|msg| {
+    let mut api_messages: Vec<Value> = validated_messages.iter().filter_map(|msg| {
         match &msg.content {
             MessageContent::User { message, .. } => {
                 Some(serde_json::json!({
@@ -1736,21 +2428,79 @@ fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> CreateMe
         }
     }).collect();
 
-    // Build system prompt
+    // Inject dynamic <system-reminder> into the last user message to avoid
+    // invalidating the cached system prompt prefix.  Git status, session
+    // memory, and other per-turn information goes here.
+    if let Some(reminder) = build_dynamic_reminder(config) {
+        if let Some(last_msg) = api_messages.last_mut() {
+            // Append the reminder to the existing user message content
+            if let Some(content) = last_msg.get_mut("content") {
+                match content {
+                    Value::String(s) => {
+                        *s = format!("{}\n\n{}", s, reminder);
+                    }
+                    Value::Array(blocks) => {
+                        blocks.push(serde_json::json!({
+                            "type": "text",
+                            "text": reminder,
+                        }));
+                    }
+                    _ => {
+                        // Fallback: replace content with a string containing the reminder
+                        *content = Value::String(format!("{}\n\n{}", content, reminder));
+                    }
+                }
+            }
+        }
+    }
+
+    // Build system prompt (static, cache_control-marked)
     let system = build_system_prompt(config);
 
-    // Build tools list
+    // Build tools list — sorted deterministically by name to ensure stable
+    // ordering across turns.  Tool order is part of the cached prefix, so
+    // non-deterministic iteration (e.g. HashMap-based) would break caching.
+    //
+    // Deferred tools emit only a lightweight stub (name + short description)
+    // to keep the cached prefix minimal.  The full schema is fetched on-demand
+    // when the model invokes the tool via Tool Search.
     let tools: Option<Vec<Value>> = if config.tools.is_empty() {
         None
     } else {
-        Some(config.tools.iter().map(|t| {
-            let schema = t.input_schema();
-            serde_json::json!({
-                "name": t.name(),
-                "description": t.prompt(),
-                "input_schema": schema,
-            })
-        }).collect())
+        let mut tool_list: Vec<Value> = config.tools.iter().map(|t| {
+            if t.is_deferred() {
+                // Lightweight stub — no input_schema, just name + short description
+                serde_json::json!({
+                    "name": t.name(),
+                    "description": t.short_description(),
+                    "defer_loading": true,
+                })
+            } else {
+                let schema = t.input_schema();
+                serde_json::json!({
+                    "name": t.name(),
+                    "description": t.prompt(),
+                    "input_schema": schema,
+                })
+            }
+        }).collect();
+        // Stable sort by tool name
+        tool_list.sort_by(|a, b| {
+            let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            name_a.cmp(name_b)
+        });
+        // Mark the last tool definition with cache_control so the tools prefix
+        // is cached as a single block together with the system prompt.
+        if let Some(last_tool) = tool_list.last_mut() {
+            last_tool.as_object_mut().map(|obj| {
+                obj.insert(
+                    "cache_control".to_string(),
+                    serde_json::json!({ "type": "ephemeral" }),
+                );
+            });
+        }
+        Some(tool_list)
     };
 
     CreateMessageRequest {
@@ -1775,23 +2525,36 @@ fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> CreateMe
     }
 }
 
-/// Build the system prompt from config.
+/// Build the system prompt from config — **static parts only**.
+///
+/// Prompt Caching works via prefix matching: any change to the system prompt
+/// invalidates the entire cached prefix.  Therefore, only content that is
+/// stable across turns is placed here.  Dynamic information (git status,
+/// session memory) is injected via `<system-reminder>` user messages instead.
+///
+/// Order (stable → volatile):
+///   1. Core system prompt / custom prompt      ← never changes in-session
+///   2. Working directory                        ← never changes in-session
+///   3. Project instructions (BAOCLAW.md)        ← rarely changes
+///   4. Project rules (.baoclaw/rules/)          ← rarely changes
+///   5. Append system prompt                     ← rarely changes
 pub fn build_system_prompt(config: &QueryLoopConfig) -> Option<Vec<Value>> {
     let mut parts: Vec<String> = Vec::new();
 
+    // 1. Core system prompt
     if let Some(custom) = &config.custom_system_prompt {
         parts.push(custom.clone());
     } else {
         parts.push("You are a helpful AI coding assistant.".to_string());
     }
 
-    // Inject current working directory so the AI knows where it is
+    // 2. Current working directory (stable within a session)
     parts.push(format!(
         "Current working directory: {}\n\nWhen the user asks to display or show a file's content, output the full content directly in your response. Do not summarize or describe the file — show the actual text.",
         config.cwd.display()
     ));
 
-    // Inject project instructions from BAOCLAW.md
+    // 3. Project instructions from BAOCLAW.md (rarely changes mid-session)
     if let Some(instructions) = &config.project_instructions {
         parts.push(format!(
             "# Project Instructions (from BAOCLAW.md)\n\n{}",
@@ -1799,7 +2562,46 @@ pub fn build_system_prompt(config: &QueryLoopConfig) -> Option<Vec<Value>> {
         ));
     }
 
-    // Inject git repository information
+    // 4. Project rules from .baoclaw/rules/*.md (path-filtered from cache)
+    {
+        let recent_paths = extract_recent_file_paths(&config.recent_messages_for_rules, 10);
+        let rules = filter_cached_rules(&config.cached_rules_raw, &recent_paths);
+        if !rules.is_empty() {
+            parts.push(format!(
+                "# Project Rules (from .baoclaw/rules/)\n\n{}",
+                rules.join("\n\n")
+            ));
+        }
+    }
+
+    // 5. Append system prompt
+    if let Some(append) = &config.append_system_prompt {
+        parts.push(append.clone());
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        let combined = parts.join("\n\n");
+        // Mark the static system prompt with cache_control so the API caches it.
+        Some(vec![serde_json::json!({
+            "type": "text",
+            "text": combined,
+            "cache_control": { "type": "ephemeral" },
+        })])
+    }
+}
+
+/// Build a `<system-reminder>` user message containing **dynamic** information
+/// that changes between turns (git status, session memory, etc.).
+///
+/// This content is kept out of the system prompt so that the cached prefix
+/// remains stable.  The reminder is appended as a user message — the model
+/// still sees it, but it doesn't invalidate the prompt cache.
+pub fn build_dynamic_reminder(config: &QueryLoopConfig) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+
+    // Git status — changes every turn as files are edited
     if let Some(git_info) = &config.git_info {
         let mut git_parts: Vec<String> = Vec::new();
         if let Some(branch) = &git_info.branch {
@@ -1823,18 +2625,18 @@ pub fn build_system_prompt(config: &QueryLoopConfig) -> Option<Vec<Value>> {
         }
     }
 
-    if let Some(append) = &config.append_system_prompt {
-        parts.push(append.clone());
+    // Session memory (rolling summary) — updated after compaction
+    if let Some(sm) = &config.session_memory {
+        let memory = sm.get();
+        if !memory.is_empty() {
+            parts.push(format!("# Session Memory\n\n{}", memory));
+        }
     }
 
     if parts.is_empty() {
         None
     } else {
-        let combined = parts.join("\n\n");
-        Some(vec![serde_json::json!({
-            "type": "text",
-            "text": combined,
-        })])
+        Some(format!("<system-reminder>\n{}\n</system-reminder>", parts.join("\n\n")))
     }
 }
 
@@ -2086,6 +2888,98 @@ pub fn format_messages_for_summary(messages: &[Message]) -> String {
         .join("\n\n")
 }
 
+/// Background task: generate a session summary and persist it.
+///
+/// Spawned (fire-and-forget) after each query loop iteration when
+/// `session_memory.should_update()` returns true.  Uses a lightweight
+/// API call (no tools, no conversation history) to generate a rolling
+/// summary that is loaded instantly on next session startup.
+async fn update_session_memory_background(
+    messages: Vec<Message>,
+    session_memory: Arc<SessionMemory>,
+    api_client: Arc<UnifiedClient>,
+    model: String,
+    existing_summary: String,
+) {
+    let msg_count = messages.len();
+    if msg_count < 4 {
+        return;
+    }
+
+    let conversation_text = format_messages_for_summary(&messages);
+    let max_chars: usize = 40_000;
+    let truncated = if conversation_text.len() > max_chars {
+        format!("{}...\n\n[Truncated, {} total chars]",
+            &conversation_text.chars().take(max_chars).collect::<String>(),
+            conversation_text.len())
+    } else {
+        conversation_text
+    };
+
+    let prompt = if existing_summary.is_empty() {
+        format!(
+            "You are summarizing a coding assistant session. Create a concise meeting-notes summary of the conversation so far.\n\
+             Preserve: key decisions, file changes, errors encountered, current task status, and any pending items.\n\
+             Format as markdown with headers.\n\n\
+             Conversation:\n{}", truncated)
+    } else {
+        format!(
+            "You are updating a rolling summary of a coding assistant session.\n\
+             Here is the existing summary:\n---\n{}\n---\n\n\
+             Here is the recent conversation:\n{}\n\n\
+             Update the summary to reflect the latest work. Preserve key decisions, file changes, and pending items.",
+            existing_summary, truncated)
+    };
+
+    let request = CreateMessageRequest {
+        model,
+        messages: vec![serde_json::json!({
+            "role": "user",
+            "content": prompt,
+        })],
+        system: Some(vec![serde_json::json!({
+            "type": "text",
+            "text": "You are a session summarizer. Produce concise, structured markdown summaries.",
+            "cache_control": {"type": "ephemeral"},
+        })]),
+        tools: None,
+        max_tokens: 2048,
+        stream: true,
+        thinking: None,
+        metadata: None,
+    };
+
+    match api_client.create_message_stream(request).await {
+        Ok(mut stream) => {
+            use futures::StreamExt;
+            let mut summary_text = String::new();
+            while let Some(event_result) = stream.next().await {
+                match event_result {
+                    Ok(ApiStreamEvent::ContentBlockDelta { delta, .. }) => {
+                        if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
+                            summary_text.push_str(text);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Session memory background update stream error: {}", e);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            if !summary_text.trim().is_empty() {
+                session_memory.update(summary_text);
+                session_memory.set_message_count(msg_count);
+                eprintln!("Session memory updated ({} chars, at msg #{})",
+                    session_memory.get().len(), msg_count);
+            }
+        }
+        Err(e) => {
+            eprintln!("Session memory background update failed: {}", e);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2118,6 +3012,9 @@ mod tests {
             auto_compact_threshold_ratio: 0.7,
             parent_turn_id: None,
             agent_label: None,
+            session_memory: None,
+            file_cache: None,
+            tool_result_store: None,
         }
     }
 
@@ -2572,6 +3469,13 @@ mod tests {
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
             parent_turn_id: None,
             agent_label: None,
+            session_memory: None,
+            compact_fail_count: 0,
+            recent_messages_for_rules: vec![],
+            file_cache: None,
+            tool_result_store: None,
+            initial_budget: None,
+            cached_rules_raw: vec![],
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2606,6 +3510,13 @@ mod tests {
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
             parent_turn_id: None,
             agent_label: None,
+            session_memory: None,
+            compact_fail_count: 0,
+            recent_messages_for_rules: vec![],
+            file_cache: None,
+            tool_result_store: None,
+            initial_budget: None,
+            cached_rules_raw: vec![],
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2640,6 +3551,13 @@ mod tests {
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
             parent_turn_id: None,
             agent_label: None,
+            session_memory: None,
+            compact_fail_count: 0,
+            recent_messages_for_rules: vec![],
+            file_cache: None,
+            tool_result_store: None,
+            initial_budget: None,
+            cached_rules_raw: vec![],
         };
         let messages = vec![
             Message {
@@ -2767,6 +3685,13 @@ mod tests {
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
             parent_turn_id: None,
             agent_label: None,
+            session_memory: None,
+            compact_fail_count: 0,
+            recent_messages_for_rules: vec![],
+            file_cache: None,
+            tool_result_store: None,
+            initial_budget: None,
+            cached_rules_raw: vec![],
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2801,6 +3726,13 @@ mod tests {
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
             parent_turn_id: None,
             agent_label: None,
+            session_memory: None,
+            compact_fail_count: 0,
+            recent_messages_for_rules: vec![],
+            file_cache: None,
+            tool_result_store: None,
+            initial_budget: None,
+            cached_rules_raw: vec![],
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -2991,6 +3923,13 @@ mod tests {
             token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
             parent_turn_id: None,
             agent_label: None,
+            session_memory: None,
+            compact_fail_count: 0,
+            recent_messages_for_rules: vec![],
+            file_cache: None,
+            tool_result_store: None,
+            initial_budget: None,
+            cached_rules_raw: vec![],
         }
     }
 
