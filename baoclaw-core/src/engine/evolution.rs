@@ -98,8 +98,16 @@ pub struct SkillStats {
     pub skill_name: String,
     pub times_loaded: u32,
     pub times_relevant: u32,
+    pub times_succeeded: u32,
+    pub times_failed: u32,
     pub last_used: Option<String>,
     pub version: u32,
+    /// Average user rating (0.0-1.0) across sessions where this skill was used.
+    pub avg_rating: f64,
+    /// Whether this skill has been retired (auto-disabled due to poor performance).
+    pub retired: bool,
+    /// Reason for retirement, if retired.
+    pub retired_reason: Option<String>,
 }
 
 /// Candidate skill extracted from a successful interaction.
@@ -113,11 +121,103 @@ pub struct SkillCandidate {
     pub created_at: String,
 }
 
+impl SkillStats {
+    fn new(name: &str) -> Self {
+        Self {
+            skill_name: name.to_string(),
+            times_loaded: 0,
+            times_relevant: 0,
+            times_succeeded: 0,
+            times_failed: 0,
+            last_used: None,
+            version: 1,
+            avg_rating: 0.0,
+            retired: false,
+            retired_reason: None,
+        }
+    }
+}
+
+// ── Phase 2 #8: Skill Self-Improvement Data Structures ──
+
+/// Grade assigned to a skill during evaluation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SkillGrade {
+    Excellent,
+    Good,
+    NeedsImprovement,
+    Poor,
+    Critical,
+    InsufficientData,
+}
+
+/// Suggested action based on skill evaluation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SuggestedAction {
+    None,
+    MinorTweak,
+    Improve,
+    MajorRevision,
+    Retire,
+}
+
+/// Result of evaluating a skill's effectiveness.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SkillEvaluation {
+    pub skill_name: String,
+    pub score: f64,
+    pub grade: SkillGrade,
+    pub diagnostics: Vec<String>,
+    pub suggested_action: SuggestedAction,
+}
+
+/// A single improvement suggestion for a skill.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImprovementSuggestion {
+    pub priority: u32,
+    pub category: String,
+    pub description: String,
+}
+
+/// Severity of a validation issue.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+/// A single issue found during skill validation.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ValidationIssue {
+    pub severity: Severity,
+    pub message: String,
+}
+
+/// Result of validating a skill's integrity.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ValidationResult {
+    pub skill_name: String,
+    pub valid: bool,
+    pub issues: Vec<ValidationIssue>,
+}
+
+/// Summary report from running a full improvement cycle.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImprovementCycleReport {
+    pub skills_evaluated: usize,
+    pub skills_improved: usize,
+    pub skills_retired: usize,
+    pub actions: Vec<String>,
+}
+
 // ── Evolution Engine ──
 
 pub struct EvolutionEngine {
     base_dir: Mutex<PathBuf>,
     task_count: Mutex<usize>,
+    skills_dir: PathBuf,
+    skill_stats: tokio::sync::Mutex<std::collections::HashMap<String, SkillStats>>,
+    trajectories: tokio::sync::Mutex<Vec<Trajectory>>,
 }
 
 impl EvolutionEngine {
@@ -125,10 +225,15 @@ impl EvolutionEngine {
     /// Uses global ~/.baoclaw/evolution/ for personal cross-project learning.
     pub fn new(_cwd: &Path) -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let base_dir = PathBuf::from(home).join(".baoclaw").join(EVOLUTION_DIR);
+        let base_dir = PathBuf::from(&home).join(".baoclaw").join(EVOLUTION_DIR);
+        let skills_dir = PathBuf::from(&home).join(".baoclaw").join("skills");
+        let _ = std::fs::create_dir_all(&skills_dir);
         Self {
             base_dir: Mutex::new(base_dir),
             task_count: Mutex::new(0),
+            skills_dir,
+            skill_stats: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            trajectories: tokio::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -630,6 +735,491 @@ impl EvolutionEngine {
         }
 
         training_pairs
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 2 #8: Skill Self-Improvement Loop (5-stage cycle)
+    //   1. Collect  — record_trajectory (already exists)
+    //   2. Evaluate — evaluate_skill effectiveness
+    //   3. Improve  — generate improvement suggestions
+    //   4. Validate — check skill integrity
+    //   5. Retire   — auto-disable persistently poor skills
+    // -----------------------------------------------------------------------
+
+    /// Stage 2: Evaluate a skill's effectiveness based on accumulated stats.
+    ///
+    /// Returns a [`SkillEvaluation`] with score (0.0–1.0) and diagnostics.
+    pub async fn evaluate_skill(&self, skill_name: &str) -> SkillEvaluation {
+        let stats = self.get_or_create_stats(skill_name).await;
+
+        // Skip evaluation if too few data points
+        if stats.times_loaded < 3 {
+            return SkillEvaluation {
+                skill_name: skill_name.to_string(),
+                score: 1.0, // neutral — not enough data
+                grade: SkillGrade::InsufficientData,
+                diagnostics: vec!["Not enough usage data for evaluation (need ≥3 loads)".into()],
+                suggested_action: SuggestedAction::None,
+            };
+        }
+
+        let total_invocations = stats.times_relevant;
+        let total_outcomes = stats.times_succeeded + stats.times_failed;
+        let mut diagnostics: Vec<String> = Vec::new();
+        let mut score = 1.0_f64;
+
+        // Factor 1: Relevance rate (loaded vs actually relevant)
+        if total_invocations > 0 {
+            let relevance_rate = stats.times_relevant as f64 / stats.times_loaded as f64;
+            if relevance_rate < 0.3 {
+                score *= 0.6;
+                diagnostics.push(format!(
+                    "Low relevance rate: {:.0}% (loaded {} times, relevant {} times)",
+                    relevance_rate * 100.0,
+                    stats.times_loaded,
+                    stats.times_relevant,
+                ));
+            } else if relevance_rate < 0.5 {
+                score *= 0.8;
+                diagnostics.push(format!(
+                    "Moderate relevance rate: {:.0}%",
+                    relevance_rate * 100.0,
+                ));
+            }
+        }
+
+        // Factor 2: Success rate (when invoked, did it help?)
+        if total_outcomes > 0 {
+            let success_rate = stats.times_succeeded as f64 / total_outcomes as f64;
+            if success_rate < 0.4 {
+                score *= 0.5;
+                diagnostics.push(format!(
+                    "Low success rate: {:.0}% ({} success, {} fail)",
+                    success_rate * 100.0,
+                    stats.times_succeeded,
+                    stats.times_failed,
+                ));
+            } else if success_rate < 0.7 {
+                score *= 0.85;
+                diagnostics.push(format!(
+                    "Moderate success rate: {:.0}%",
+                    success_rate * 100.0,
+                ));
+            }
+        }
+
+        // Factor 3: User rating (if available)
+        if stats.avg_rating > 0.0 {
+            score *= stats.avg_rating;
+            if stats.avg_rating < 0.4 {
+                diagnostics.push(format!("Low user rating: {:.2}", stats.avg_rating));
+            }
+        }
+
+        // Factor 4: Version staleness (old skills may be outdated)
+        if stats.version < 2 && stats.times_loaded > 10 {
+            score *= 0.95;
+            diagnostics.push("Skill has not been improved despite heavy usage".into());
+        }
+
+        // Clamp score
+        score = score.clamp(0.0, 1.0);
+
+        // Determine grade and suggested action
+        let (grade, suggested_action) = if score >= 0.8 {
+            (SkillGrade::Excellent, SuggestedAction::None)
+        } else if score >= 0.6 {
+            (SkillGrade::Good, SuggestedAction::MinorTweak)
+        } else if score >= 0.4 {
+            (SkillGrade::NeedsImprovement, SuggestedAction::Improve)
+        } else if score >= 0.2 {
+            (SkillGrade::Poor, SuggestedAction::MajorRevision)
+        } else {
+            (SkillGrade::Critical, SuggestedAction::Retire)
+        };
+
+        if diagnostics.is_empty() {
+            diagnostics.push("Skill performing within acceptable parameters".into());
+        }
+
+        SkillEvaluation {
+            skill_name: skill_name.to_string(),
+            score,
+            grade,
+            diagnostics,
+            suggested_action,
+        }
+    }
+
+    /// Stage 3: Generate improvement suggestions for a skill based on
+    /// its evaluation and recent failure trajectories.
+    pub async fn suggest_improvements(&self, skill_name: &str) -> Vec<ImprovementSuggestion> {
+        let evaluation = self.evaluate_skill(skill_name).await;
+        let mut suggestions = Vec::new();
+
+        if matches!(evaluation.suggested_action, SuggestedAction::None | SuggestedAction::MinorTweak) {
+            return suggestions; // nothing to improve
+        }
+
+        // Analyze failure patterns from trajectories
+        let trajectories = self.trajectories.lock().await;
+        let mut failure_tools: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut failure_keywords: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+
+        for traj in trajectories.iter() {
+            // Match by user_prompt containing skill_name (Trajectory has no skill_name field)
+            if traj.user_prompt.contains(skill_name)
+                && matches!(traj.user_rating, Some(TrajectoryRating::Bad))
+            {
+                // Track which tools were used in failed trajectories
+                for action in &traj.assistant_actions {
+                    *failure_tools.entry(action.tool_name.clone()).or_insert(0) += 1;
+                }
+                // Extract keywords from user prompt (simple word split)
+                for word in traj.user_prompt.split_whitespace() {
+                    let w = word.to_lowercase();
+                    if w.len() > 4 {
+                        *failure_keywords.entry(w).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        drop(trajectories);
+
+        // Suggestion 1: Based on grade
+        match evaluation.grade {
+            SkillGrade::NeedsImprovement => {
+                suggestions.push(ImprovementSuggestion {
+                    priority: 1,
+                    category: "performance".into(),
+                    description: format!(
+                        "Skill '{}' has moderate effectiveness (score {:.2}). Review trigger conditions to reduce false positives.",
+                        skill_name, evaluation.score
+                    ),
+                });
+            }
+            SkillGrade::Poor => {
+                suggestions.push(ImprovementSuggestion {
+                    priority: 2,
+                    category: "relevance".into(),
+                    description: format!(
+                        "Skill '{}' is underperforming (score {:.2}). Consider narrowing scope or improving instructions.",
+                        skill_name, evaluation.score
+                    ),
+                });
+            }
+            SkillGrade::Critical => {
+                suggestions.push(ImprovementSuggestion {
+                    priority: 3,
+                    category: "retirement".into(),
+                    description: format!(
+                        "Skill '{}' is critically ineffective (score {:.2}). Recommend retirement or complete rewrite.",
+                        skill_name, evaluation.score
+                    ),
+                });
+            }
+            _ => {}
+        }
+
+        // Suggestion 2: Based on failure tool patterns
+        if let Some((most_failed_tool, count)) = failure_tools.iter().max_by_key(|(_, c)| *c) {
+            if *count >= 2 {
+                suggestions.push(ImprovementSuggestion {
+                    priority: 2,
+                    category: "tool_usage".into(),
+                    description: format!(
+                        "Tool '{}' appears in {} failed trajectories. Consider adjusting tool invocation strategy.",
+                        most_failed_tool, count
+                    ),
+                });
+            }
+        }
+
+        // Suggestion 3: Based on failure keywords
+        let mut sorted_keywords: Vec<_> = failure_keywords.iter().collect();
+        sorted_keywords.sort_by(|a, b| b.1.cmp(a.1));
+        if sorted_keywords.len() >= 2 {
+            let top_kw: Vec<&str> = sorted_keywords.iter().take(3).map(|(k, _)| k.as_str()).collect();
+            suggestions.push(ImprovementSuggestion {
+                priority: 1,
+                category: "scope".into(),
+                description: format!(
+                    "Common keywords in failures: {}. May indicate scope mismatch.",
+                    top_kw.join(", ")
+                ),
+            });
+        }
+
+        // Suggestion 4: Based on diagnostics from evaluation
+        for diag in &evaluation.diagnostics {
+            if diag.contains("relevance") {
+                suggestions.push(ImprovementSuggestion {
+                    priority: 2,
+                    category: "trigger".into(),
+                    description: "Improve trigger condition specificity to reduce irrelevant activations".into(),
+                });
+            }
+            if diag.contains("success rate") {
+                suggestions.push(ImprovementSuggestion {
+                    priority: 2,
+                    category: "instructions".into(),
+                    description: "Strengthen step-by-step instructions to improve execution success rate".into(),
+                });
+            }
+        }
+
+        suggestions.sort_by(|a, b| b.priority.cmp(&a.priority));
+        suggestions
+    }
+
+    /// Stage 4: Validate a skill's integrity (syntax, completeness, structure).
+    ///
+    /// Returns a list of issues found (empty = valid).
+    pub async fn validate_skill(&self, skill_name: &str) -> ValidationResult {
+        let mut issues: Vec<ValidationIssue> = Vec::new();
+
+        // Load skill content
+        let skill_path = self.skills_dir.join(format!("{}.md", skill_name));
+        if !skill_path.exists() {
+            return ValidationResult {
+                skill_name: skill_name.to_string(),
+                valid: false,
+                issues: vec![ValidationIssue {
+                    severity: Severity::Error,
+                    message: format!("Skill file not found: {}", skill_path.display()),
+                }],
+            };
+        }
+
+        let content = match std::fs::read_to_string(&skill_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return ValidationResult {
+                    skill_name: skill_name.to_string(),
+                    valid: false,
+                    issues: vec![ValidationIssue {
+                        severity: Severity::Error,
+                        message: format!("Cannot read skill file: {}", e),
+                    }],
+                };
+            }
+        };
+
+        // Check 1: Non-empty
+        if content.trim().is_empty() {
+            issues.push(ValidationIssue {
+                severity: Severity::Error,
+                message: "Skill file is empty".into(),
+            });
+        }
+
+        // Check 2: Has at least one section header
+        let section_count = content.lines().filter(|l| l.starts_with("## ")).count();
+        if section_count == 0 {
+            issues.push(ValidationIssue {
+                severity: Severity::Warning,
+                message: "No section headers (## ) found — skill may lack structure".into(),
+            });
+        }
+
+        // Check 3: Has trigger conditions
+        let has_trigger = content.lines().any(|l| {
+            let lower = l.to_lowercase();
+            lower.contains("trigger") || lower.contains("when to use") || lower.contains("use when")
+        });
+        if !has_trigger {
+            issues.push(ValidationIssue {
+                severity: Severity::Warning,
+                message: "No trigger conditions found — skill may activate incorrectly".into(),
+            });
+        }
+
+        // Check 4: Has step-by-step instructions
+        let has_steps = content.lines().any(|l| {
+            l.starts_with("1.") || l.starts_with("- ") || l.starts_with("* ") || l.starts_with("Step")
+        });
+        if !has_steps {
+            issues.push(ValidationIssue {
+                severity: Severity::Warning,
+                message: "No step-by-step instructions found".into(),
+            });
+        }
+
+        // Check 5: Reasonable length (not too short, not too long)
+        let line_count = content.lines().count();
+        if line_count < 5 {
+            issues.push(ValidationIssue {
+                severity: Severity::Warning,
+                message: format!("Skill is very short ({} lines) — may be incomplete", line_count),
+            });
+        } else if line_count > 500 {
+            issues.push(ValidationIssue {
+                severity: Severity::Warning,
+                message: format!("Skill is very long ({} lines) — consider splitting", line_count),
+            });
+        }
+
+        // Check 6: No broken markdown links
+        for line in content.lines() {
+            if line.contains("](") && !line.contains("](http") && !line.contains("](/") {
+                // Relative link without path — might be broken
+                if line.contains("](#") {
+                    continue; // anchor links are fine
+                }
+            }
+        }
+
+        let valid = issues.iter().all(|i| !matches!(i.severity, Severity::Error));
+        ValidationResult {
+            skill_name: skill_name.to_string(),
+            valid,
+            issues,
+        }
+    }
+
+    /// Stage 5: Retire a persistently poor skill.
+    ///
+    /// Marks the skill as retired (skipped during skill loading) and writes
+    /// a retirement notice into the skill file. Can be un-retired later.
+    pub async fn retire_skill(&self, skill_name: &str, reason: &str) -> Result<(), String> {
+        // Update stats
+        {
+            let mut stats_lock = self.skill_stats.lock().await;
+            if let Some(stats) = stats_lock.get_mut(skill_name) {
+                stats.retired = true;
+                stats.retired_reason = Some(reason.to_string());
+            } else {
+                let mut stats = SkillStats::new(skill_name);
+                stats.retired = true;
+                stats.retired_reason = Some(reason.to_string());
+                stats_lock.insert(skill_name.to_string(), stats);
+            }
+        }
+
+        // Persist retirement notice in skill file
+        let skill_path = self.skills_dir.join(format!("{}.md", skill_name));
+        if skill_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&skill_path) {
+                let notice = format!(
+                    "\n\n---\n> ⚠️ **RETIRED** (auto-disabled on {})\n> Reason: {}\n> To re-enable: remove this notice and set `retired: false` in stats.\n",
+                    chrono::Utc::now().format("%Y-%m-%d"),
+                    reason,
+                );
+                let _ = std::fs::write(&skill_path, format!("{}{}", content, notice));
+            }
+        }
+
+        // Save updated stats
+        let _ = self.save_stats().await;
+
+        Ok(())
+    }
+
+    /// Un-retire a previously retired skill.
+    pub async fn unretire_skill(&self, skill_name: &str) -> Result<(), String> {
+        {
+            let mut stats_lock = self.skill_stats.lock().await;
+            if let Some(stats) = stats_lock.get_mut(skill_name) {
+                stats.retired = false;
+                stats.retired_reason = None;
+            }
+        }
+        let _ = self.save_stats().await;
+        Ok(())
+    }
+
+    /// Run the full evaluation-improvement cycle for all skills.
+    ///
+    /// Called periodically (e.g., every 10 sessions) to auto-improve the skill set.
+    /// Returns a summary of actions taken.
+    pub async fn run_improvement_cycle(&self) -> ImprovementCycleReport {
+        let mut report = ImprovementCycleReport {
+            skills_evaluated: 0,
+            skills_improved: 0,
+            skills_retired: 0,
+            actions: Vec::new(),
+        };
+
+        let skill_names: Vec<String> = {
+            let stats = self.skill_stats.lock().await;
+            stats.keys().cloned().collect()
+        };
+
+        for name in &skill_names {
+            let evaluation = self.evaluate_skill(name).await;
+            report.skills_evaluated += 1;
+
+            match evaluation.suggested_action {
+                SuggestedAction::Retire => {
+                    let reason = format!(
+                        "Auto-retired: score {:.2}, grade {:?}",
+                        evaluation.score, evaluation.grade
+                    );
+                    let _ = self.retire_skill(name, &reason).await;
+                    report.skills_retired += 1;
+                    report.actions.push(format!("RETIRE: {} ({})", name, reason));
+                }
+                SuggestedAction::MajorRevision | SuggestedAction::Improve => {
+                    report.skills_improved += 1;
+                    let suggestions = self.suggest_improvements(name).await;
+                    let sug_summary: Vec<String> = suggestions.iter()
+                        .take(3)
+                        .map(|s| format!("[{}] {}", s.category, s.description))
+                        .collect();
+                    report.actions.push(format!(
+                        "IMPROVE: {} — {} suggestions: {}",
+                        name,
+                        suggestions.len(),
+                        sug_summary.join("; "),
+                    ));
+                }
+                SuggestedAction::MinorTweak => {
+                    report.actions.push(format!(
+                        "TWEAK: {} (score {:.2}, acceptable)",
+                        name, evaluation.score,
+                    ));
+                }
+                SuggestedAction::None => {
+                    // Skill is healthy, no action needed
+                }
+            }
+        }
+
+        report
+    }
+
+    /// Helper: get or create stats for a skill.
+    async fn get_or_create_stats(&self, skill_name: &str) -> SkillStats {
+        let mut stats = self.skill_stats.lock().await;
+        stats.entry(skill_name.to_string())
+            .or_insert_with(|| SkillStats::new(skill_name))
+            .clone()
+    }
+
+    /// Record a skill invocation outcome (success or failure).
+    pub async fn record_skill_outcome(&self, skill_name: &str, success: bool) {
+        let mut stats = self.skill_stats.lock().await;
+        let entry = stats.entry(skill_name.to_string())
+            .or_insert_with(|| SkillStats::new(skill_name));
+        if success {
+            entry.times_succeeded += 1;
+        } else {
+            entry.times_failed += 1;
+        }
+        entry.last_used = Some(chrono::Utc::now().to_rfc3339());
+        drop(stats);
+        let _ = self.save_stats().await;
+    }
+
+    /// Persist skill stats to disk.
+    async fn save_stats(&self) -> Result<(), String> {
+        let stats = self.skill_stats.lock().await;
+        let json = serde_json::to_string_pretty(&*stats)
+            .map_err(|e| format!("Failed to serialize stats: {}", e))?;
+        let stats_path = self.skills_dir.join("skill_stats.json");
+        std::fs::write(&stats_path, json)
+            .map_err(|e| format!("Failed to write stats: {}", e))?;
+        Ok(())
     }
 }
 

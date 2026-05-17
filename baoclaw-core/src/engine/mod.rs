@@ -18,3 +18,5 @@ pub mod session_memory;
 pub mod token_counter;
 pub mod tool_result_store;
 pub mod security;
+pub mod cross_session_db;
+pub mod user_profile;

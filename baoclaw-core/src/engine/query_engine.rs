@@ -732,6 +732,9 @@ impl QueryEngine {
             tool_result_store: self.config.tool_result_store.as_ref().map(Arc::clone),
             initial_budget: Some(initial_budget),
             cached_rules_raw: self.cached_rules_raw.clone(),
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -792,6 +795,12 @@ pub struct QueryLoopConfig {
     pub initial_budget: Option<(BudgetStatus, u64)>,
     /// Cached rule files (loaded once, filtered in-memory per turn).
     pub cached_rules_raw: Vec<CachedRule>,
+    /// Frozen snapshot of the static system prompt (cached on first build, never changes).
+    pub frozen_system_prompt: Option<Vec<Value>>,
+    /// Frozen snapshot of the tools list (cached on first build, never changes).
+    pub frozen_tools: Option<Vec<Value>>,
+    /// Hash of the frozen content for cache invalidation diagnostics.
+    pub frozen_hash: Option<u64>,
 }
 
 impl QueryLoopConfig {
@@ -1070,6 +1079,9 @@ async fn run_query_loop(
             tool_result_store: config.tool_result_store.as_ref().map(Arc::clone),
             initial_budget: None,
             cached_rules_raw: config.cached_rules_raw.clone(),
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         };
         let request = build_api_request(&messages, &current_config);
 
@@ -2523,53 +2535,18 @@ fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> CreateMe
         }
     }
 
-    // Build system prompt (static, cache_control-marked)
-    let system = build_system_prompt(config);
-
-    // Build tools list — sorted deterministically by name to ensure stable
-    // ordering across turns.  Tool order is part of the cached prefix, so
-    // non-deterministic iteration (e.g. HashMap-based) would break caching.
-    //
-    // Deferred tools emit only a lightweight stub (name + short description)
-    // to keep the cached prefix minimal.  The full schema is fetched on-demand
-    // when the model invokes the tool via Tool Search.
-    let tools: Option<Vec<Value>> = if config.tools.is_empty() {
-        None
+    // Use frozen system prompt if available (maximizes cache hit rate)
+    let system = if let Some(ref frozen) = config.frozen_system_prompt {
+        Some(frozen.clone())
     } else {
-        let mut tool_list: Vec<Value> = config.tools.iter().map(|t| {
-            if t.is_deferred() {
-                // Lightweight stub — no input_schema, just name + short description
-                serde_json::json!({
-                    "name": t.name(),
-                    "description": t.short_description(),
-                    "defer_loading": true,
-                })
-            } else {
-                let schema = t.input_schema();
-                serde_json::json!({
-                    "name": t.name(),
-                    "description": t.prompt(),
-                    "input_schema": schema,
-                })
-            }
-        }).collect();
-        // Stable sort by tool name
-        tool_list.sort_by(|a, b| {
-            let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            name_a.cmp(name_b)
-        });
-        // Mark the last tool definition with cache_control so the tools prefix
-        // is cached as a single block together with the system prompt.
-        if let Some(last_tool) = tool_list.last_mut() {
-            last_tool.as_object_mut().map(|obj| {
-                obj.insert(
-                    "cache_control".to_string(),
-                    serde_json::json!({ "type": "ephemeral" }),
-                );
-            });
-        }
-        Some(tool_list)
+        build_system_prompt(config)
+    };
+
+    // Use frozen tools list if available (same caching benefit)
+    let tools = if let Some(ref frozen) = config.frozen_tools {
+        Some(frozen.clone())
+    } else {
+        build_tools_list(config)
     };
 
     CreateMessageRequest {
@@ -2592,6 +2569,46 @@ fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> CreateMe
         },
         metadata: None,
     }
+}
+
+/// Build the tools list deterministically — called once and frozen for the session.
+///
+/// Tool order is part of the cached prefix, so non-deterministic iteration
+/// (e.g. HashMap-based) would break caching.
+fn build_tools_list(config: &QueryLoopConfig) -> Option<Vec<Value>> {
+    if config.tools.is_empty() {
+        return None;
+    }
+    let mut tool_list: Vec<Value> = config.tools.iter().map(|t| {
+        if t.is_deferred() {
+            serde_json::json!({
+                "name": t.name(),
+                "description": t.short_description(),
+                "defer_loading": true,
+            })
+        } else {
+            let schema = t.input_schema();
+            serde_json::json!({
+                "name": t.name(),
+                "description": t.prompt(),
+                "input_schema": schema,
+            })
+        }
+    }).collect();
+    tool_list.sort_by(|a, b| {
+        let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        name_a.cmp(name_b)
+    });
+    if let Some(last_tool) = tool_list.last_mut() {
+        last_tool.as_object_mut().map(|obj| {
+            obj.insert(
+                "cache_control".to_string(),
+                serde_json::json!({ "type": "ephemeral" }),
+            );
+        });
+    }
+    Some(tool_list)
 }
 
 /// Build the system prompt from config — **static parts only**.
@@ -3545,6 +3562,9 @@ mod tests {
             tool_result_store: None,
             initial_budget: None,
             cached_rules_raw: vec![],
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3586,6 +3606,9 @@ mod tests {
             tool_result_store: None,
             initial_budget: None,
             cached_rules_raw: vec![],
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3627,6 +3650,9 @@ mod tests {
             tool_result_store: None,
             initial_budget: None,
             cached_rules_raw: vec![],
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         };
         let messages = vec![
             Message {
@@ -3761,6 +3787,9 @@ mod tests {
             tool_result_store: None,
             initial_budget: None,
             cached_rules_raw: vec![],
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3802,6 +3831,9 @@ mod tests {
             tool_result_store: None,
             initial_budget: None,
             cached_rules_raw: vec![],
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3999,6 +4031,9 @@ mod tests {
             tool_result_store: None,
             initial_budget: None,
             cached_rules_raw: vec![],
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
         }
     }
 

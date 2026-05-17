@@ -23,6 +23,7 @@ urlencoding = "2"
 ignore = "0.4"
 jsonwebtoken = "9"
 libc = "0.2"
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
 proptest = "1"
