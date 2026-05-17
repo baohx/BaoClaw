@@ -23,3 +23,7 @@ pub mod user_profile;
 pub mod tool_health;
 pub mod intent_predictor;
 pub mod context_allocator;
+pub mod sandbox;
+pub mod prompt_injection;
+pub mod subagent_policy;
+pub mod streaming_executor;
