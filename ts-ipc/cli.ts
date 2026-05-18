@@ -607,11 +607,16 @@ async function showHistory(client: IpcClient, count: number) {
 // ═══════════════════════════════════════════════════════════════
 // Daemon launcher
 // ═══════════════════════════════════════════════════════════════
-async function startNewDaemon(binaryPath: string): Promise<string> {
+async function startNewDaemon(binaryPath: string, sandboxMode?: string): Promise<string> {
   startSpinner('Starting BaoClaw engine...');
 
-  // Start as daemon: detached, with --daemon flag
-  const child = spawn(binaryPath, ['--daemon', '--cwd', process.cwd()], {
+  // Build daemon args: always include --daemon and --cwd; forward --sandbox if set
+  const daemonArgs: string[] = ['--daemon', '--cwd', process.cwd()];
+  if (sandboxMode) {
+    daemonArgs.push('--sandbox', sandboxMode);
+  }
+
+  const child = spawn(binaryPath, daemonArgs, {
     cwd: process.cwd(),
     stdio: ['ignore', 'pipe', 'pipe'],
     env: process.env,
@@ -754,6 +759,24 @@ async function main() {
   // --debug flag: enable timing instrumentation for the first query
   const cliDebugMode = args.includes('--debug');
 
+  // --sandbox flag: forward to daemon for sandboxed bash execution
+  let sandboxMode: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--sandbox') {
+      if (i + 1 < args.length && !args[i + 1]?.startsWith('--')) {
+        sandboxMode = args[i + 1]; // e.g. --sandbox docker
+        i++;
+      } else {
+        sandboxMode = 'auto'; // just --sandbox → auto-detect
+      }
+    } else if (args[i]?.startsWith('--sandbox=')) {
+      sandboxMode = args[i].split('=')[1]; // e.g. --sandbox=bwrap
+    }
+  }
+  if (sandboxMode === 'auto') {
+    sandboxMode = undefined; // let baoclaw-core auto-detect (no value = just --sandbox)
+  }
+
   // Check API key
   if (!process.env.ANTHROPIC_API_KEY) {
     console.error(`${FG_RED}${BOLD}Error:${RESET} ANTHROPIC_API_KEY is not set.`);
@@ -781,7 +804,7 @@ async function main() {
     isReconnect = true;
     console.log(`${DIM}Connecting to daemon pid=${daemon.pid}...${RESET}`);
   } else {
-    socketPath = await startNewDaemon(binaryPath);
+    socketPath = await startNewDaemon(binaryPath, sandboxMode);
   }
 
   // Connect IPC

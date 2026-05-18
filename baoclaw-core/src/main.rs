@@ -1226,6 +1226,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ThinkingConfig::Disabled
     };
 
+    // Parse --sandbox flag for sandboxed command execution
+    // Usage: --sandbox bwrap | --sandbox docker | --sandbox none
+    // If flag is omitted, no sandbox is used (direct execution).
+    let sandbox_config: Option<Arc<engine::sandbox::SandboxConfig>> =
+        args.iter().position(|a| a == "--sandbox")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str())
+        .map(|mode| {
+            use engine::sandbox::{SandboxBackend, SandboxConfig};
+            let backend = match mode {
+                "bwrap" | "bubblewrap" => {
+                    eprintln!("[sandbox] Using Bubblewrap (bwrap) isolation");
+                    SandboxBackend::Bubblewrap
+                }
+                "docker" => {
+                    eprintln!("[sandbox] Using Docker container isolation");
+                    SandboxBackend::Docker {
+                        image: "baoclaw-sandbox:latest".into(),
+                    }
+                }
+                "none" | "off" => {
+                    eprintln!("[sandbox] Sandbox disabled (direct execution)");
+                    SandboxBackend::None
+                }
+                other => {
+                    eprintln!("[sandbox] WARNING: unknown sandbox mode '{}', falling back to auto-detect", other);
+                    SandboxConfig::auto_detect().backend
+                }
+            };
+            let mut cfg = SandboxConfig {
+                backend,
+                ..SandboxConfig::default()
+            };
+            // Auto-mount the working directory as read-write
+            cfg.rw_mounts.push(cwd_str.clone());
+            Arc::new(cfg)
+        });
+
+    // If --sandbox flag was provided without a value, use auto-detect
+    let sandbox_config = sandbox_config.or_else(|| {
+        if args.iter().any(|a| a == "--sandbox") {
+            eprintln!("[sandbox] No mode specified, auto-detecting...");
+            let mut cfg = engine::sandbox::SandboxConfig::auto_detect();
+            cfg.rw_mounts.push(cwd_str.clone());
+            eprintln!("[sandbox] Auto-detected: {}", cfg.description());
+            Some(Arc::new(cfg))
+        } else {
+            None
+        }
+    });
+
     // Create socket in the shared socket directory
     let socket_path = make_socket_path(&cwd_str);
 
@@ -1326,8 +1377,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let evolution_engine = Arc::new(engine::evolution::EvolutionEngine::new(std::path::Path::new(&cwd_str)));
 
     // Build the core tool list (everything except AgentTool itself, which is added after)
+    // BashTool is optionally sandboxed based on --sandbox CLI flag
+    let bash_tool: BashTool = match &sandbox_config {
+        Some(cfg) => BashTool::with_sandbox(Arc::clone(cfg)),
+        None => BashTool::new(),
+    };
     let core_tools: Vec<Arc<dyn tools::Tool>> = vec![
-        Arc::new(BashTool::new()),
+        Arc::new(bash_tool),
         Arc::new(FileReadTool::new(additional_dirs.clone())),
         Arc::new(FileWriteTool::new(additional_dirs.clone())),
         Arc::new(FileEditTool::new(additional_dirs.clone())),
