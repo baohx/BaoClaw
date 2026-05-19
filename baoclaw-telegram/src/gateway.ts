@@ -532,18 +532,51 @@ async function main() {
           // Get output as string
           const outputStr = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output ?? '');
 
+          // Helper: extract images from tool result content items
+          // Supports two formats:
+          //   MCP format:      { type: "image", data: "base64...", mimeType: "image/png" }
+          //   Anthropic format: { type: "image", source: { type: "base64", media_type: "image/png", data: "base64..." } }
+          function extractImagesFromContent(content: any[]): { buffer: Buffer; mediaType: string }[] {
+            const imgs: { buffer: Buffer; mediaType: string }[] = [];
+            for (const item of content) {
+              if (item?.type !== 'image') continue;
+              // Anthropic format: data inside source
+              if (item.source?.type === 'base64' && typeof item.source.data === 'string' && item.source.data.length > 100) {
+                const mediaType = item.source.media_type || 'image/png';
+                const ext = mediaType.split('/')[1] || 'png';
+                imgs.push({ buffer: Buffer.from(item.source.data, 'base64'), mediaType: ext });
+              }
+              // MCP format: data at top level
+              else if (typeof item.data === 'string' && item.data.length > 100) {
+                const ext = (item.mimeType || item.media_type || 'image/png').split('/')[1] || 'png';
+                imgs.push({ buffer: Buffer.from(item.data, 'base64'), mediaType: ext });
+              }
+            }
+            return imgs;
+          }
+
+          // Helper: send an image buffer via bot.sendPhoto with proper extension
+          async function sendToolResultImage(chatId: number, img: { buffer: Buffer; mediaType: string }, index: number): Promise<void> {
+            const ext = img.mediaType === 'jpeg' ? 'jpg' : img.mediaType;
+            const tmpFile = path.join(os.tmpdir(), `baoclaw-img-${Date.now()}-${index}.${ext}`);
+            fs.writeFileSync(tmpFile, img.buffer);
+            const caption = index === 0 ? '📸 图片已生成' : `📸 图片已生成 (${index + 1})`;
+            await bot.sendPhoto(chatId, tmpFile, { caption });
+            try { fs.unlinkSync(tmpFile); } catch {}
+          }
+
           // Try JSON.parse first (works if not truncated)
           let sent = false;
           try {
             const parsed = JSON.parse(outputStr);
             const content = Array.isArray(parsed?.content) ? parsed.content : [];
-            for (const item of content) {
-              if (item?.type === 'image' && typeof item?.data === 'string' && item.data.length > 100) {
-                const tmpFile = path.join(os.tmpdir(), `baoclaw-img-${Date.now()}.png`);
-                fs.writeFileSync(tmpFile, Buffer.from(item.data, 'base64'));
-                await bot.sendPhoto(chatId, tmpFile, { caption: '📸 Screenshot' });
-                try { fs.unlinkSync(tmpFile); } catch {}
+            const images = extractImagesFromContent(content);
+            for (let i = 0; i < images.length; i++) {
+              try {
+                await sendToolResultImage(chatId, images[i], i);
                 sent = true;
+              } catch (err) {
+                console.error(`Failed to send tool result image: ${err}`);
               }
             }
           } catch {
@@ -553,13 +586,16 @@ async function main() {
               try {
                 const tmpFile = path.join(os.tmpdir(), `baoclaw-img-${Date.now()}.png`);
                 fs.writeFileSync(tmpFile, Buffer.from(b64Match[1], 'base64'));
-                await bot.sendPhoto(chatId, tmpFile, { caption: '📸 Screenshot' });
+                await bot.sendPhoto(chatId, tmpFile, { caption: '📸 图片已生成' });
                 try { fs.unlinkSync(tmpFile); } catch {}
                 sent = true;
               } catch (err) {
                 console.error(`Failed to extract/send image from truncated output: ${err}`);
               }
             }
+          }
+          if (sent) {
+            try { await bot.sendMessage(chatId, '[图片已发送]'); } catch {}
           }
         }
         break;

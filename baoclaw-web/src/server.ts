@@ -243,7 +243,9 @@ async function main() {
       try {
         switch (msg.action) {
           case 'submit': {
-            const result = await ipc.request('submitMessage', { prompt: msg.prompt });
+            const submitParams: Record<string, unknown> = { prompt: msg.prompt };
+            if (msg.attachments) submitParams.attachments = msg.attachments;
+            const result = await ipc.request('submitMessage', submitParams);
             ws.send(JSON.stringify({ type: 'submitDone', data: result }));
             break;
           }

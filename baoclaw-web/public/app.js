@@ -4,6 +4,10 @@ const messagesEl=$('messages'),inputEl=$('input'),btnSend=$('btn-send'),btnAbort
 const sessionInfoEl=$('session-info'),statusTextEl=$('status-text'),projectListEl=$('project-list');
 const searchInput=$('search-input'),searchOverlay=$('search-overlay'),searchResults=$('search-results');
 const tabBarEl=$('tab-bar');
+const uploadBtn=$('uploadBtn'),imageInput=$('imageInput'),imagePreviewEl=$('imagePreview');
+
+// Pending image attachments: [{ file, dataUrl, mediaType }]
+let pendingImages=[];
 
 marked.setOptions({highlight:(code,lang)=>{
   if(lang&&hljs.getLanguage(lang))return hljs.highlight(code,{language:lang}).value;
@@ -107,8 +111,18 @@ function getActiveWs(){return tabs.get(activeTab)?.ws||null;}
 // ═══════════════════════════════════════════════════════════════
 // Message rendering (uses active tab's container)
 // ═══════════════════════════════════════════════════════════════
-function addUserMessage(text){
-  const el=document.createElement('div');el.className='msg user';el.textContent=text;
+function addUserMessage(text,imageDataUrls){
+  const el=document.createElement('div');el.className='msg user';
+  if(text)el.textContent=text;
+  if(imageDataUrls&&imageDataUrls.length){
+    const imgWrap=document.createElement('div');imgWrap.className='user-images';
+    for(const url of imageDataUrls){
+      const img=document.createElement('img');img.className='user-msg-image';img.src=url;
+      img.onclick=()=>showImageModal(img.src);
+      imgWrap.appendChild(img);
+    }
+    el.appendChild(imgWrap);
+  }
   getActiveMsgEl().appendChild(el);scrollToBottom();
 }
 function ensureAssistantMessage(){
@@ -287,14 +301,75 @@ searchInput.addEventListener('input',()=>{
 $('search-close').onclick=()=>{searchOverlay.classList.add('hidden');searchInput.value='';};
 
 // ═══════════════════════════════════════════════════════════════
+// Image upload
+// ═══════════════════════════════════════════════════════════════
+uploadBtn.addEventListener('click',()=>imageInput.click());
+imageInput.addEventListener('change',()=>{
+  const files=Array.from(imageInput.files||[]);
+  if(!files.length)return;
+  let loaded=0;
+  for(const file of files){
+    if(!file.type.startsWith('image/'))continue;
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      const dataUrl=e.target.result;
+      const base64=dataUrl.split(',')[1];
+      pendingImages.push({file,dataUrl,mediaType:file.type,base64});
+      renderImagePreview();
+    };
+    reader.readAsDataURL(file);
+  }
+  imageInput.value=''; // reset so same file can be re-selected
+});
+
+function renderImagePreview(){
+  imagePreviewEl.innerHTML='';
+  if(!pendingImages.length){imagePreviewEl.style.display='none';return;}
+  imagePreviewEl.style.display='flex';
+  pendingImages.forEach((img,idx)=>{
+    const wrap=document.createElement('div');
+    wrap.className='preview-thumb-wrap';
+    const thumb=document.createElement('img');
+    thumb.className='preview-thumb';
+    thumb.src=img.dataUrl;
+    thumb.title=img.file.name||'image';
+    const del=document.createElement('button');
+    del.className='preview-thumb-del';
+    del.textContent='✕';
+    del.title='删除';
+    del.onclick=()=>{pendingImages.splice(idx,1);renderImagePreview();};
+    wrap.appendChild(thumb);
+    wrap.appendChild(del);
+    imagePreviewEl.appendChild(wrap);
+  });
+}
+
+// Build attachments array from pending images
+function buildAttachments(){
+  if(!pendingImages.length)return undefined;
+  return pendingImages.map(img=>({
+    type:'image',
+    source:{type:'base64',media_type:img.mediaType,data:img.base64}
+  }));
+}
+
+function clearPendingImages(){
+  pendingImages=[];
+  renderImagePreview();
+}
+
+// ═══════════════════════════════════════════════════════════════
 // UI controls
 // ═══════════════════════════════════════════════════════════════
 function setBusy(b){btnSend.classList.toggle('hidden',b);btnAbort.classList.toggle('hidden',!b);inputEl.disabled=b;if(!b)inputEl.focus();}
 
 function sendMessage(){
-  const t=inputEl.value.trim(),w=getActiveWs();if(!t||!w||w.readyState!==1)return;
-  // Handle slash commands
-  if(t.startsWith('/')){
+  const t=inputEl.value.trim(),w=getActiveWs();
+  const attachments=buildAttachments();
+  if(!t&&!attachments)return; // need text or images
+  if(!w||w.readyState!==1)return;
+  // Handle slash commands (only if no attachments)
+  if(t.startsWith('/')&&!attachments){
     inputEl.value='';inputEl.style.height='auto';
     if(t==='/compact'){w.send(JSON.stringify({action:'compact'}));addSystemMessage('\u{1F5DC}\uFE0F Compacting...');return;}
     if(t==='/history'){w.send(JSON.stringify({action:'rpc',method:'talkTail',params:{count:100}}));return;}
@@ -302,10 +377,14 @@ function sendMessage(){
     if(t==='/abort'){doAbort();return;}
     // Unknown command — send as regular message
   }
-  addUserMessage(t);inputEl.value='';inputEl.style.height='auto';
+  addUserMessage(t,attachments?pendingImages.map(i=>i.dataUrl):undefined);
+  inputEl.value='';inputEl.style.height='auto';
+  clearPendingImages();
   const s=getActiveState();s.currentText='';s.isStreaming=false;s.toolCount=0;s.currentAssistantEl=null;s.queryStartTime=Date.now();
   setBusy(true);
-  w.send(JSON.stringify({action:'submit',prompt:t}));
+  const msg={action:'submit',prompt:t||''};
+  if(attachments)msg.attachments=attachments;
+  w.send(JSON.stringify(msg));
 }
 
 inputEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}});

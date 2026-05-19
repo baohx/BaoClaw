@@ -43,7 +43,10 @@
         <button id="search-close" class="sidebar-btn">Close</button>
       </div>
       <div id="input-area">
+        <div id="imagePreview" class="image-preview"></div>
         <div id="input-wrapper">
+          <button id="uploadBtn" title="上传图片">📎</button>
+          <input type="file" id="imageInput" accept="image/*" multiple hidden>
           <textarea id="input" placeholder="Enter to send, Shift+Enter newline" rows="1"></textarea>
           <button id="btn-send" title="Send">▶</button>
           <button id="btn-abort" title="Abort" class="hidden">⏹</button>
