@@ -37,3 +37,5 @@ pub mod image_gen_tool;
 pub use image_gen_tool::ImageGenTool;
 pub mod evolve_tool;
 pub use evolve_tool::EvolveTool;
+pub mod image_edit_tool;
+pub use image_edit_tool::ImageEditTool;

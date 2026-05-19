@@ -29,7 +29,7 @@ use ipc::router::{parse_client_method, ClientMethod};
 use ipc::server::{IpcConnection, IpcError, IpcServer};
 use permissions::gate::{PermissionDecision, PermissionGate};
 use state::manager::{CoreState, StateManager};
-use tools::builtins::{AgentTool, BashTool, FileEditTool, FileReadTool, FileWriteTool, GlobTool, GrepTool, ImageGenTool, MemoryTool, NotebookEditTool, ProjectNoteTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
+use tools::builtins::{AgentTool, BashTool, FileEditTool, FileReadTool, FileWriteTool, GlobTool, GrepTool, ImageEditTool, ImageGenTool, MemoryTool, NotebookEditTool, ProjectNoteTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
 use mcp::tool_wrapper::McpToolWrapper;
 
 /// Shared state cloned into each spawned client task.
@@ -1390,6 +1390,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(WebFetchTool::new()),
         Arc::new(WebSearchTool::new()),
         Arc::new(ImageGenTool::new()),
+        Arc::new(ImageEditTool::new()),
         Arc::new(NotebookEditTool::new()),
         Arc::new(TodoWriteTool::new()),
         Arc::new(MemoryTool::new()),
