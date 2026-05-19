@@ -33,5 +33,7 @@ pub use todo_write_tool::TodoWriteTool;
 pub use tool_search_tool::ToolSearchTool;
 pub use web_fetch_tool::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
+pub mod image_gen_tool;
+pub use image_gen_tool::ImageGenTool;
 pub mod evolve_tool;
 pub use evolve_tool::EvolveTool;
