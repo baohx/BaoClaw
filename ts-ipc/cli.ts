@@ -42,6 +42,76 @@ const FG_CLAWD = `${ESC}38;2;210;180;140m`;
 const BG_CLAWD = `${ESC}48;2;60;50;40m`;
 
 // ═══════════════════════════════════════════════════════════════
+// Image helpers — save base64 images & iTerm2 inline display
+// ═══════════════════════════════════════════════════════════════
+const IMAGE_DIR = '/tmp/baoclaw-images';
+
+/** Ensure the image output directory exists */
+function ensureImageDir(): void {
+  if (!fs.existsSync(IMAGE_DIR)) {
+    fs.mkdirSync(IMAGE_DIR, { recursive: true });
+  }
+}
+
+/** Save a base64-encoded image to /tmp/baoclaw-images/ and return the file path */
+function saveBase64Image(base64Data: string, mediaType: string): string {
+  ensureImageDir();
+  const ext = mediaType.split('/')[1] || 'png';          // e.g. "png", "jpeg", "gif", "webp"
+  const normalizedExt = ext === 'jpeg' ? 'jpg' : ext;
+  const timestamp = Math.floor(Date.now() / 1000);
+  const fileName = `baoclaw-${timestamp}.${normalizedExt}`;
+  const filePath = path.join(IMAGE_DIR, fileName);
+  const buffer = Buffer.from(base64Data, 'base64');
+  fs.writeFileSync(filePath, buffer);
+  return filePath;
+}
+
+/** Display an image inline using iTerm2 Inline Image Protocol (if supported) */
+function displayIterm2Image(filePath: string): void {
+  if (process.env.TERM_PROGRAM !== 'iTerm.app') return;
+  try {
+    const data = fs.readFileSync(filePath);
+    const base64 = data.toString('base64');
+    const name = path.basename(filePath);
+    // iTerm2 escape: ESC ] 1337 ; File = ... BEL
+    process.stdout.write(`\x1b]1337;File=inline=1;name=${name}:size=${data.length}:${base64}\x07\n`);
+  } catch {
+    // Silently ignore if iTerm2 display fails
+  }
+}
+
+/** Extract image content blocks from a tool_result output, save & display them.
+ *  Returns the number of images found. */
+function extractAndSaveImages(output: unknown): number {
+  if (typeof output !== 'object' || output === null) return 0;
+  const o = output as Record<string, unknown>;
+
+  // Collect candidate content arrays
+  const contentArrays: unknown[][] = [];
+  if (Array.isArray(o.content)) contentArrays.push(o.content);
+
+  // The output itself may be an array of content blocks
+  if (Array.isArray(output)) contentArrays.push(output as unknown[]);
+
+  let count = 0;
+  for (const arr of contentArrays) {
+    for (const block of arr) {
+      if (typeof block !== 'object' || block === null) continue;
+      const b = block as Record<string, unknown>;
+      if (b.type !== 'image') continue;
+      const src = b.source as Record<string, unknown> | undefined;
+      if (!src || src.type !== 'base64' || typeof src.data !== 'string') continue;
+      const mediaType = typeof src.media_type === 'string' ? src.media_type : 'image/png';
+      const filePath = saveBase64Image(src.data as string, mediaType);
+      count++;
+      console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
+      displayIterm2Image(filePath);
+    }
+  }
+  return count;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Spinner
 // ═══════════════════════════════════════════════════════════════
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -985,6 +1055,8 @@ async function main() {
         }
         const toolInfo = pendingTools.get(tr.tool_use_id);
         pendingTools.delete(tr.tool_use_id);
+        // Extract & save any image content blocks from tool output
+        extractAndSaveImages(tr.output);
         const logLevel = (globalThis as any).__baoclaw_log_level ?? 'verbose';
         // quiet: skip all tool results; normal: skip success results
         if (logLevel === 'quiet') break;
@@ -2413,6 +2485,15 @@ async function main() {
       console.log();
       rl.prompt();
       return;
+    }
+
+    // Auto-detect drag-drop image files (terminal pastes quoted path like '/path/to/img.png')
+    const dragDropMatch = input.match(/^['"]?(\/[^\s'"]+\.(png|jpg|jpeg|gif|webp))['"]?\s*$/i);
+    if (dragDropMatch) {
+      const imgPath = dragDropMatch[1];
+      if (fs.existsSync(imgPath)) {
+        input = `@${imgPath}`;
+      }
     }
 
     // Display user message
