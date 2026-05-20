@@ -7,19 +7,19 @@
   },
   {
     "text": "修复 pbt_config_roundtrip.rs 测试缺少字段",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-04-27T16:02:06+08:00"
   },
   {
     "text": "Token 计数准确化 — 用 tiktoken 替代 chars/4 估算（中文误差 4-8x，是 500 根源之一）",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-06T08:30:00+08:00"
   },
   {
     "text": "Agent Tool 真正并行 — 改造工具执行器支持异步并行队列",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-05-06T08:30:00+08:00"
   },
@@ -472,5 +472,173 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-05-16T11:03:54.404607722+00:00"
+  },
+  {
+    "text": "Phase 2: SQLite+FTS5 跨会话检索 + Frozen Snapshot + USER.md + Skill自改进闭环",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-17T04:24:10.092449775+00:00"
+  },
+  {
+    "text": "Phase 2: SQLite+FTS5跨会话检索 + Frozen Snapshot + USER.md + Skill自改进闭环",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-17T04:26:31.653537495+00:00"
+  },
+  {
+    "text": "Phase 2: SQLite+FTS5跨会话检索 + USER.md画像 + Skill自改进闭环 + Frozen Snapshot",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-17T04:28:39.809840162+00:00"
+  },
+  {
+    "text": "Phase 2: SQLite+FTS5跨会话检索 + USER.md画像 + Skill自改进闭环 + Frozen Snapshot",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-17T04:29:42.052555667+00:00"
+  },
+  {
+    "text": "Create src/engine/tool_health.rs",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-17T08:35:44.306912088+00:00"
+  },
+  {
+    "text": "沙箱接入 Step 1: CLI 参数 — main.rs 添加 --sandbox bwrap|docker|none 解析",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-18T06:47:02.499669028+00:00"
+  },
+  {
+    "text": "沙箱接入 Step 2: BashTool 持有 SandboxConfig — bash_tool.rs 改造",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-18T06:47:02.501253900+00:00"
+  },
+  {
+    "text": "沙箱接入 Step 3: main.rs 工具注入 — BashTool::new(sandbox_config)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-18T06:47:02.502712783+00:00"
+  },
+  {
+    "text": "沙箱接入 Step 4: 编译测试 — cargo test",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-05-18T06:47:02.504029385+00:00"
+  },
+  {
+    "text": "沙箱接入 Step 5: 手动验证沙箱生效",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-05-18T06:47:02.505332039+00:00"
+  },
+  {
+    "text": "查看 baoclaw-core/src/main.rs 完整内容",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T13:37:45.901172980+00:00"
+  },
+  {
+    "text": "搜索图片相关关键词的代码",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T13:37:51.228991990+00:00"
+  },
+  {
+    "text": "Task 1: Rust Core — ImageGenTool (CogView-4 图片生成)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:37:14.934434675+00:00"
+  },
+  {
+    "text": "Task 2: Rust Core — ImageEditTool (图片编辑)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:38:54.799081130+00:00"
+  },
+  {
+    "text": "Task 3: Telegram — 图片收发增强",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:38:54.801439470+00:00"
+  },
+  {
+    "text": "Task 4: Web — 图片上传与展示",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:38:54.802885187+00:00"
+  },
+  {
+    "text": "Task 5: Terminal TUI — 图片粘贴与显示",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:38:54.804172571+00:00"
+  },
+  {
+    "text": "Task 6: 集成测试",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-05-19T14:38:54.805000527+00:00"
+  },
+  {
+    "text": "Add upload button and hidden file input to index.html",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:48:20.230020129+00:00"
+  },
+  {
+    "text": "Add image upload logic in app.js (file selection, base64 reading, preview, attachments in submit)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:48:28.880376363+00:00"
+  },
+  {
+    "text": "Ensure server.ts passes attachments in submit case",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:48:35.349285808+00:00"
+  },
+  {
+    "text": "Add styles for upload button, preview thumbnails, and user-uploaded images in style.css",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:48:52.600107526+00:00"
+  },
+  {
+    "text": "Enhance tool_result handler to support Anthropic-format images (source.data) and add [图片已发送] indicator",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:49:19.864694703+00:00"
+  },
+  {
+    "text": "Add image extraction helper function (saveBase64Image + iTerm2 inline image)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:57:33.530129127+00:00"
+  },
+  {
+    "text": "Modify tool_result handler to detect and save images",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:57:51.051592146+00:00"
+  },
+  {
+    "text": "Modify result handler to detect image content blocks",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:57:51.053323287+00:00"
+  },
+  {
+    "text": "Add drag-drop image file detection in handleLine",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:57:51.054411317+00:00"
+  },
+  {
+    "text": "Verify TypeScript syntax and commit",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-05-19T14:57:51.068574465+00:00"
   }
 ]

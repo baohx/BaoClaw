@@ -946,6 +946,9 @@ async fn run_query_loop(
         }
     }
 
+    // Open cross-session DB for indexing (errors are non-fatal)
+    let cross_db = crate::engine::cross_session_db::CrossSessionDb::new().ok();
+
     // Write the user message that was just added (last message in the vec)
     if let Some(last_msg) = messages.last() {
         append_transcript(&mut transcript_writer, &TranscriptEntry {
@@ -953,6 +956,16 @@ async fn run_query_loop(
             entry_type: TranscriptEntryType::UserMessage,
             data: serde_json::to_value(last_msg).unwrap_or_default(),
         });
+        // Index user message for cross-session search
+        if let (Some(ref db), Some(ref sid)) = (&cross_db, &config.session_id) {
+            if let MessageContent::User { message, .. } = &last_msg.content {
+                let text = match &message.content {
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => serde_json::to_string(&message.content).unwrap_or_default(),
+                };
+                let _ = db.index_message(sid, "user", &text, &last_msg.timestamp);
+            }
+        }
     }
 
     // Build FallbackController from config
@@ -1597,6 +1610,16 @@ async fn run_query_loop(
             entry_type: TranscriptEntryType::AssistantMessage,
             data: serde_json::to_value(&assistant_msg).unwrap_or_default(),
         });
+        // Index assistant text for cross-session search
+        if let (Some(ref db), Some(ref sid)) = (&cross_db, &config.session_id) {
+            let text: String = assistant_content_blocks.iter().filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            }).collect::<Vec<_>>().join(" ");
+            if !text.is_empty() {
+                let _ = db.index_message(sid, "assistant", &text, &assistant_msg.timestamp);
+            }
+        }
 
         // Push cost data to CLI via StateUpdate
         let _ = tx.send(EngineEvent::StateUpdate {

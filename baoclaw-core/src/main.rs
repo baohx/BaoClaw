@@ -839,45 +839,61 @@ async fn handle_shared_client(
                                 })).await;
                             }
                             ClientMethod::SearchHistory { query, max_results } => {
-                                // Search through current session messages for matching text
-                                let engine = session.engine_read().await;
-                                let messages = engine.get_messages();
-                                let query_lower = query.to_lowercase();
+                                // Search across all sessions using CrossSessionDb (FTS5)
                                 let mut results: Vec<serde_json::Value> = Vec::new();
-
-                                for m in messages.iter().rev() {
-                                    if results.len() >= max_results { break; }
-                                    let (role, text) = match &m.content {
-                                        crate::models::message::MessageContent::User { message, .. } => {
-                                            let t = match &message.content {
-                                                serde_json::Value::String(s) => s.clone(),
-                                                serde_json::Value::Array(arr) => arr.iter().filter_map(|b| b.get("text").and_then(|t| t.as_str()).map(String::from)).collect::<Vec<_>>().join(" "),
-                                                _ => String::new(),
+                                match engine::cross_session_db::CrossSessionDb::new() {
+                                    Ok(db) => {
+                                        let hits = db.search_with_context(&query, max_results);
+                                        for hit in hits {
+                                            results.push(serde_json::json!({
+                                                "snippet": hit.snippet,
+                                                "timestamp": hit.timestamp,
+                                                "session_id": hit.session_id,
+                                                "cwd": hit.cwd,
+                                                "rank": hit.rank,
+                                            }));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("CrossSessionDb error: {}, falling back to in-memory search", e);
+                                        // Fallback: search current session only
+                                        let engine = session.engine_read().await;
+                                        let messages = engine.get_messages();
+                                        let query_lower = query.to_lowercase();
+                                        for m in messages.iter().rev() {
+                                            if results.len() >= max_results { break; }
+                                            let (role, text) = match &m.content {
+                                                crate::models::message::MessageContent::User { message, .. } => {
+                                                    let t = match &message.content {
+                                                        serde_json::Value::String(s) => s.clone(),
+                                                        serde_json::Value::Array(arr) => arr.iter().filter_map(|b| b.get("text").and_then(|t| t.as_str()).map(String::from)).collect::<Vec<_>>().join(" "),
+                                                        _ => String::new(),
+                                                    };
+                                                    ("user", t)
+                                                }
+                                                crate::models::message::MessageContent::Assistant { message, .. } => {
+                                                    let t: String = message.content.iter().filter_map(|b| match b {
+                                                        crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
+                                                        _ => None,
+                                                    }).collect::<Vec<_>>().join(" ");
+                                                    ("assistant", t)
+                                                }
+                                                _ => continue,
                                             };
-                                            ("user", t)
+                                            if text.to_lowercase().contains(&query_lower) {
+                                                let lower = text.to_lowercase();
+                                                let idx = lower.find(&query_lower).unwrap_or(0);
+                                                let start = idx.saturating_sub(50);
+                                                let end = (idx + query.len() + 100).min(text.len());
+                                                let snippet = &text[start..end];
+                                                results.push(serde_json::json!({
+                                                    "role": role,
+                                                    "text": text.chars().take(200).collect::<String>(),
+                                                    "snippet": snippet,
+                                                    "timestamp": m.timestamp,
+                                                }));
+                                            }
                                         }
-                                        crate::models::message::MessageContent::Assistant { message, .. } => {
-                                            let t: String = message.content.iter().filter_map(|b| match b {
-                                                crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
-                                                _ => None,
-                                            }).collect::<Vec<_>>().join(" ");
-                                            ("assistant", t)
-                                        }
-                                        _ => continue,
-                                    };
-                                    if text.to_lowercase().contains(&query_lower) {
-                                        // Extract a snippet around the match
-                                        let lower = text.to_lowercase();
-                                        let idx = lower.find(&query_lower).unwrap_or(0);
-                                        let start = idx.saturating_sub(50);
-                                        let end = (idx + query.len() + 100).min(text.len());
-                                        let snippet = &text[start..end];
-                                        results.push(serde_json::json!({
-                                            "role": role,
-                                            "text": text.chars().take(200).collect::<String>(),
-                                            "snippet": snippet,
-                                            "timestamp": m.timestamp,
-                                        }));
                                     }
                                 }
 
