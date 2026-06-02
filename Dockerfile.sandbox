@@ -1,0 +1,27 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git wget jq gawk sed findutils procps xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js — 用预编译二进制，比 nodesource 快 10 倍
+RUN arch=$(uname -m) && \
+    case "$arch" in x86_64) arch="x64" ;; aarch64) arch="arm64" ;; esac && \
+    curl -fsSL https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-${arch}.tar.xz \
+    | tar -xJ -C /usr/local --strip-components=1 && \
+    node --version && npm --version
+
+# Python3 + pip + uv (for uvx MCP servers)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --break-system-packages uv \
+    && uv --version
+
+# 验证
+RUN echo "=== sandbox tools ===" && \
+    node --version && python3 --version && git --version && \
+    uv --version && curl --version | head -1
+
+WORKDIR /workspace
+CMD ["/bin/sh"]

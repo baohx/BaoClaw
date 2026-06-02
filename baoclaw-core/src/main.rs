@@ -7,6 +7,7 @@ mod api;
 mod bridge;
 mod config;
 mod discovery;
+mod doc_upload;
 mod engine;
 mod ipc;
 mod mcp;
@@ -95,6 +96,28 @@ fn md5_simple(input: &str) -> u64 {
         h = h.wrapping_mul(0x100000001b3);
     }
     h
+}
+
+// ══════════════════════════════════════════════════════════
+// Loop Header rendering for TUI
+// ══════════════════════════════════════════════════════════
+
+/// Render a Loop Header line when a new turn starts.
+/// Outputs a formatted line like: `── Loop 1 ──`
+/// If an agent_label is provided, includes it: `── Loop 1 (agent: sub) ──`
+fn render_loop_header(turn_id: u32, agent_label: Option<&str>) {
+    let label_part = match agent_label {
+        Some(label) => format!(" ({})", label),
+        None => String::new(),
+    };
+    eprintln!("── Loop {}{} ──", turn_id, label_part);
+}
+
+/// Update the Loop Header with statistics when a turn ends.
+/// Outputs a formatted line like: `── Loop 1 ── tools: 3, 2.1s ──`
+fn update_loop_header(turn_id: u32, tool_count: u32, duration_ms: u64) {
+    let duration_secs = duration_ms as f64 / 1000.0;
+    eprintln!("── Loop {} ── tools: {}, {:.1}s ──", turn_id, tool_count, duration_secs);
 }
 
 /// Build the combined append_system_prompt from skills + memory.
@@ -234,6 +257,17 @@ async fn handle_shared_client(
 
                                 let mut disconnected = false;
                                 while let Some(event) = rx.recv().await {
+                                    // Render Loop Headers to TUI on turn events
+                                    match &event {
+                                        EngineEvent::TurnStart { turn_id, agent_label, .. } => {
+                                            render_loop_header(*turn_id, agent_label.as_deref());
+                                        }
+                                        EngineEvent::TurnEnd { turn_id, tool_count, duration_ms, .. } => {
+                                            update_loop_header(*turn_id, *tool_count, *duration_ms);
+                                        }
+                                        _ => {}
+                                    }
+
                                     // Broadcast to all clients
                                     session.broadcast(event.clone());
 
@@ -247,15 +281,17 @@ async fn handle_shared_client(
                                     }
 
                                     if matches!(event, EngineEvent::Result(_) | EngineEvent::Error(_)) {
-                                        session.release_submitter(client_id).await;
                                         let mut engine = session.engine_write().await;
                                         engine.sync_messages().await;
                                         break;
                                     }
                                 }
 
+                                // Release submitter AFTER the loop ends to prevent
+                                // the broadcast task from re-delivering the Result event.
+                                session.release_submitter(client_id).await;
+
                                 if disconnected {
-                                    session.release_submitter(client_id).await;
                                     break;
                                 }
 
@@ -904,6 +940,243 @@ async fn handle_shared_client(
                                     "query": query,
                                 })).await;
                             }
+                            ClientMethod::DocUpload { file_path } => {
+                                let path = std::path::Path::new(&file_path);
+                                let mut conn_guard = conn.lock().await;
+                                match doc_upload::build_attachment_from_file(path) {
+                                    Ok(attachment) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "attachment": attachment,
+                                            "file_path": file_path,
+                                        })).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32000,
+                                            format!("文档上传失败: {}", e)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::Export { output_path } => {
+                                // Get conversation history (reuse TalkTail logic)
+                                let engine = session.engine_read().await;
+                                let messages = engine.get_messages();
+                                let tail: Vec<serde_json::Value> = messages.iter().enumerate().map(|(idx, m)| {
+                                    let turn_num = idx + 1;
+                                    match &m.content {
+                                        crate::models::message::MessageContent::User { message, tool_use_result, .. } => {
+                                            let text = match &message.content {
+                                                serde_json::Value::String(s) => s.clone(),
+                                                serde_json::Value::Array(arr) => {
+                                                    arr.iter().filter_map(|b| {
+                                                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                                            b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                                        } else { None }
+                                                    }).collect::<Vec<_>>().join(" ")
+                                                }
+                                                _ => serde_json::to_string(&message.content).unwrap_or_default(),
+                                            };
+                                            let is_tool_result = tool_use_result.is_some();
+                                            let mut entry = serde_json::json!({
+                                                "role": "user",
+                                                "text": text,
+                                                "timestamp": m.timestamp,
+                                                "turn": turn_num,
+                                            });
+                                            if is_tool_result {
+                                                entry["is_tool_result"] = serde_json::json!(true);
+                                            }
+                                            entry
+                                        }
+                                        crate::models::message::MessageContent::Assistant { message, cost_usd, .. } => {
+                                            let text: String = message.content.iter().filter_map(|b| {
+                                                match b {
+                                                    crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
+                                                    _ => None,
+                                                }
+                                            }).collect::<Vec<_>>().join("");
+                                            let tools: Vec<serde_json::Value> = message.content.iter().filter_map(|b| {
+                                                match b {
+                                                    crate::models::message::ContentBlock::ToolUse { id, name, input } => {
+                                                        let mut info = serde_json::json!({"name": name, "id": id});
+                                                        let mut details: Vec<String> = Vec::new();
+                                                        if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
+                                                            details.push(format!("command: {}", cmd));
+                                                        }
+                                                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
+                                                            details.push(format!("path: {}", fp));
+                                                        }
+                                                        if !details.is_empty() {
+                                                            info["detail"] = serde_json::json!(details.join(", "));
+                                                        }
+                                                        Some(info)
+                                                    }
+                                                    _ => None,
+                                                }
+                                            }).collect();
+                                            let mut entry = serde_json::json!({
+                                                "role": "assistant",
+                                                "text": text,
+                                                "timestamp": m.timestamp,
+                                                "turn": turn_num,
+                                                "cost_usd": cost_usd,
+                                            });
+                                            if !tools.is_empty() {
+                                                entry["tools"] = serde_json::json!(tools);
+                                            }
+                                            entry
+                                        }
+                                        _ => serde_json::json!({"role": "system", "text": "", "timestamp": m.timestamp, "turn": turn_num}),
+                                    }
+                                }).collect();
+                                drop(engine);
+
+                                // Convert to ExportEntry and format
+                                let export_entries: Vec<engine::export::ExportEntry> = tail.iter()
+                                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                    .collect();
+
+                                if export_entries.is_empty() {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_error(Some(id), -32000,
+                                        "当前会话无对话记录".to_string()).await;
+                                } else {
+                                    let markdown = engine::export::format_transcript_to_markdown(&export_entries);
+                                    let file_path = output_path.unwrap_or_else(|| {
+                                        work_cwd.join(engine::export::default_export_filename())
+                                            .to_string_lossy().to_string()
+                                    });
+
+                                    let mut conn_guard = conn.lock().await;
+                                    match std::fs::write(&file_path, &markdown) {
+                                        Ok(()) => {
+                                            let _ = conn_guard.send_response(id, serde_json::json!({
+                                                "file_path": file_path,
+                                                "message_count": export_entries.len(),
+                                                "size_bytes": markdown.len(),
+                                            })).await;
+                                        }
+                                        Err(e) => {
+                                            let _ = conn_guard.send_error(Some(id), -32000,
+                                                format!("导出文件写入失败: {}", e)).await;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ── Spec-Driven Development RPC ──
+                            ClientMethod::SpecNew { feature_name, workflow, spec_type } => {
+                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                                let wf = match workflow.as_deref() {
+                                    Some("design") => engine::spec_engine::SpecWorkflow::DesignFirst,
+                                    _ => engine::spec_engine::SpecWorkflow::RequirementsFirst,
+                                };
+                                let st = match spec_type.as_deref() {
+                                    Some("bugfix") => engine::spec_engine::SpecType::Bugfix,
+                                    _ => engine::spec_engine::SpecType::Feature,
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                match spec_engine.create_spec(&feature_name, wf, st) {
+                                    Ok(config) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "status": "created",
+                                            "feature_name": feature_name,
+                                            "config": serde_json::to_value(&config).unwrap_or_default()
+                                        })).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::SpecList => {
+                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                                let mut conn_guard = conn.lock().await;
+                                match spec_engine.list_specs() {
+                                    Ok(specs) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"specs": specs})).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32000, e.to_string()).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::SpecShow { feature_name } => {
+                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                                let mut conn_guard = conn.lock().await;
+                                match spec_engine.get_spec(&feature_name) {
+                                    Ok(summary) => {
+                                        let _ = conn_guard.send_response(id, serde_json::to_value(&summary).unwrap_or_default()).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::SpecStatus { feature_name } => {
+                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                                let mut conn_guard = conn.lock().await;
+                                match spec_engine.get_status(&feature_name) {
+                                    Ok(progress) => {
+                                        let _ = conn_guard.send_response(id, serde_json::to_value(&progress).unwrap_or_default()).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::SpecRun { feature_name, task_id } => {
+                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                                let mut conn_guard = conn.lock().await;
+                                let task = if let Some(tid) = &task_id {
+                                    // Find specific task
+                                    match spec_engine.next_task(&feature_name) {
+                                        Ok(t) => t,
+                                        Err(e) => {
+                                            let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
+                                            continue;
+                                        }
+                                    }
+                                } else {
+                                    match spec_engine.next_task(&feature_name) {
+                                        Ok(t) => t,
+                                        Err(e) => {
+                                            let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
+                                            continue;
+                                        }
+                                    }
+                                };
+                                match task {
+                                    Some(t) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "status": "ready",
+                                            "task_id": t.id,
+                                            "task_description": t.description,
+                                        })).await;
+                                    }
+                                    None => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "status": "all_complete",
+                                            "message": "All tasks are completed"
+                                        })).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::SpecEdit { feature_name, phase } => {
+                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                                let mut conn_guard = conn.lock().await;
+                                match spec_engine.read_phase_doc(&feature_name, &phase) {
+                                    Ok(content) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "feature_name": feature_name,
+                                            "phase": phase,
+                                            "content": content,
+                                        })).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
+                                    }
+                                }
+                            }
                         }
                     }
                     Err(e) => {
@@ -1259,7 +1532,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "docker" => {
                     eprintln!("[sandbox] Using Docker container isolation");
                     SandboxBackend::Docker {
-                        image: "baoclaw-sandbox:latest".into(),
+                        image: std::env::var("BAOCLAW_SANDBOX_IMAGE")
+                            .unwrap_or_else(|_| "baoclaw-sandbox:latest".into()),
                     }
                 }
                 "none" | "off" => {
@@ -1277,6 +1551,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             // Auto-mount the working directory as read-write
             cfg.rw_mounts.push(cwd_str.clone());
+            // Mount ~/.baoclaw for config/memory/session data access
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+            let baoclaw_dir = format!("{}/.baoclaw", home);
+            if std::path::Path::new(&baoclaw_dir).exists() {
+                cfg.rw_mounts.push(baoclaw_dir);
+            }
+            // Mount /tmp for temp file exchange between host and sandbox
+            cfg.rw_mounts.push("/tmp".to_string());
+            // Set workdir to the project CWD
+            cfg.workdir = Some(cwd_str.clone());
             Arc::new(cfg)
         });
 
@@ -1286,12 +1570,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("[sandbox] No mode specified, auto-detecting...");
             let mut cfg = engine::sandbox::SandboxConfig::auto_detect();
             cfg.rw_mounts.push(cwd_str.clone());
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+            let baoclaw_dir = format!("{}/.baoclaw", home);
+            if std::path::Path::new(&baoclaw_dir).exists() {
+                cfg.rw_mounts.push(baoclaw_dir);
+            }
+            cfg.rw_mounts.push("/tmp".to_string());
+            cfg.workdir = Some(cwd_str.clone());
             eprintln!("[sandbox] Auto-detected: {}", cfg.description());
             Some(Arc::new(cfg))
         } else {
             None
         }
     });
+
+    // Validate sandbox configuration at startup
+    if let Some(ref cfg) = sandbox_config {
+        if let Some(err) = cfg.validate() {
+            eprintln!("[sandbox] ERROR: {}", err);
+            eprintln!("[sandbox] Falling back to direct execution (no sandbox)");
+        } else {
+            eprintln!("[sandbox] ✓ Sandbox ready: {}", cfg.description());
+        }
+    }
 
     // Create socket in the shared socket directory
     let socket_path = make_socket_path(&cwd_str);

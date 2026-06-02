@@ -39,3 +39,5 @@ pub mod evolve_tool;
 pub use evolve_tool::EvolveTool;
 pub mod image_edit_tool;
 pub use image_edit_tool::ImageEditTool;
+pub mod spec_tool;
+pub use spec_tool::SpecTool;

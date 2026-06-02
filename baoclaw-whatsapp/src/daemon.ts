@@ -64,40 +64,53 @@ export class DaemonConnector {
 
   /**
    * Connect to a daemon via UDS and send initialize.
+   * Optionally passes shared_session_id for session affinity.
    */
-  async connect(info: DaemonInfo): Promise<IpcClient> {
+  async connect(info: DaemonInfo, sharedSessionId?: string): Promise<IpcClient> {
     const client = new IpcClient();
     await client.connect(info.socket);
-    await client.request('initialize', { cwd: info.cwd });
+    const initParams: Record<string, unknown> = {
+      cwd: info.cwd,
+      settings: {},
+    };
+    if (sharedSessionId) {
+      initParams.shared_session_id = sharedSessionId;
+    }
+    await client.request('initialize', initParams);
     return client;
   }
 
   /**
    * Discover and connect to the newest daemon.
    * Retries every retryIntervalMs for up to maxWaitMs.
+   * Optionally passes sharedSessionId for session affinity.
    */
   async discoverAndConnect(
     maxWaitMs: number = 60_000,
     retryIntervalMs: number = 5_000,
+    sharedSessionId?: string,
   ): Promise<{ client: IpcClient; info: DaemonInfo }> {
     const deadline = Date.now() + maxWaitMs;
+    let lastError: Error | null = null;
 
     while (Date.now() < deadline) {
       const daemons = this.discover();
       const best = selectNewestDaemon(daemons);
       if (best) {
         try {
-          const client = await this.connect(best);
+          const client = await this.connect(best, sharedSessionId);
           return { client, info: best };
-        } catch {
-          // Connection failed, will retry
+        } catch (err: any) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          console.warn(`Daemon connect failed (pid=${best.pid}, socket=${best.socket}): ${lastError.message}`);
         }
       }
       await sleep(retryIntervalMs);
     }
 
+    const tail = lastError ? ` Last error: ${lastError.message}` : '';
     throw new Error(
-      `No BaoClaw daemon found after ${maxWaitMs / 1000}s. Start one with: baoclaw`,
+      `No BaoClaw daemon found after ${maxWaitMs / 1000}s. Start one with: baoclaw.${tail}`,
     );
   }
 }

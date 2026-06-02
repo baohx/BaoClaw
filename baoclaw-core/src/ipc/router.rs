@@ -144,6 +144,40 @@ pub enum ClientMethod {
         #[serde(default = "default_tail_count")]
         max_results: usize,
     },
+    #[serde(rename = "docUpload")]
+    DocUpload {
+        file_path: String,
+    },
+    #[serde(rename = "export")]
+    Export {
+        #[serde(default)]
+        output_path: Option<String>,
+    },
+    #[serde(rename = "specNew")]
+    SpecNew {
+        feature_name: String,
+        #[serde(default)]
+        workflow: Option<String>,
+        #[serde(default)]
+        spec_type: Option<String>,
+    },
+    #[serde(rename = "specList")]
+    SpecList,
+    #[serde(rename = "specShow")]
+    SpecShow { feature_name: String },
+    #[serde(rename = "specStatus")]
+    SpecStatus { feature_name: String },
+    #[serde(rename = "specRun")]
+    SpecRun {
+        feature_name: String,
+        #[serde(default)]
+        task_id: Option<String>,
+    },
+    #[serde(rename = "specEdit")]
+    SpecEdit {
+        feature_name: String,
+        phase: String,
+    },
 }
 
 fn default_tail_count() -> usize { 10 }
@@ -541,5 +575,27 @@ mod tests {
             }
             _ => panic!("Expected TaskStop, got {:?}", method),
         }
+    }
+
+    #[test]
+    fn test_parse_doc_upload() {
+        let req = make_request(
+            "docUpload",
+            json!({ "file_path": "/home/user/report.pdf" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::DocUpload { file_path } => {
+                assert_eq!(file_path, "/home/user/report.pdf");
+            }
+            _ => panic!("Expected DocUpload, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_doc_upload_missing_path() {
+        let req = make_request("docUpload", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        assert!(matches!(err, RouterError::InvalidParams(_)));
     }
 }

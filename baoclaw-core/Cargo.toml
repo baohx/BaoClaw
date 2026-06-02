@@ -24,6 +24,8 @@ ignore = "0.4"
 jsonwebtoken = "9"
 libc = "0.2"
 rusqlite = { version = "0.31", features = ["bundled"] }
+base64 = "0.22"
+docx-rs = "0.4"
 
 [dev-dependencies]
 proptest = "1"

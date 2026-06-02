@@ -63,7 +63,8 @@ impl SandboxConfig {
             SandboxBackend::Bubblewrap
         } else if which_exists("docker") {
             SandboxBackend::Docker {
-                image: "baoclaw-sandbox:latest".into(),
+                image: std::env::var("BAOCLAW_SANDBOX_IMAGE")
+                    .unwrap_or_else(|_| "baoclaw-sandbox:latest".into()),
             }
         } else {
             SandboxBackend::None
@@ -75,16 +76,27 @@ impl SandboxConfig {
     }
 
     /// Wrap a command for sandboxed execution.
-    /// Returns the full command string to execute.
+    /// Returns the full command string to execute (for display/logging).
     pub fn wrap_command(&self, command: &str, cwd: &Path) -> String {
+        self.build_command_args(command, cwd).join(" ")
+    }
+
+    /// Build the command as a proper argument vector for direct execution.
+    /// Returns Vec<String> where [0] is the program and [1..] are arguments.
+    /// This avoids shell-quoting issues that occur with string joining.
+    pub fn build_command_args(&self, command: &str, cwd: &Path) -> Vec<String> {
         match &self.backend {
-            SandboxBackend::None => command.to_string(),
-            SandboxBackend::Bubblewrap => self.wrap_bwrap(command, cwd),
-            SandboxBackend::Docker { image } => self.wrap_docker(command, cwd, image),
+            SandboxBackend::None => vec!["/bin/bash".into(), "-c".into(), command.to_string()],
+            SandboxBackend::Bubblewrap => self.build_bwrap_args(command, cwd),
+            SandboxBackend::Docker { image } => self.build_docker_args(command, cwd, image),
         }
     }
 
     fn wrap_bwrap(&self, command: &str, cwd: &Path) -> String {
+        self.build_bwrap_args(command, cwd).join(" ")
+    }
+
+    fn build_bwrap_args(&self, command: &str, cwd: &Path) -> Vec<String> {
         let mut args = vec!["bwrap".to_string()];
 
         // Bind host filesystem read-only by default
@@ -157,23 +169,35 @@ impl SandboxConfig {
         args.push("-c".into());
         args.push(command.to_string());
 
-        args.join(" ")
+        args
     }
 
     fn wrap_docker(&self, command: &str, cwd: &Path, image: &str) -> String {
+        self.build_docker_args(command, cwd, image).join(" ")
+    }
+
+    fn build_docker_args(&self, command: &str, cwd: &Path, image: &str) -> Vec<String> {
         let mut args = vec!["docker".to_string(), "run".to_string()];
 
         // Remove container after exit
         args.push("--rm".into());
+
+        // Run as current user to avoid permission issues with mounted volumes
+        #[cfg(unix)]
+        {
+            let uid = unsafe { libc::getuid() };
+            let gid = unsafe { libc::getgid() };
+            args.push("--user".into());
+            args.push(format!("{}:{}", uid, gid));
+        }
 
         // Memory limit
         if self.memory_limit_mb > 0 {
             args.push(format!("--memory={}m", self.memory_limit_mb));
         }
 
-        // CPU limit
-        if self.cpu_time_limit_secs > 0 {
-            // Docker doesn't have direct CPU time, use period+quota approximation
+        // CPU limit (only if non-default to avoid overly restrictive quotas)
+        if self.cpu_time_limit_secs > 0 && self.cpu_time_limit_secs < 300 {
             args.push(format!(
                 "--cpu-quota={}",
                 self.cpu_time_limit_secs * 100000
@@ -186,16 +210,26 @@ impl SandboxConfig {
             args.push("--network=none".into());
         }
 
+        // Collect all mount paths (deduplicated)
+        let mut mounted: std::collections::HashSet<String> = std::collections::HashSet::new();
+
         // Mount CWD
         if let Some(cwd_str) = cwd.to_str() {
-            args.push("-v".into());
-            args.push(format!("{}:{}", cwd_str, cwd_str));
+            if mounted.insert(cwd_str.to_string()) {
+                args.push("-v".into());
+                args.push(format!("{}:{}", cwd_str, cwd_str));
+            }
         }
 
-        // Additional RW mounts
+        // Additional RW mounts (deduplicated against CWD)
         for mount in &self.rw_mounts {
-            args.push("-v".into());
-            args.push(format!("{}:{}", mount, mount));
+            if mounted.insert(mount.clone()) {
+                // Only mount if the path exists on host
+                if Path::new(mount).exists() {
+                    args.push("-v".into());
+                    args.push(format!("{}:{}", mount, mount));
+                }
+            }
         }
 
         // Working directory
@@ -206,10 +240,12 @@ impl SandboxConfig {
         args.push("-w".into());
         args.push(workdir.into());
 
-        // Environment
+        // Environment passthrough (pass actual values from host)
         for env in &self.env_passthrough {
-            args.push("-e".into());
-            args.push(env.clone());
+            if let Ok(val) = std::env::var(env) {
+                args.push("-e".into());
+                args.push(format!("{}={}", env, val));
+            }
         }
 
         // Image
@@ -220,7 +256,7 @@ impl SandboxConfig {
         args.push("-c".into());
         args.push(command.to_string());
 
-        args.join(" ")
+        args
     }
 
     /// Check if the selected backend is actually available.
@@ -228,7 +264,37 @@ impl SandboxConfig {
         match &self.backend {
             SandboxBackend::None => true,
             SandboxBackend::Bubblewrap => which_exists("bwrap"),
-            SandboxBackend::Docker { .. } => which_exists("docker"),
+            SandboxBackend::Docker { image } => {
+                which_exists("docker") && docker_image_exists(image)
+            }
+        }
+    }
+
+    /// Validate the sandbox configuration and return a human-readable error if invalid.
+    /// Returns None if everything is OK.
+    pub fn validate(&self) -> Option<String> {
+        match &self.backend {
+            SandboxBackend::None => None,
+            SandboxBackend::Bubblewrap => {
+                if !which_exists("bwrap") {
+                    Some("bwrap not found. Install bubblewrap: apt install bubblewrap".into())
+                } else {
+                    None
+                }
+            }
+            SandboxBackend::Docker { image } => {
+                if !which_exists("docker") {
+                    return Some("docker not found in PATH".into());
+                }
+                if !docker_image_exists(image) {
+                    Some(format!(
+                        "Docker image '{}' not found. Build it with: docker build -t {} -f Dockerfile.sandbox .",
+                        image, image
+                    ))
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -253,6 +319,17 @@ fn which_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if a Docker image exists locally.
+fn docker_image_exists(image: &str) -> bool {
+    std::process::Command::new("docker")
+        .args(["image", "inspect", image])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,7 +337,11 @@ mod tests {
     #[test]
     fn test_no_sandbox_passthrough() {
         let config = SandboxConfig::default();
-        assert_eq!(config.wrap_command("ls -la", Path::new("/tmp")), "ls -la");
+        // Default backend is None → build_command_args returns ["/bin/bash", "-c", "ls -la"]
+        let args = config.build_command_args("ls -la", Path::new("/tmp"));
+        assert_eq!(args, vec!["/bin/bash", "-c", "ls -la"]);
+        // wrap_command joins them for display
+        assert_eq!(config.wrap_command("ls -la", Path::new("/tmp")), "/bin/bash -c ls -la");
     }
 
     #[test]

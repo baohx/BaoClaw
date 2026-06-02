@@ -1,0 +1,246 @@
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Utils/_aes_cbc_shim.js b/node_modules/@whiskeysockets/baileys/lib/Utils/_aes_cbc_shim.js
+new file mode 100644
+index 0000000..0730f68
+--- /dev/null
++++ b/node_modules/@whiskeysockets/baileys/lib/Utils/_aes_cbc_shim.js
+@@ -0,0 +1,199 @@
++/**
++ * AES shim for hardware with broken AES-256/192/ECB decrypt
++ * (e.g. Zhaoxin KaiXian KX-7000 / VIA-derived CPUs).
++ *
++ * See https://github.com/openssl/openssl/issues/20073
++ *
++ * Exports `createCipheriv` and `createDecipheriv` that route the affected
++ * algorithms through pure-JS `aes-js` when the runtime detects a broken
++ * AES-256-CBC round-trip; otherwise delegates to native `crypto`.
++ *
++ * Intended to be dropped into Baileys / libsignal directories and imported in
++ * place of `crypto`'s cipher factories. ESM consumers can use the named
++ * imports (`import { createCipheriv, createDecipheriv } from './_aes_cbc_shim.js'`);
++ * CJS consumers can `const { createCipheriv } = require('./_aes_cbc_shim.js')`.
++ */
++import nativeCrypto from 'crypto';
++import aesjsDefault from 'aes-js';
++
++const aesjs = aesjsDefault.default ?? aesjsDefault;
++
++const PATCHED = new Set(['aes-256-cbc', 'aes-192-cbc', 'aes-256-ecb']);
++
++function detectHardwareWorks() {
++  try {
++    const k = Buffer.alloc(32, 1);
++    const iv = Buffer.alloc(16, 2);
++    const c = nativeCrypto.createCipheriv('aes-256-cbc', k, iv);
++    const enc = Buffer.concat([c.update(Buffer.from('test')), c.final()]);
++    const d = nativeCrypto.createDecipheriv('aes-256-cbc', k, iv);
++    const dec = Buffer.concat([d.update(enc), d.final()]);
++    return dec.toString() === 'test';
++  } catch {
++    return false;
++  }
++}
++
++const HARDWARE_BROKEN = !detectHardwareWorks();
++
++if (HARDWARE_BROKEN && !globalThis.__AES_SHIM_LOGGED) {
++  globalThis.__AES_SHIM_LOGGED = true;
++  console.warn(
++    '[aes-cbc-shim] Detected broken hardware AES-256/192 decrypt. ' +
++    'Routing { aes-256-cbc, aes-192-cbc, aes-256-ecb } through pure-JS implementation.'
++  );
++}
++
++function pkcs7Pad(data, blockSize) {
++  const padLen = blockSize - (data.length % blockSize);
++  return Buffer.concat([data, Buffer.alloc(padLen, padLen)]);
++}
++
++function pkcs7Unpad(data) {
++  if (data.length === 0) return data;
++  const padLen = data[data.length - 1];
++  if (padLen < 1 || padLen > 16 || padLen > data.length) {
++    const err = new Error('bad decrypt');
++    err.code = 'ERR_OSSL_EVP_BAD_DECRYPT';
++    throw err;
++  }
++  for (let i = data.length - padLen; i < data.length; i++) {
++    if (data[i] !== padLen) {
++      const err = new Error('bad decrypt');
++      err.code = 'ERR_OSSL_EVP_BAD_DECRYPT';
++      throw err;
++    }
++  }
++  return data.subarray(0, data.length - padLen);
++}
++
++function toUint8Array(value) {
++  if (typeof value === 'string') return new Uint8Array(Buffer.from(value, 'hex'));
++  if (Buffer.isBuffer(value)) return new Uint8Array(value);
++  return value;
++}
++
++class CbcShim {
++  constructor(key, iv, encrypting) {
++    this.key = key;
++    this.iv = iv;
++    this.encrypting = encrypting;
++    this.chunks = [];
++    this.autoPadding = true;
++    this.finalized = false;
++  }
++  setAutoPadding(value = true) {
++    this.autoPadding = value;
++    return this;
++  }
++  update(data, inputEncoding) {
++    if (this.finalized) throw new Error('Cipher already finalized');
++    let buf;
++    if (typeof data === 'string') buf = Buffer.from(data, inputEncoding ?? 'utf8');
++    else if (Buffer.isBuffer(data)) buf = data;
++    else buf = Buffer.from(data);
++    this.chunks.push(buf);
++    return Buffer.alloc(0);
++  }
++  final() {
++    if (this.finalized) throw new Error('Cipher already finalized');
++    this.finalized = true;
++    const input = Buffer.concat(this.chunks);
++    const cbc = new aesjs.ModeOfOperation.cbc(this.key, this.iv);
++    if (this.encrypting) {
++      const padded = this.autoPadding ? pkcs7Pad(input, 16) : input;
++      if (padded.length % 16 !== 0) {
++        const err = new Error('data not multiple of block length');
++        err.code = 'ERR_OSSL_EVP_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH';
++        throw err;
++      }
++      return Buffer.from(cbc.encrypt(padded));
++    } else {
++      if (input.length % 16 !== 0) {
++        const err = new Error('wrong final block length');
++        err.code = 'ERR_OSSL_EVP_WRONG_FINAL_BLOCK_LENGTH';
++        throw err;
++      }
++      const decrypted = Buffer.from(cbc.decrypt(input));
++      return this.autoPadding ? pkcs7Unpad(decrypted) : decrypted;
++    }
++  }
++}
++
++class EcbShim {
++  constructor(key, encrypting) {
++    this.key = key;
++    this.encrypting = encrypting;
++    this.chunks = [];
++    this.autoPadding = true;
++    this.finalized = false;
++  }
++  setAutoPadding(value = true) {
++    this.autoPadding = value;
++    return this;
++  }
++  update(data, inputEncoding) {
++    if (this.finalized) throw new Error('Cipher already finalized');
++    let buf;
++    if (typeof data === 'string') buf = Buffer.from(data, inputEncoding ?? 'utf8');
++    else if (Buffer.isBuffer(data)) buf = data;
++    else buf = Buffer.from(data);
++    this.chunks.push(buf);
++    return Buffer.alloc(0);
++  }
++  final() {
++    if (this.finalized) throw new Error('Cipher already finalized');
++    this.finalized = true;
++    const input = Buffer.concat(this.chunks);
++    const ecb = new aesjs.ModeOfOperation.ecb(this.key);
++    if (this.encrypting) {
++      const padded = this.autoPadding ? pkcs7Pad(input, 16) : input;
++      if (padded.length % 16 !== 0) {
++        const err = new Error('data not multiple of block length');
++        err.code = 'ERR_OSSL_EVP_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH';
++        throw err;
++      }
++      return Buffer.from(ecb.encrypt(padded));
++    } else {
++      if (input.length % 16 !== 0) {
++        const err = new Error('wrong final block length');
++        err.code = 'ERR_OSSL_EVP_WRONG_FINAL_BLOCK_LENGTH';
++        throw err;
++      }
++      const decrypted = Buffer.from(ecb.decrypt(input));
++      return this.autoPadding ? pkcs7Unpad(decrypted) : decrypted;
++    }
++  }
++}
++
++function makeShim(algorithm, key, iv, encrypting) {
++  const algo = algorithm.toLowerCase();
++  const keyBytes = toUint8Array(key);
++  if (algo === 'aes-256-ecb') {
++    return new EcbShim(keyBytes, encrypting);
++  }
++  const ivBytes = iv == null ? new Uint8Array(16) : toUint8Array(iv);
++  return new CbcShim(keyBytes, ivBytes, encrypting);
++}
++
++export function createCipheriv(algorithm, key, iv, options) {
++  if (HARDWARE_BROKEN && PATCHED.has(algorithm.toLowerCase())) {
++    return makeShim(algorithm, key, iv, true);
++  }
++  return nativeCrypto.createCipheriv(algorithm, key, iv, options);
++}
++
++export function createDecipheriv(algorithm, key, iv, options) {
++  if (HARDWARE_BROKEN && PATCHED.has(algorithm.toLowerCase())) {
++    return makeShim(algorithm, key, iv, false);
++  }
++  return nativeCrypto.createDecipheriv(algorithm, key, iv, options);
++}
++
++export const isPatchActive = () => HARDWARE_BROKEN;
++
++// Re-export commonly used crypto primitives so importers can substitute the
++// whole crypto namespace if convenient.
++export const createHash = nativeCrypto.createHash.bind(nativeCrypto);
++export const createHmac = nativeCrypto.createHmac.bind(nativeCrypto);
++export const randomBytes = nativeCrypto.randomBytes.bind(nativeCrypto);
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Utils/crypto.js b/node_modules/@whiskeysockets/baileys/lib/Utils/crypto.js
+index 5534efc..f861274 100644
+--- a/node_modules/@whiskeysockets/baileys/lib/Utils/crypto.js
++++ b/node_modules/@whiskeysockets/baileys/lib/Utils/crypto.js
+@@ -1,4 +1,5 @@
+-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'crypto';
++import { createCipheriv, createDecipheriv } from './_aes_cbc_shim.js';
++import { createHash, createHmac, randomBytes } from 'crypto';
+ import * as curve from 'libsignal/src/curve.js';
+ import { KEY_BUNDLE_TYPE } from '../Defaults/index.js';
+ export { md5, hkdf } from 'whatsapp-rust-bridge';
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Utils/messages-media.js b/node_modules/@whiskeysockets/baileys/lib/Utils/messages-media.js
+index a3d2fa6..050a661 100644
+--- a/node_modules/@whiskeysockets/baileys/lib/Utils/messages-media.js
++++ b/node_modules/@whiskeysockets/baileys/lib/Utils/messages-media.js
+@@ -1,6 +1,7 @@
+ import { Boom } from '@hapi/boom';
+ import { exec } from 'child_process';
+ import * as Crypto from 'crypto';
++import { createCipheriv as _patchedCreateCipheriv, createDecipheriv as _patchedCreateDecipheriv } from './_aes_cbc_shim.js';
+ import { once } from 'events';
+ import { createReadStream, createWriteStream, promises as fs, WriteStream } from 'fs';
+ import { tmpdir } from 'os';
+@@ -320,7 +321,7 @@ export const encryptedStream = async (media, mediaType, { logger, saveOriginalFi
+         originalFileStream = createWriteStream(originalFilePath);
+     }
+     let fileLength = 0;
+-    const aes = Crypto.createCipheriv('aes-256-cbc', cipherKey, iv);
++    const aes = _patchedCreateCipheriv('aes-256-cbc', cipherKey, iv);
+     const hmac = Crypto.createHmac('sha256', macKey).update(iv);
+     const sha256Plain = Crypto.createHash('sha256');
+     const sha256Enc = Crypto.createHash('sha256');
+@@ -487,7 +488,7 @@ export const downloadEncryptedContent = async (downloadUrl, { cipherKey, iv }, {
+                     ivValue = data.slice(0, AES_CHUNK_SIZE);
+                     data = data.slice(AES_CHUNK_SIZE);
+                 }
+-                aes = Crypto.createDecipheriv('aes-256-cbc', cipherKey, ivValue);
++                aes = _patchedCreateDecipheriv('aes-256-cbc', cipherKey, ivValue);
+                 // if an end byte that is not EOF is specified
+                 // stop auto padding (PKCS7) -- otherwise throws an error for decryption
+                 if (endByte) {

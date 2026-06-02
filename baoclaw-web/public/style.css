@@ -163,3 +163,27 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 .thinking-block summary { padding: 6px 10px; cursor: pointer; color: var(--text-dim); font-style: italic; user-select: none; }
 .thinking-block summary:hover { color: var(--text); }
 .thinking-block .thinking-body { padding: 8px 10px; color: var(--text-dim); font-style: italic; white-space: pre-wrap; max-height: 300px; overflow-y: auto; font-size: 12px; line-height: 1.5; }
+
+/* ── Panel Modal ── */
+#panel-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 100; display: flex; align-items: center; justify-content: center; }
+#panel-overlay.hidden { display: none; }
+#panel-modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; width: 500px; max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+#panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+#panel-title { font-size: 15px; font-weight: 600; color: var(--text-bright); }
+#panel-close { background: none; border: none; color: var(--text-dim); font-size: 18px; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+#panel-close:hover { background: var(--border); color: var(--text); }
+#panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; font-size: 13px; line-height: 1.6; }
+#panel-body input, #panel-body textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 7px 10px; font-family: inherit; font-size: 12px; outline: none; width: 100%; margin: 4px 0; }
+#panel-body input:focus, #panel-body textarea:focus { border-color: var(--accent); }
+#panel-body button { background: var(--accent); border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; margin: 4px 4px 4px 0; }
+#panel-body button:hover { opacity: 0.85; }
+#panel-body button.btn-danger { background: var(--red); }
+#panel-body button.btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+#panel-body .panel-item { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#panel-body .panel-item:last-child { border-bottom: none; }
+#panel-body .panel-item-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#panel-body .panel-item-id { font-size: 11px; color: var(--text-dim); }
+#panel-body .panel-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+#panel-body .panel-item-actions button { margin: 0; padding: 4px 8px; font-size: 11px; }
+#panel-body .panel-empty { color: var(--text-dim); text-align: center; padding: 20px; }
+#panel-body .panel-error { color: var(--red); padding: 8px; border: 1px solid var(--red); border-radius: 6px; margin: 8px 0; }

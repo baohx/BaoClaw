@@ -14,13 +14,28 @@ export function validateE164(phone: string): boolean {
 
 /**
  * Extract the phone number from a WhatsApp JID.
- * JID format: "12025551234@s.whatsapp.net" → "+12025551234"
- * Also handles already-normalized "+12025551234" format.
+ * JID formats this handles:
+ *   "12025551234@s.whatsapp.net"     → "+12025551234"
+ *   "12025551234:5@s.whatsapp.net"   → "+12025551234"  (drops device id)
+ *   "12025551234:5@lid"              → "+12025551234"  (drops device id)
+ *   "+12025551234"                   → "+12025551234"  (already normalized)
+ * Senders coming in as `<lid-id>@lid` without an underlying phone-number
+ * mapping are returned unchanged, since we have no phone digits to recover;
+ * the caller may use Baileys' lid-mapping API to resolve the real number
+ * before invoking this helper.
  */
 export function normalizeJid(jid: string): string {
   if (jid.startsWith('+')) return jid;
   const atIdx = jid.indexOf('@');
-  const digits = atIdx >= 0 ? jid.slice(0, atIdx) : jid;
+  let digits = atIdx >= 0 ? jid.slice(0, atIdx) : jid;
+  // Strip Baileys device-id suffix, e.g. "8613671505207:5" -> "8613671505207"
+  const colonIdx = digits.indexOf(':');
+  if (colonIdx >= 0) digits = digits.slice(0, colonIdx);
+  // If the underlying id is not numeric (e.g. an opaque LID), preserve it
+  // so the allowlist check fails closed instead of false-matching a phone.
+  if (!/^\d+$/.test(digits)) {
+    return atIdx >= 0 ? jid.slice(0, atIdx) : jid;
+  }
   return '+' + digits;
 }
 

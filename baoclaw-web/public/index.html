@@ -31,6 +31,13 @@
           <button id="btn-download-pdf" class="sidebar-btn">📄 .pdf</button>
         </div>
       </div>
+      <div class="sidebar-section">
+        <button id="btn-model" class="sidebar-btn">🤖 Model</button>
+        <button id="btn-git" class="sidebar-btn">🔀 Git</button>
+        <button id="btn-memory" class="sidebar-btn">🧠 Memory</button>
+        <button id="btn-cron" class="sidebar-btn">⏰ Cron</button>
+        <button id="btn-tasks" class="sidebar-btn">📋 Tasks</button>
+      </div>
       <div id="status-bar" class="sidebar-section status">
         <span id="status-text">Connecting…</span>
       </div>
@@ -44,15 +51,28 @@
       </div>
       <div id="input-area">
         <div id="imagePreview" class="image-preview"></div>
+        <div id="docPreview" class="doc-preview"></div>
         <div id="input-wrapper">
           <button id="uploadBtn" title="上传图片">📎</button>
           <input type="file" id="imageInput" accept="image/*" multiple hidden>
+          <button id="docUploadBtn" title="上传文档 (PDF/DOCX)">📄</button>
+          <input type="file" id="docInput" accept=".pdf,.docx" multiple hidden>
           <textarea id="input" placeholder="Enter to send, Shift+Enter newline" rows="1"></textarea>
           <button id="btn-send" title="Send">▶</button>
           <button id="btn-abort" title="Abort" class="hidden">⏹</button>
         </div>
       </div>
     </main>
+  </div>
+  <!-- Management Panel Modal -->
+  <div id="panel-overlay" class="hidden">
+    <div id="panel-modal">
+      <div id="panel-header">
+        <span id="panel-title"></span>
+        <button id="panel-close">✕</button>
+      </div>
+      <div id="panel-body"></div>
+    </div>
   </div>
   <script src="app.js"></script>
 </body>

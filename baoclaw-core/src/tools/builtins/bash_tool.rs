@@ -40,9 +40,16 @@ impl BashTool {
                     ("/bin/bash".to_string(), vec!["-c".to_string(), raw_command.to_string()])
                 }
                 _ => {
-                    // Wrap the command through the sandbox
-                    let wrapped = sandbox_cfg.wrap_command(raw_command, cwd);
-                    ("/bin/sh".to_string(), vec!["-c".to_string(), wrapped])
+                    // Build sandbox command as proper argument vector (no shell wrapping)
+                    let args = sandbox_cfg.build_command_args(raw_command, cwd);
+                    // First element is the program, rest are args
+                    if args.is_empty() {
+                        ("/bin/bash".to_string(), vec!["-c".to_string(), raw_command.to_string()])
+                    } else {
+                        let program = args[0].clone();
+                        let cmd_args = args[1..].to_vec();
+                        (program, cmd_args)
+                    }
                 }
             }
         } else {
@@ -361,12 +368,14 @@ mod tests {
             ..SandboxConfig::default()
         }));
         let (program, args) = tool.build_command("echo hello", Path::new("/tmp"));
-        // Docker backend → wrapped command via /bin/sh
-        assert_eq!(program, "/bin/sh");
-        assert_eq!(args.len(), 2);
-        assert_eq!(args[0], "-c");
-        assert!(args[1].contains("docker run"));
-        assert!(args[1].contains("echo hello"));
+        // Docker backend → direct docker execution (no shell wrapping)
+        assert_eq!(program, "docker");
+        assert!(args.contains(&"run".to_string()));
+        assert!(args.contains(&"baoclaw-sandbox:latest".to_string()));
+        // The user command is passed as the last arg to /bin/sh -c inside docker
+        assert!(args.contains(&"echo hello".to_string()));
+        assert!(args.contains(&"/bin/sh".to_string()));
+        assert!(args.contains(&"-c".to_string()));
     }
 
     #[test]

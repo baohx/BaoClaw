@@ -9,15 +9,16 @@ import * as path from 'path';
 import * as os from 'os';
 import TelegramBot from 'node-telegram-bot-api';
 import { parseDocument, buildDocumentBlock, buildImageBlock } from './docParser.js';
+import { formatTranscriptToMarkdown, defaultExportFilename } from './export.js';
 import {
-  SessionState, InitializeResult,
+  SessionState, InitializeResult, SearchResult,
   parseCommand, isRegisteredCommand, COMMAND_REGISTRY,
   formatTools, formatSkills, formatMcpServers, formatPlugins,
   formatCompact, formatGitStatus, formatGitDiff, formatGitCommit,
   formatThinkToggle, formatModelInfo, formatModelSwitch,
   formatCommitUsage, formatAbortConfirm,
   formatError, formatDisconnected, formatHelp,
-  formatStatus, formatStart,
+  formatStatus, formatStart, formatSearchResults,
 } from './commands.js';
 
 // ── Global error handlers ──
@@ -533,9 +534,10 @@ async function main() {
           const outputStr = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output ?? '');
 
           // Helper: extract images from tool result content items
-          // Supports two formats:
+          // Supports multiple formats:
           //   MCP format:      { type: "image", data: "base64...", mimeType: "image/png" }
           //   Anthropic format: { type: "image", source: { type: "base64", media_type: "image/png", data: "base64..." } }
+          //   Content array:   { content: [{ type: "image", ... }] }
           function extractImagesFromContent(content: any[]): { buffer: Buffer; mediaType: string }[] {
             const imgs: { buffer: Buffer; mediaType: string }[] = [];
             for (const item of content) {
@@ -556,28 +558,49 @@ async function main() {
           }
 
           // Helper: send an image buffer via bot.sendPhoto with proper extension
-          async function sendToolResultImage(chatId: number, img: { buffer: Buffer; mediaType: string }, index: number): Promise<void> {
+          async function sendToolResultImage(chatId: number, img: { buffer: Buffer; mediaType: string }, index: number, caption?: string): Promise<void> {
             const ext = img.mediaType === 'jpeg' ? 'jpg' : img.mediaType;
             const tmpFile = path.join(os.tmpdir(), `baoclaw-img-${Date.now()}-${index}.${ext}`);
             fs.writeFileSync(tmpFile, img.buffer);
-            const caption = index === 0 ? '📸 图片已生成' : `📸 图片已生成 (${index + 1})`;
-            await bot.sendPhoto(chatId, tmpFile, { caption });
+            const cap = caption || (index === 0 ? '📸 图片已生成' : `📸 图片已生成 (${index + 1})`);
+            await bot.sendPhoto(chatId, tmpFile, { caption: cap });
             try { fs.unlinkSync(tmpFile); } catch {}
           }
 
-          // Try JSON.parse first (works if not truncated)
           let sent = false;
           try {
-            const parsed = JSON.parse(outputStr);
-            const content = Array.isArray(parsed?.content) ? parsed.content : [];
-            const images = extractImagesFromContent(content);
-            for (let i = 0; i < images.length; i++) {
-              try {
-                await sendToolResultImage(chatId, images[i], i);
-                sent = true;
-              } catch (err) {
-                console.error(`Failed to send tool result image: ${err}`);
+            const parsed = typeof tr.output === 'object' && tr.output !== null ? tr.output as any : JSON.parse(outputStr);
+
+            // Case 1: Top-level image object (ImageGenTool format)
+            // { type: "image", source: { type: "base64", media_type: "...", data: "..." } }
+            if (parsed?.type === 'image' && parsed?.source?.data && parsed.source.data.length > 100) {
+              const mediaType = parsed.source.media_type || 'image/png';
+              const ext = mediaType.split('/')[1] || 'png';
+              const buffer = Buffer.from(parsed.source.data, 'base64');
+              const caption = parsed.prompt ? `📸 ${parsed.prompt}` : '📸 图片已生成';
+              await sendToolResultImage(chatId, { buffer, mediaType: ext }, 0, caption);
+              sent = true;
+            }
+            // Case 2: Content array format (MCP tools)
+            // { content: [{ type: "image", data: "...", mimeType: "..." }] }
+            else if (Array.isArray(parsed?.content)) {
+              const images = extractImagesFromContent(parsed.content);
+              for (let i = 0; i < images.length; i++) {
+                try {
+                  await sendToolResultImage(chatId, images[i], i);
+                  sent = true;
+                } catch (err) {
+                  console.error(`Failed to send tool result image: ${err}`);
+                }
               }
+            }
+            // Case 3: Top-level MCP image (data at root)
+            // { type: "image", data: "base64...", mimeType: "image/png" }
+            else if (parsed?.type === 'image' && typeof parsed?.data === 'string' && parsed.data.length > 100) {
+              const ext = (parsed.mimeType || 'image/png').split('/')[1] || 'png';
+              const buffer = Buffer.from(parsed.data, 'base64');
+              await sendToolResultImage(chatId, { buffer, mediaType: ext }, 0);
+              sent = true;
             }
           } catch {
             // JSON parse failed (likely truncated output) — extract base64 with regex
@@ -595,7 +618,7 @@ async function main() {
             }
           }
           if (sent) {
-            try { await bot.sendMessage(chatId, '[图片已发送]'); } catch {}
+            // Don't send redundant text message — the photo was already sent
           }
         }
         break;
@@ -874,6 +897,95 @@ async function main() {
     } catch (err) { return formatError(err); }
   }
 
+  async function handleExport(chatId: number): Promise<string> {
+    if (!ipcClient.connected) return formatDisconnected();
+    try {
+      const result = await ipcClient.request<{ messages: any[]; count: number; total: number }>('talkTail', { count: 9999 });
+      if (result.count === 0) return '当前会话无对话记录';
+
+      const entries = result.messages.map((m: any) => ({
+        role: m.role as 'user' | 'assistant',
+        text: m.text || '',
+        timestamp: m.timestamp,
+        tools: m.tools,
+      }));
+
+      const markdown = formatTranscriptToMarkdown(entries, { sessionId: sessionState.sessionId });
+      const filename = defaultExportFilename();
+      const filepath = path.join(os.tmpdir(), filename);
+      fs.writeFileSync(filepath, markdown, 'utf-8');
+
+      try {
+        await bot.sendDocument(chatId, filepath, { caption: '📄 对话导出' });
+      } finally {
+        try { fs.unlinkSync(filepath); } catch {}
+      }
+
+      return '';
+    } catch (err) { return formatError(err); }
+  }
+
+  async function handleSearch(args: string): Promise<string> {
+    if (!args.trim()) return '用法: /search <关键词>';
+    if (!ipcClient.connected) return formatDisconnected();
+    try {
+      const result = await ipcClient.request<{ results: SearchResult[] }>('searchHistory', { query: args.trim(), max_results: 10 });
+      return formatSearchResults(result.results || [], args.trim());
+    } catch (err) { return formatError(err); }
+  }
+
+  async function handleSpec(args: string): Promise<string> {
+    if (!ipcClient.connected) return formatDisconnected();
+    const parts = args.split(/\s+/);
+    const subCmd = parts[0] || 'list';
+    const featureName = parts[1] || '';
+
+    try {
+      if (subCmd === 'list') {
+        const result = await ipcClient.request<{ specs: any[] }>('specList');
+        const specs = result.specs || [];
+        if (specs.length === 0) return '暂无 Spec。使用 /spec new <feature-name> 创建。';
+        let out = `📋 Specs (${specs.length})\n\n`;
+        for (const s of specs) {
+          const progress = s.task_progress ? ` [${s.task_progress.completed}/${s.task_progress.total}]` : '';
+          out += `• ${s.feature_name}  ${s.phase}${progress}\n`;
+        }
+        return out;
+      } else if (subCmd === 'new') {
+        if (!featureName) return '用法: /spec new <feature-name> [requirements|design]';
+        const workflow = parts[2] || 'requirements';
+        const result = await ipcClient.request<any>('specNew', { feature_name: featureName, workflow });
+        return `✅ Spec "${featureName}" 已创建 (${workflow})`;
+      } else if (subCmd === 'show') {
+        if (!featureName) return '用法: /spec show <feature-name>';
+        const result = await ipcClient.request<any>('specShow', { feature_name: featureName });
+        const progress = result.task_progress ? `\n进度: ${result.task_progress.completed}/${result.task_progress.total}` : '';
+        return `📄 ${result.feature_name}\n阶段: ${result.phase}\n类型: ${result.spec_type}${progress}`;
+      } else if (subCmd === 'status') {
+        if (!featureName) return '用法: /spec status <feature-name>';
+        const result = await ipcClient.request<any>('specStatus', { feature_name: featureName });
+        return `📊 ${featureName}\n总计: ${result.total} | 完成: ${result.completed} | 进行中: ${result.in_progress}`;
+      } else if (subCmd === 'run') {
+        if (!featureName) return '用法: /spec run <feature-name> [task-id]';
+        const taskId = parts[2] || undefined;
+        const result = await ipcClient.request<any>('specRun', { feature_name: featureName, task_id: taskId });
+        if (result.status === 'all_complete') return '✅ 所有任务已完成';
+        return `▶️ 准备执行: [${result.task_id}] ${result.task_description}`;
+      } else if (subCmd === 'edit') {
+        if (!featureName) return '用法: /spec edit <feature-name> [requirements|design|tasks]';
+        const phase = parts[2] || 'requirements';
+        const result = await ipcClient.request<any>('specEdit', { feature_name: featureName, phase });
+        const content = result.content || '';
+        if (content.length > 4000) {
+          return content.slice(0, 4000) + '\n\n...[内容过长，已截断]';
+        }
+        return content;
+      } else {
+        return '用法: /spec [list|new|show|status|run|edit] <feature-name>';
+      }
+    } catch (err) { return formatError(err); }
+  }
+
   // Command handler dispatch table
   async function handleCron(args: string): Promise<string> {
     if (!ipcClient.connected) return formatDisconnected();
@@ -1018,6 +1130,9 @@ async function main() {
     '/projects': (args) => handleProjects(args),
     '/task':    (args) => handleTask(args),
     '/history': (args) => handleHistory(args),
+    '/export':  async (_args, chatId) => handleExport(chatId),
+    '/search':  (args) => handleSearch(args),
+    '/spec':    (args) => handleSpec(args),
   };
 
   // ── Process a single message for a chat ──
@@ -1175,9 +1290,11 @@ async function main() {
       if (handler) {
         try {
           const result = await handler(parsed.args, chatId);
-          const chunks = splitMessage(result);
-          for (const chunk of chunks) {
-            await bot.sendMessage(chatId, chunk);
+          if (result) {
+            const chunks = splitMessage(result);
+            for (const chunk of chunks) {
+              await bot.sendMessage(chatId, chunk);
+            }
           }
         } catch (err) {
           await bot.sendMessage(chatId, formatError(err));

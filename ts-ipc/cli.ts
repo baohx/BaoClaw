@@ -86,26 +86,64 @@ function extractAndSaveImages(output: unknown): number {
   if (typeof output !== 'object' || output === null) return 0;
   const o = output as Record<string, unknown>;
 
-  // Collect candidate content arrays
+  let count = 0;
+
+  // Case 1: Top-level image (ImageGenTool format)
+  // { type: "image", source: { type: "base64", media_type: "...", data: "..." } }
+  if (o.type === 'image' && typeof o.source === 'object' && o.source !== null) {
+    const src = o.source as Record<string, unknown>;
+    if (src.type === 'base64' && typeof src.data === 'string' && (src.data as string).length > 100) {
+      const mediaType = typeof src.media_type === 'string' ? src.media_type : 'image/png';
+      const filePath = saveBase64Image(src.data as string, mediaType);
+      count++;
+      const prompt = typeof o.prompt === 'string' ? ` (${(o.prompt as string).slice(0, 50)})` : '';
+      console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}${prompt}`);
+      displayIterm2Image(filePath);
+      return count;
+    }
+  }
+
+  // Case 2: Top-level MCP image { type: "image", data: "base64...", mimeType: "..." }
+  if (o.type === 'image' && typeof o.data === 'string' && (o.data as string).length > 100) {
+    const mediaType = typeof o.mimeType === 'string' ? o.mimeType : 'image/png';
+    const filePath = saveBase64Image(o.data as string, mediaType);
+    count++;
+    console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
+    displayIterm2Image(filePath);
+    return count;
+  }
+
+  // Case 3: Content array format (MCP/Anthropic)
+  // { content: [{ type: "image", source: { type: "base64", data: "..." } }] }
   const contentArrays: unknown[][] = [];
   if (Array.isArray(o.content)) contentArrays.push(o.content);
-
-  // The output itself may be an array of content blocks
   if (Array.isArray(output)) contentArrays.push(output as unknown[]);
 
-  let count = 0;
   for (const arr of contentArrays) {
     for (const block of arr) {
       if (typeof block !== 'object' || block === null) continue;
       const b = block as Record<string, unknown>;
       if (b.type !== 'image') continue;
+
+      // Anthropic format: source.data
       const src = b.source as Record<string, unknown> | undefined;
-      if (!src || src.type !== 'base64' || typeof src.data !== 'string') continue;
-      const mediaType = typeof src.media_type === 'string' ? src.media_type : 'image/png';
-      const filePath = saveBase64Image(src.data as string, mediaType);
-      count++;
-      console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
-      displayIterm2Image(filePath);
+      if (src && src.type === 'base64' && typeof src.data === 'string') {
+        const mediaType = typeof src.media_type === 'string' ? src.media_type : 'image/png';
+        const filePath = saveBase64Image(src.data as string, mediaType);
+        count++;
+        console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
+        displayIterm2Image(filePath);
+        continue;
+      }
+
+      // MCP format: data at top level of block
+      if (typeof b.data === 'string' && (b.data as string).length > 100) {
+        const mediaType = typeof b.mimeType === 'string' ? b.mimeType : (typeof b.media_type === 'string' ? b.media_type : 'image/png');
+        const filePath = saveBase64Image(b.data as string, mediaType);
+        count++;
+        console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
+        displayIterm2Image(filePath);
+      }
     }
   }
   return count;
@@ -738,7 +776,7 @@ const COMMANDS = [
   '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory', '/debug',
-  '/projects', '/cron', '/history',
+  '/projects', '/cron', '/history', '/doc',
 ];
 
 /**
@@ -932,6 +970,9 @@ async function main() {
   let queryStartTime = 0;
   // Track tool_use_id → tool_name for smart result formatting
   const pendingTools = new Map<string, { name: string; input: unknown }>();
+
+  // ── Pending attachments from /doc command ──
+  let pendingAttachments: Array<Record<string, unknown>> = [];
 
   // ── Debug timing mode ──
   let debugMode = cliDebugMode;
@@ -1386,6 +1427,10 @@ async function main() {
       if (lines.length === 1) {
         const input = lines[0].trim();
         if (!input) { rl.prompt(); return; }
+        // Clear readline's native echo to avoid double-display
+        readline.moveCursor(process.stdout, 0, -1);
+        readline.clearLine(process.stdout, 0);
+        process.stdout.write('\r');
         await handleInput(input);
         return;
       }
@@ -1436,11 +1481,17 @@ async function main() {
         console.log(`  ${DIM}─── Enter additional instructions (or press Enter to send as-is) ───${RESET}`);
 
         // Pause readline, let user type additional instructions
+        // Use a separate interface with terminal: false to avoid echo conflicts
         rl.pause();
         const { createInterface } = await import('readline');
-        const mlRl = createInterface({ input: process.stdin, output: process.stdout });
+        const mlRl = createInterface({ 
+          input: process.stdin, 
+          output: process.stdout,
+          terminal: false,  // Disable terminal mode to avoid echo conflicts
+        });
         const extraInput: string = await new Promise(resolve => {
-          mlRl.question(`  ${FG_CYAN}➤${RESET} `, (answer: string) => {
+          process.stdout.write(`  ${FG_CYAN}➤${RESET} `);
+          mlRl.once('line', (answer: string) => {
             mlRl.close();
             resolve(answer.trim());
           });
@@ -1885,6 +1936,30 @@ async function main() {
       const arg = input.slice('/history'.length).trim();
       const count = parseInt(arg, 10) || 10;
       await showHistory(client, count);
+      rl.prompt();
+      return;
+    }
+
+    // ── /doc <filepath> — attach document for next message ──
+    if (input.startsWith('/doc')) {
+      const filePath = input.slice('/doc'.length).trim();
+      if (!filePath) {
+        console.log(`\n${FG_ORANGE}${BOLD}Usage:${RESET} /doc <filepath>`);
+        console.log(`  ${DIM}Attach a PDF or DOCX file to the next message.${RESET}`);
+        console.log(`  ${DIM}Supported formats: .pdf, .docx${RESET}`);
+        console.log(`  ${DIM}Max file size: 10MB${RESET}\n`);
+        rl.prompt();
+        return;
+      }
+      try {
+        const result = await client.request<{ attachment: Record<string, unknown>; file_path: string }>('docUpload', { file_path: filePath });
+        pendingAttachments.push(result.attachment);
+        const basename = filePath.split('/').pop() || filePath;
+        console.log(`\n${FG_GREEN}📎 Attached:${RESET} ${basename} ${DIM}(will be sent with next message)${RESET}\n`);
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        console.log(`\n${FG_RED}❌ ${msg}${RESET}\n`);
+      }
       rl.prompt();
       return;
     }
@@ -2471,6 +2546,7 @@ async function main() {
       console.log();
 
       console.log(`  ${FG_GRAY}── Input & Integrations ──${RESET}`);
+      console.log(`  ${FG_WHITE}/doc${RESET}        ${DIM}Attach PDF/DOCX document for next message${RESET}`);
       console.log(`  ${FG_WHITE}/voice${RESET}      ${DIM}Voice input (requires whisper.cpp)${RESET}`);
       console.log(`  ${FG_WHITE}@file.pdf${RESET}   ${DIM}Attach file: @photo.png @doc.pdf @doc.docx${RESET}`);
       console.log(`  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway${RESET}`);
@@ -2591,6 +2667,14 @@ async function main() {
     }
 
     try {
+      // Merge pending attachments from /doc command
+      if (pendingAttachments.length > 0) {
+        const existing = (submitPayload.attachments as Array<Record<string, unknown>>) || [];
+        submitPayload.attachments = [...existing, ...pendingAttachments];
+        console.log(`${DIM}  📎 Including ${pendingAttachments.length} pending attachment(s) from /doc${RESET}`);
+        pendingAttachments = [];
+      }
+
       // Debug: record submit time for first query timing
       if (debugMode && !firstQueryDone) {
         resetDebugTimers();

@@ -27,3 +27,5 @@ pub mod sandbox;
 pub mod prompt_injection;
 pub mod subagent_policy;
 pub mod streaming_executor;
+pub mod export;
+pub mod spec_engine;

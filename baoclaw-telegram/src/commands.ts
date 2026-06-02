@@ -66,6 +66,13 @@ export interface GitDiffResult {
   diff: string;
 }
 
+export interface SearchResult {
+  timestamp?: string;
+  entry_type: string;
+  snippet?: string;
+  context?: string;
+}
+
 export interface InitializeResult {
   capabilities: { tools: boolean; streaming: boolean; permissions: boolean };
   session_id: string;
@@ -113,6 +120,9 @@ export const COMMAND_REGISTRY: Record<string, CommandDefinition> = {
   '/projects': { description: '项目管理: /projects list|<id>|new <path> [描述]' },
   '/task':     { description: '后台任务: /task run|list|status|stop' },
   '/history':  { description: '查看最近对话: /history [n]' },
+  '/export':   { description: '导出对话历史为 Markdown 文件' },
+  '/search':   { description: '搜索对话历史: /search <关键词>' },
+  '/spec':     { description: 'Spec 管理: /spec list|new|show|status|run|edit' },
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -359,7 +369,7 @@ export function formatDisconnected(): string {
 export function formatHelp(registry: Record<string, { description: string }>): string {
   // Group commands by category for cleaner display
   const groups: Record<string, string[]> = {
-    '💬 对话': ['/compact', '/think', '/model', '/history', '/abort'],
+    '💬 对话': ['/compact', '/think', '/model', '/history', '/search', '/export', '/abort'],
     '📂 项目 & Git': ['/projects', '/git', '/diff', '/commit'],
     '🔧 工具 & 扩展': ['/tools', '/mcp', '/skills', '/plugins'],
     '⚙️ 自动化': ['/task', '/cron', '/memory'],
@@ -431,4 +441,25 @@ export function formatStart(
     msg += `\n\n🔄 已恢复之前的对话 (${sessionState.messageCount} 条消息)`;
   }
   return msg;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Search Format Functions (Task 9)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Format search results for Telegram display.
+ * Truncates output to stay within Telegram's 4096 char limit.
+ */
+export function formatSearchResults(results: SearchResult[], query: string): string {
+  if (!results.length) return '未找到匹配内容';
+  let out = `🔍 搜索结果: "${query}" (${results.length})\n\n`;
+  for (const r of results) {
+    const ts = r.timestamp?.slice(0, 19).replace('T', ' ') || '';
+    const role = r.entry_type === 'UserMessage' ? '用户' : '助手';
+    out += `[${ts}] ${role}\n${r.snippet || r.context || ''}\n\n`;
+    if (out.length > 3800) { out += '…(更多结果已截断)'; break; }
+  }
+  return out;
 }

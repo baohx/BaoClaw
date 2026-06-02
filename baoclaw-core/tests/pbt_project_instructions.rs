@@ -68,6 +68,11 @@ proptest! {
             tool_result_store: None,
             initial_budget: None,
             cached_rules_raw: vec![],
+            frozen_system_prompt: None,
+            frozen_tools: None,
+            frozen_hash: None,
+            adaptive_compact: baoclaw_core::engine::query_engine::AdaptiveCompactTracker::new(),
+            tool_health: baoclaw_core::engine::tool_health::ToolHealthTracker::new(),
         };
 
         let system = build_system_prompt(&config);

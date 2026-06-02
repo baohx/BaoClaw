@@ -436,36 +436,90 @@ impl QueryEngine {
     fn cleanup_incomplete_tool_calls(&mut self) {
         if self.messages.is_empty() { return; }
 
-        // Remove trailing messages that would cause API errors.
-        // Valid ending states: user message (for next submit) or assistant text-only message.
-        // Invalid: assistant with tool_use (no tool_result), or consecutive user messages.
+        // ---- Pass 1: middle-of-history orphan tool_use repair ----
+        // Scan every assistant message; for each tool_use id, the NEXT user
+        // message must contain a tool_result with the same id. Any missing id
+        // gets a stub tool_result inserted so the API call won't 400.
+        let mut i = 0usize;
+        while i < self.messages.len() {
+            // Collect tool_use ids from this assistant message (if any)
+            let tool_use_ids: Vec<String> = match &self.messages[i].content {
+                MessageContent::Assistant { message, .. } => message.content.iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::ToolUse { id, .. } => Some(id.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+
+            if !tool_use_ids.is_empty() {
+                // The next message must be a user message with matching tool_results.
+                let next_idx = i + 1;
+                let next_is_user_with_results = matches!(
+                    self.messages.get(next_idx).map(|m| &m.content),
+                    Some(MessageContent::User { .. })
+                );
+
+                if next_is_user_with_results {
+                    let present: std::collections::HashSet<String> = match &self.messages[next_idx].content {
+                        MessageContent::User { message, .. } =>
+                            extract_tool_result_ids(message).into_iter().collect(),
+                        _ => std::collections::HashSet::new(),
+                    };
+                    let missing: Vec<String> = tool_use_ids.iter()
+                        .filter(|id| !present.contains(*id))
+                        .cloned()
+                        .collect();
+                    if !missing.is_empty() {
+                        eprintln!("Cleanup: injecting stub tool_results for {} missing id(s) at msg[{}]",
+                                  missing.len(), next_idx);
+                        if let MessageContent::User { message, .. } = &mut self.messages[next_idx].content {
+                            for id in missing {
+                                message.content.push(ContentBlock::ToolResult {
+                                    tool_use_id: id,
+                                    content: "[Tool execution interrupted — result missing]".to_string(),
+                                    is_error: Some(true),
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    // No user message after assistant-with-tool_use → drop this assistant
+                    // (and let the trailing pass below clean up duplicates).
+                    eprintln!("Cleanup: dropping mid-history assistant with no following user msg at idx {}", i);
+                    self.messages.remove(i);
+                    continue; // re-check same index
+                }
+            }
+            i += 1;
+        }
+
+        // ---- Pass 2: original trailing cleanup (preserved) ----
         loop {
             if self.messages.is_empty() { break; }
             let last = &self.messages[self.messages.len() - 1];
             match &last.content {
-                // Trailing assistant with tool_use but no following tool_result → remove
                 MessageContent::Assistant { message, .. } => {
                     let has_tool_use = message.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
                     if has_tool_use {
-                        eprintln!("Cleanup: removing incomplete tool_use assistant message");
+                        eprintln!("Cleanup: removing trailing incomplete tool_use assistant message");
                         self.messages.pop();
                         continue;
                     }
-                    break; // assistant text-only is fine
+                    break;
                 }
-                // Trailing user message: check if the one before it is also a user message
                 MessageContent::User { .. } => {
                     if self.messages.len() >= 2 {
                         let prev = &self.messages[self.messages.len() - 2];
                         let prev_is_user = matches!(&prev.content, MessageContent::User { .. });
                         if prev_is_user {
-                            // Two consecutive user messages — remove the last one (the failed query's user msg)
                             eprintln!("Cleanup: removing duplicate consecutive user message");
                             self.messages.pop();
                             continue;
                         }
                     }
-                    break; // single trailing user message is fine
+                    break;
                 }
                 _ => break,
             }

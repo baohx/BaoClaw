@@ -12,8 +12,23 @@ pub struct WebSearchTool {
 
 impl WebSearchTool {
     pub fn new() -> Self {
+        let mut builder = reqwest::Client::builder()
+            .user_agent("BaoClaw/1.0")
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .pool_idle_timeout(std::time::Duration::from_secs(90));
+
+        // Set BAOCLAW_HTTP1_ONLY=1 to force HTTP/1.1 (for networks with HTTP/2 issues)
+        if std::env::var("BAOCLAW_HTTP1_ONLY").is_ok() {
+            builder = builder.http1_only();
+        }
+
+        let http_client = builder
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Self {
-            http_client: reqwest::Client::new(),
+            http_client,
             api_key: std::env::var("BRAVE_SEARCH_API_KEY").ok(),
         }
     }
@@ -127,41 +142,52 @@ async fn search(
     );
 
     let max_retries = 3;
-    let mut last_status = reqwest::StatusCode::OK;
+    let mut last_error: Option<String> = None;
 
     for attempt in 0..=max_retries {
         if attempt > 0 {
             // Exponential backoff: 2s, 4s, 8s
             let delay = std::time::Duration::from_secs(2u64.pow(attempt as u32));
-            eprintln!("WebSearch: 429 rate limited, retrying in {}s (attempt {}/{})", delay.as_secs(), attempt, max_retries);
+            eprintln!("WebSearch: retrying in {}s (attempt {}/{})", delay.as_secs(), attempt, max_retries);
             tokio::time::sleep(delay).await;
         }
 
-        let response = client
+        let response = match client
             .get(&url)
             .header("X-Subscription-Token", api_key)
             .header("Accept", "application/json")
             .send()
             .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("Search API error: {}", e)))?;
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                let error_msg = format!("Search API connection error: {}", e);
+                eprintln!("WebSearch: {}", error_msg);
+                last_error = Some(error_msg);
+                continue; // Retry on network errors
+            }
+        };
 
-        last_status = response.status();
+        let status = response.status();
 
-        if last_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            last_error = Some(format!("Rate limited (429)"));
             continue; // retry
         }
 
-        if !last_status.is_success() {
+        if !status.is_success() {
             return Err(ToolError::ExecutionFailed(format!(
                 "Search API returned status {}",
-                last_status
+                status
             )));
         }
 
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to parse response: {}", e)))?;
+        let body: Value = match response.json().await {
+            Ok(b) => b,
+            Err(e) => {
+                return Err(ToolError::ExecutionFailed(format!("Failed to parse response: {}", e)));
+            }
+        };
 
         let results = body["web"]["results"]
             .as_array()
@@ -178,8 +204,9 @@ async fn search(
     }
 
     Err(ToolError::ExecutionFailed(format!(
-        "Search API returned status {} after {} retries",
-        last_status, max_retries
+        "Search API failed after {} retries: {}",
+        max_retries,
+        last_error.unwrap_or_else(|| "Unknown error".to_string())
     )))
 }
 
