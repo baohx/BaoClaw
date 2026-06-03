@@ -4,6 +4,8 @@
  * Commands are dispatched via IPC JSON-RPC to baoclaw-core daemon.
  */
 import { IpcClient } from './ipcClient.js';
+import * as fs from 'fs';
+import * as os from 'os';
 
 // ═══════════════════════════════════════════════════════════════
 // Constants
@@ -651,6 +653,69 @@ const clearCommand: Command = {
   },
 };
 
+// ── Gateway Info Store ──
+
+export interface GatewayInfo {
+  pid: number;
+  startTime: number;
+  logFile: string;
+  name: string;
+}
+
+let _gatewayInfo: GatewayInfo | null = null;
+
+export function setGatewayInfo(info: GatewayInfo): void { _gatewayInfo = info; }
+
+// ── Gateway Management Command ──
+
+const gatewayCommand: Command = {
+  name: '/gateway',
+  description: '网关管理（信息型，不杀进程）',
+  usage: '/gateway status|ping|logs [n]',
+  async handler(_ctx) {
+    const args = _ctx.args.trim();
+    const parts = args.split(/\s+/);
+    const sub = parts[0] || 'status';
+
+    switch (sub) {
+      case 'status': {
+        if (!_gatewayInfo) return '⚠️ 网关信息未初始化';
+        const uptime = Math.floor((Date.now() - _gatewayInfo.startTime) / 1000);
+        const mem = process.memoryUsage();
+        let out = `🐾 *${_gatewayInfo.name} Gateway*\n\n`;
+        out += `PID: ${_gatewayInfo.pid}\n`;
+        out += `运行时间: ${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s\n`;
+        out += `内存 RSS: ${(mem.rss / 1024 / 1024).toFixed(1)} MB\n`;
+        out += `内存 Heap: ${(mem.heapUsed / 1024 / 1024).toFixed(1)} / ${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB\n`;
+        out += `Node.js: ${process.version}\n`;
+        out += `Platform: ${os.platform()} ${os.arch()}\n`;
+        out += `系统运行: ${Math.floor(os.uptime() / 3600)}h\n`;
+        out += `日志: ${_gatewayInfo.logFile}\n`;
+        out += `Daemon: ${_daemonInfo ? `🟢 pid=${_daemonInfo.pid}` : '🔴 未连接'}\n`;
+        return out;
+      }
+      case 'ping':
+        return '🏓 pong! Gateway is alive.';
+      case 'logs': {
+        if (!_gatewayInfo) return '⚠️ 网关信息未初始化';
+        const n = parseInt(parts[1], 10) || 10;
+        try {
+          if (!fs.existsSync(_gatewayInfo.logFile)) return '⚠️ 日志文件不存在';
+          const content = fs.readFileSync(_gatewayInfo.logFile, 'utf-8');
+          const lines = content.trim().split('\n');
+          const recent = lines.slice(-Math.min(n, 50));
+          if (recent.length === 0) return '📄 日志为空';
+          return `📄 *最近 ${recent.length} 条日志*\n\n\`\`\`\n${recent.join('\n').slice(0, 3000)}\n\`\`\``;
+        } catch (e: any) {
+          return `⚠️ 无法读取日志: ${e.message}`;
+        }
+      }
+      default:
+        return `📋 *Gateway 命令*\n\n• /gateway status — 网关运行状态\n• /gateway ping — 连通测试\n• /gateway logs [n] — 最近 n 条日志`;
+    }
+  },
+};
+
 // ── Spec Commands (subcommand system) ──
 
 const specCommand: Command = {
@@ -756,6 +821,9 @@ export const COMMAND_REGISTRY: Record<string, Command> = {
   '/start':     startCommand,
   '/clear':     clearCommand,
 
+  // Gateway
+  '/gateway':   gatewayCommand,
+
   // Spec
   '/spec':      specCommand,
 };
@@ -829,6 +897,7 @@ export function formatHelp(): string {
     ['🔧 *工具 & 扩展*', ['/tools', '/mcp', '/skills', '/plugins']],
     ['⚙️ *自动化*', ['/task', '/tasks', '/task_stop', '/cron']],
     ['📋 *Spec*', ['/spec']],
+    ['🚪 *网关*', ['/gateway']],
     ['🔌 *会话*', ['/help', '/status', '/start', '/clear']],
   ];
 

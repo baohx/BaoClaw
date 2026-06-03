@@ -26,7 +26,7 @@ import { IpcClient } from './ipcClient.js';
 // New modules
 import { SenderTracker } from './senderTracker.js';
 import { PermissionManager } from './permission.js';
-import { parseCommand, isRegisteredCommand, dispatchCommand, formatHelp, COMMAND_REGISTRY } from './commands.js';
+import { parseCommand, isRegisteredCommand, dispatchCommand, formatHelp, COMMAND_REGISTRY, setGatewayInfo } from './commands.js';
 import { MediaHandler, isImageFile } from './media.js';
 
 const PID_FILE = path.join(os.homedir(), '.baoclaw', 'whatsapp-gateway.pid');
@@ -117,6 +117,14 @@ export class WhatsAppGateway {
     this.ipcClient = client;
     this.daemonInfo = info;
     console.log(`Connected to daemon pid=${info.pid} session=${info.session_id}`);
+
+    // Set gateway info for /gateway management command
+    setGatewayInfo({
+      pid: process.pid,
+      startTime: Date.now(),
+      logFile: path.join(os.homedir(), '.baoclaw', 'logs', 'baoclaw-whatsapp.log'),
+      name: 'WhatsApp',
+    });
 
     // Print registered commands
     console.log(`Registered ${COMMAND_REGISTRY ? Object.keys(COMMAND_REGISTRY).length : 0} commands.`);

@@ -476,11 +476,14 @@ impl QueryEngine {
                                   missing.len(), next_idx);
                         if let MessageContent::User { message, .. } = &mut self.messages[next_idx].content {
                             for id in missing {
-                                message.content.push(ContentBlock::ToolResult {
-                                    tool_use_id: id,
-                                    content: "[Tool execution interrupted — result missing]".to_string(),
-                                    is_error: Some(true),
-                                });
+                                if let Value::Array(ref mut arr) = &mut message.content {
+                                    arr.push(serde_json::json!({
+                                        "type": "tool_result",
+                                        "tool_use_id": id,
+                                        "content": "[Tool execution interrupted — result missing]",
+                                        "is_error": true,
+                                    }));
+                                }
                             }
                         }
                     }
