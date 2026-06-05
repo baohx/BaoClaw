@@ -166,8 +166,7 @@ export class WhatsAppGateway {
         const msgId = msg.key?.id;
         if (msgId && this.messageQueue.isDuplicate(msgId)) continue;
 
-        // Skip own messages and broadcasts
-        if (msg.key.fromMe) continue;
+        // Skip broadcasts only (allow fromMe for self-testing)
         if (msg.key.remoteJid === 'status@broadcast') continue;
 
         // Baileys 7+ uses LID addressing by default. The real phone-number JID
