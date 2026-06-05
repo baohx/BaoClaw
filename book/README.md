@@ -3,6 +3,8 @@
 > 以一个真实的 Agent Harness 产品为原型，深入剖析 AI Agent 系统的设计模式与工程实践。
 >
 > 🐾 **BaoClaw 开源地址：[github.com/baohx/BaoClaw](https://github.com/baohx/BaoClaw)** (MIT License, v2.0.0)
+>
+> 📘 **在线阅读：[book2 演示版](book2/)** — HTML 幻灯片风格呈现，支持键盘导航和主题切换
 
 ## 关于本书
 
@@ -25,16 +27,17 @@ BaoClaw 是一个完整的 Agent Harness 系统，包含：
 
 | 组件 | 技术栈 | 职责 |
 |------|--------|------|
-| baoclaw-core | Rust | 全局守护进程、多项目 Session 管理、QueryEngine、工具执行、IPC 服务、Cron 调度、进化引擎 |
+| baoclaw-core | Rust | 全局守护进程、多项目 Session 管理、QueryEngine、工具执行、IPC 服务、Cron 调度、进化引擎、沙箱执行、跨会话检索 |
 | ts-ipc | TypeScript | 终端 CLI 客户端（按 cwd 自动路由到对应项目 session） |
 | baoclaw-telegram | TypeScript | Telegram 网关客户端（支持 /cd 切换项目） |
 | baoclaw-whatsapp | TypeScript | WhatsApp 网关客户端 |
+| baoclaw-feishu | TypeScript | 飞书网关客户端 |
 
 **GitHub**: [github.com/baohx/BaoClaw](https://github.com/baohx/BaoClaw) (v1.0.0)
 
 架构特点：**一个全局 daemon 管理所有项目**。每个项目目录对应独立的 session（独立对话历史、记忆、配置）。多个 CLI 终端和 Telegram 可同时连接，按工作目录自动路由到正确的 session，互不干扰。
 
-核心特性：持久记忆、全局守护进程多项目会话、自我进化引擎（Skill 自动生成 + RLHF 数据导出）、Cron 定时任务、文档问答（PDF/DOCX/图片）、项目级隔离、200+ 模型支持。
+核心特性：持久记忆、全局守护进程多项目会话、自我进化引擎（Skill 自动生成 + RLHF 数据导出）、Cron 定时任务、文档问答（PDF/DOCX/图片）、项目级隔离、200+ 模型支持、沙箱执行（Bubblewrap/Docker）、跨会话检索（SQLite FTS5）、自适应 Compact、工具健康监控、意图预测、上下文窗口分配器、Prompt 注入检测、Subagent 深度策略。
 
 ## 目录
 
@@ -93,6 +96,64 @@ BaoClaw 是一个完整的 Agent Harness 系统，包含：
 2. **模式** —— 通用的设计模式是什么？
 3. **实现** —— BaoClaw 是怎么做的？（附真实代码）
 4. **思考** —— 还有哪些替代方案？
+
+## v2.0 新增特性
+
+BaoClaw v2.0 引入了智能引擎层，包含以下新功能：
+
+### 🔍 跨会话检索 (#5)
+- SQLite + FTS5 全文搜索，跨所有历史会话检索
+- 按关键词搜索，获取排名结果和上下文片段
+
+### ❄️ 冻结快照缓存 (#6)
+- 系统提示词和工具列表在会话开始时冻结
+- 最大化 Anthropic Prompt Cache 命中率
+- 降低成本和延迟
+
+### 👤 用户画像 (#7)
+- `~/.baoclaw/USER.md` 持久化用户画像
+- 自动加载到系统提示词，个性化响应
+- 会话统计自动合并（总轮次、成本、常用工具）
+
+### 🔄 Skill 自改进闭环 (#8)
+- 5 阶段循环：收集 → 评估 → 改进 → 验证 → 淘汰
+- 根据相关率、成功率、用户评分自动调整技能库
+
+### 📐 自适应 Compact (#9)
+- `AdaptiveCompactTracker` 从压缩历史学习最优 `keep_recent`
+- 范围 6–30 条消息，自动调整
+
+### 🏥 工具健康监控 (#10)
+- 实时跟踪每个工具的成功/失败/超时率
+- 三种状态：健康 → 降级（连续 3 次失败）→ 禁用（6 次失败）
+- 降级工具在系统提示词中获得警告信息
+
+### 🎯 意图预测 (#11)
+- 从消息关键词预测用户意图（编码、调试、测试、重构、git、研究...）
+- 转移矩阵学习意图之间的典型转换
+
+### 🧮 上下文窗口分配器 (#12)
+- 注意力分数 = 0.5×相关性 + 0.3×时效性 + 0.2×频率
+- 强制块（系统提示词、工具）始终包含
+- 可选块（记忆、技能、搜索结果）按分数贪心填充
+
+### 🏖️ 沙箱执行 (#13)
+- 三种后端：Bubblewrap（Linux 命名空间）→ Docker（容器）→ None（直接）
+- 自动检测最佳可用后端
+- 可配置：只读/读写挂载、网络隔离、内存/CPU 限制、超时
+
+### 🛡️ Prompt 注入检测 (#14)
+- 20 种模式，6 个类别：指令覆盖、角色劫持、数据外泄、编码技巧、隐藏载荷、越狱
+- 四个严重级别：干净 → 可疑 → 危险 → 严重
+
+### 🔐 Subagent 深度策略 (#15)
+- 最大嵌套深度：3 层
+- 渐进式工具限制：深度 0 = 所有工具，深度 1 = 安全工具，深度 2 = 只读，深度 3 = 最小
+- 每层预算限制
+
+### 📡 流式工具执行器 (#16)
+- 实时分块输出：Started → Progress → Stdout → Stderr → Completed → Error → Heartbeat
+- 可配置超时、缓冲区大小、最大输出
 
 ## License
 

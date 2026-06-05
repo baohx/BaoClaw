@@ -2,7 +2,7 @@
 
 **The AI coding agent that remembers, evolves, and follows you everywhere.**
 
-[English](#english) · [中文](#中文)
+[English](#english) · [中文](#中文) · [📖 Book](book/)
 
 ---
 
@@ -10,7 +10,7 @@
 
 ## What is BaoClaw?
 
-BaoClaw is an open-source AI coding agent with a Rust core engine, persistent memory, cross-device session sharing, a cron scheduler, and a self-evolution loop. It runs as a single global daemon on your machine, managing multiple project sessions simultaneously. Your terminal, Telegram, and WhatsApp all connect to this one daemon — each routed to the correct project session by working directory.
+BaoClaw is an open-source AI coding agent with a Rust core engine, persistent memory, cross-device session sharing, a cron scheduler, and a self-evolution loop. It runs as a single global daemon on your machine, managing multiple project sessions simultaneously. Your terminal, Telegram, WhatsApp, and Feishu all connect to this one daemon — each routed to the correct project session by working directory.
 
 Unlike agents that forget everything when you close the window, BaoClaw builds up knowledge about you and your projects over time. The more you use it, the better it gets.
 

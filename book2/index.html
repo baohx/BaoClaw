@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Agent Harness 实战：从 BaoClaw 看 AI Agent 系统架构">
+  <meta name="theme-color" content="#ffffff">
+  <title>Agent Harness 实战 - BaoClaw</title>
+  
+  <style>
+    /* Minimal inline styles for loading state */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background-color: #ffffff;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    
+    :root.dark body {
+      background-color: #0d1117;
+      color: #c9d1d9;
+    }
+    
+    #app {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    
+    .loading {
+      text-align: center;
+    }
+    
+    .loading h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+    }
+    
+    .loading p {
+      font-size: 1.25rem;
+      color: #586069;
+      margin-bottom: 2rem;
+    }
+    
+    .loading .cta {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      background-color: #0366d6;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    }
+    
+    .loading .cta:hover {
+      background-color: #0257c2;
+    }
+    
+    :root.dark .loading p {
+      color: #8b949e;
+    }
+    
+    :root.dark .loading .cta {
+      background-color: #58a6ff;
+    }
+    
+    :root.dark .loading .cta:hover {
+      background-color: #3f8fef;
+    }
+  </style>
+  
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/slide.css">
+  <link rel="stylesheet" href="styles/code.css">
+  <link rel="stylesheet" href="styles/print.css">
+  
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/images/icon.png">
+</head>
+<body>
+  <div id="app">
+    <div class="loading">
+      <h1>🐾 Agent Harness 实战</h1>
+      <p>从 BaoClaw 看 AI Agent 系统架构</p>
+      <a href="chapters/01-fundamentals/README.md" class="cta">开始阅读 →</a>
+    </div>
+  </div>
+  
+  <script>
+    // Detect system theme preference
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.classList.add('dark');
+    }
+    
+    // Listen for theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      document.documentElement.classList.toggle('dark', e.matches);
+    });
+  </script>
+</body>
+</html>
