@@ -92,7 +92,7 @@ function Spinner({ color }: { color: string }) {
   React.useEffect(() => {
     const timer = setInterval(() => {
       setFrame((f) => (f + 1) % frames.length);
-    }, timing.spinner);
+    }, 200);
     return () => clearInterval(timer);
   }, []);
   
@@ -125,9 +125,9 @@ function ThinkingProgress() {
 
   React.useEffect(() => {
     const timer = setInterval(() => {
-      setElapsed((e) => e + 0.1);
+      setElapsed((e) => e + 0.5);
       setFrame((f) => (f + 1) % frames.length);
-    }, 100);
+    }, 500);
     return () => clearInterval(timer);
   }, []);
 
