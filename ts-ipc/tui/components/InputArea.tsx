@@ -38,10 +38,8 @@ export function InputArea({
   onSelectSuggestion,
   onCloseSuggestions
 }: InputAreaProps) {
-  // 光标位置
-  const [cursor, setCursor] = useState(value.length);
   
-  // 键盘输入
+  // 键盘输入 — 简化为行末追加模式，避免 Unicode/IME 光标错乱
   useInput(useCallback((input, key) => {
     if (!focused) return;
     
@@ -51,30 +49,17 @@ export function InputArea({
     if (key.return) {
       if (mode === 'multiline' && !key.shift) {
         onChange(value + '\n');
-        setCursor(value.length + 1);
       } else {
         onSubmit(value);
       }
       return;
     }
     
-    // 退格
+    // 退格 — 删最后一个字符
     if (key.backspace || key.delete) {
-      if (cursor > 0) {
-        const newValue = value.slice(0, cursor - 1) + value.slice(cursor);
-        onChange(newValue);
-        setCursor(cursor - 1);
+      if (value.length > 0) {
+        onChange(value.slice(0, -1));
       }
-      return;
-    }
-    
-    // 光标移动
-    if (key.leftArrow) {
-      setCursor(Math.max(0, cursor - 1));
-      return;
-    }
-    if (key.rightArrow) {
-      setCursor(Math.min(value.length, cursor + 1));
       return;
     }
     
@@ -98,13 +83,11 @@ export function InputArea({
       return;
     }
     
-    // 普通字符输入
+    // 普通字符输入 — 始终追加到末尾
     if (input && !key.ctrl && !key.meta) {
-      const newValue = value.slice(0, cursor) + input + value.slice(cursor);
-      onChange(newValue);
-      setCursor(cursor + 1);
+      onChange(value + input);
     }
-  }, [value, cursor, mode, focused, error, showSuggestions, selectedSuggestion, suggestions.length, onChange, onSubmit, onClearError, onSelectSuggestion, onCloseSuggestions]));
+  }, [value, mode, focused, error, showSuggestions, selectedSuggestion, suggestions.length, onChange, onSubmit, onClearError, onSelectSuggestion, onCloseSuggestions]));
   
   const lines = value.split('\n');
   const displayLines = Math.min(lines.length, 3);
