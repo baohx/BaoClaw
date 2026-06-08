@@ -209,6 +209,8 @@ export function App({ socketPath }: AppProps) {
     
     // 清空输入
     dispatch({ type: 'SET_INPUT_VALUE', payload: '' });
+    // 关闭补全弹窗
+    dispatch({ type: 'SHOW_SUGGESTIONS', payload: false });
     
     // 发送到 IPC
     try {

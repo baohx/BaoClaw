@@ -115,38 +115,19 @@ export const reducer: Reducer = (state: TuiState, action: Action): TuiState => {
         streamingContent: '',
         thinkingContent: '',
         streamingMessageId: action.payload ? msgId : null,
-        // 开始流式时，添加一个占位消息
-        messages: action.payload ? [
-          ...state.messages,
-          {
-            id: msgId,
-            role: 'assistant' as const,
-            timestamp: new Date().toISOString(),
-            content: [{ type: 'text' as const, text: '' }],
-          },
-        ] : state.messages,
+        // 不添加到 messages——由 StreamOutput 独占渲染，CLEAR_STREAM 时才归档
       };
       
     case 'APPEND_STREAM': {
       const newContent = state.streamingContent + (action.payload as string);
       
-      // 如果还没有流式消息ID，创建一个
+      // 如果还没有流式消息ID，自动创建一个
       if (!state.streamingMessageId) {
-        const msgId = `assistant-${Date.now()}`;
         return {
           ...state,
           isStreaming: true,
           streamingContent: newContent,
-          streamingMessageId: msgId,
-          messages: [
-            ...state.messages,
-            {
-              id: msgId,
-              role: 'assistant' as const,
-              timestamp: new Date().toISOString(),
-              content: [{ type: 'text' as const, text: newContent }],
-            },
-          ],
+          streamingMessageId: `assistant-${Date.now()}`,
         };
       }
       
@@ -154,12 +135,7 @@ export const reducer: Reducer = (state: TuiState, action: Action): TuiState => {
         ...state,
         isStreaming: true,
         streamingContent: newContent,
-        // 更新流式消息的内容
-        messages: state.messages.map(msg => 
-          msg.id === state.streamingMessageId 
-            ? { ...msg, content: [{ type: 'text' as const, text: newContent }] }
-            : msg
-        ),
+        // 不更新 messages——StreamOutput 独占渲染流式内容
       };
     }
       
@@ -170,7 +146,9 @@ export const reducer: Reducer = (state: TuiState, action: Action): TuiState => {
         thinkingContent: state.thinkingContent + (action.payload as string),
       };
       
-    case 'CLEAR_STREAM':
+    case 'CLEAR_STREAM': {
+      const finalContent = state.streamingContent;
+      const msgId = state.streamingMessageId || `assistant-${Date.now()}`;
       return {
         ...state,
         isStreaming: false,
@@ -178,7 +156,17 @@ export const reducer: Reducer = (state: TuiState, action: Action): TuiState => {
         thinkingContent: '',
         currentTools: new Map(),
         streamingMessageId: null,
+        // 归档到 messages（仅当有实质内容时）
+        messages: finalContent.trim()
+          ? [...state.messages, {
+              id: msgId,
+              role: 'assistant' as const,
+              timestamp: new Date().toISOString(),
+              content: [{ type: 'text' as const, text: finalContent }],
+            }]
+          : state.messages,
       };
+    }
       
     case 'SET_TOOL_STATE':
       const { id: toolId, state: toolState } = action.payload as {
