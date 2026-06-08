@@ -3,7 +3,7 @@
  * 
  * 禅意设计：留白充足，层次分明，折叠长内容
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { colors, zen, toolIcons } from '../theme.js';
 import type { Message, ContentBlock } from '../types.js';
@@ -12,19 +12,20 @@ import { renderMarkdown } from '../markdown.js';
 interface MessageListProps {
   messages: Message[];
   width: number;
+  maxHeight?: number;
 }
 
-export function MessageList({ messages, width }: MessageListProps) {
-  // 滚动状态
+export function MessageList({ messages, width, maxHeight = 40 }: MessageListProps) {
+  // 滚动状态 — 根据可用行高动态算可见消息数
+  const visibleCount = Math.max(3, Math.floor(maxHeight / 4));
   const [scrollOffset, setScrollOffset] = useState(0);
-  const visibleCount = 10;
   
-  // 滚动到最新
-  useMemo(() => {
+  // 新消息来时自动滚到底
+  React.useEffect(() => {
     if (messages.length > visibleCount) {
       setScrollOffset(messages.length - visibleCount);
     }
-  }, [messages.length]);
+  }, [messages.length, visibleCount]);
   
   // 键盘滚动
   useInput((input, key) => {

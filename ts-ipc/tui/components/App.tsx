@@ -253,13 +253,6 @@ export function App({ socketPath }: AppProps) {
     dispatch({ type: 'SET_SEARCH_RESULTS', payload: { results: indices, selected: 0 } });
   }, [state.searchQuery]);
   
-  // 计算布局高度
-  const messageHeight = height 
-    - layout.statusBarHeight 
-    - layout.inputHeight 
-    - 4 // 边距和流式输出区
-    - (state.isStreaming ? 3 : 0);
-  
   return (
     <Box 
       flexDirection="column" 
@@ -292,15 +285,17 @@ export function App({ socketPath }: AppProps) {
         </Box>
       ) : (
         <>
-          {/* 消息列表 */}
+          {/* 消息列表 — flexGrow=1 flexShrink=1：占满剩余空间，文本溢出时收缩 */}
           <Box 
             flexDirection="column"
-            height={Math.max(messageHeight, 5)}
             flexGrow={1}
+            flexShrink={1}
+            minHeight={3}
           >
             <MessageList 
               messages={state.messages}
               width={width - layout.paddingX * 2}
+              maxHeight={height - 7}
             />
           </Box>
           
@@ -317,38 +312,44 @@ export function App({ socketPath }: AppProps) {
             />
           )}
           
-          {/* 流式输出 */}
+          {/* 流式输出 — flexShrink=0：不被压缩 */}
           {state.isStreaming && (
-            <StreamOutput
-              content={state.streamingContent}
-              thinking={state.thinkingContent}
-              tools={state.currentTools}
-              width={width - layout.paddingX * 2}
-            />
+            <Box flexShrink={0}>
+              <StreamOutput
+                content={state.streamingContent}
+                thinking={state.thinkingContent}
+                tools={state.currentTools}
+                width={width - layout.paddingX * 2}
+              />
+            </Box>
           )}
           
-          {/* 输入区 */}
-          <InputArea
-            value={state.inputValue}
-            mode={state.inputMode}
-            focused={state.focused === 'input'}
-            error={state.error}
-            suggestions={state.suggestions}
-            selectedSuggestion={state.selectedSuggestion}
-            showSuggestions={state.showSuggestions}
-            onChange={handleInputChange}
-            onSubmit={sendMessage}
-            onSelectSuggestion={(i) => {
-              const cmd = state.suggestions[i];
-              dispatch({ type: 'SET_INPUT_VALUE', payload: cmd + ' ' });
-              dispatch({ type: 'SHOW_SUGGESTIONS', payload: false });
-            }}
-            onCloseSuggestions={() => dispatch({ type: 'SHOW_SUGGESTIONS', payload: false })}
-            onClearError={() => dispatch({ type: 'CLEAR_ERROR' })}
-          />
+          {/* 输入区 — flexShrink=0：底部固定 */}
+          <Box flexShrink={0}>
+            <InputArea
+              value={state.inputValue}
+              mode={state.inputMode}
+              focused={state.focused === 'input'}
+              error={state.error}
+              suggestions={state.suggestions}
+              selectedSuggestion={state.selectedSuggestion}
+              showSuggestions={state.showSuggestions}
+              onChange={handleInputChange}
+              onSubmit={sendMessage}
+              onSelectSuggestion={(i) => {
+                const cmd = state.suggestions[i];
+                dispatch({ type: 'SET_INPUT_VALUE', payload: cmd + ' ' });
+                dispatch({ type: 'SHOW_SUGGESTIONS', payload: false });
+              }}
+              onCloseSuggestions={() => dispatch({ type: 'SHOW_SUGGESTIONS', payload: false })}
+              onClearError={() => dispatch({ type: 'CLEAR_ERROR' })}
+            />
+          </Box>
           
-          {/* 快捷键栏 */}
-          <ShortcutBar />
+          {/* 快捷键栏 — flexShrink=0：底部固定 */}
+          <Box flexShrink={0}>
+            <ShortcutBar />
+          </Box>
         </>
       )}
       
