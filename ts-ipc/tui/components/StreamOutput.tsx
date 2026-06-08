@@ -24,19 +24,34 @@ export function StreamOutput({ content, thinking, tools, width }: StreamOutputPr
   
   return (
     <Box flexDirection="column" paddingX={1}>
-      {/* 思考过程 */}
-      {hasThinking && <ThinkingProgress />}
+      {/* ── 思考过程 ── */}
+      {hasThinking && (
+        <Box flexDirection="column">
+          <Text color="magenta" bold>💭 思考中</Text>
+          <ThinkingProgress />
+        </Box>
+      )}
       
-      {/* 工具执行 */}
-      {hasTools && Array.from(tools.entries()).map(([id, tool]) => (
-        <ToolProgressBar key={id} tool={tool} width={width - 6} />
-      ))}
+      {/* ── 工具执行 ── */}
+      {hasTools && (
+        <Box flexDirection="column" paddingY={1}>
+          <Text color="yellow" bold>🔧 工具执行中</Text>
+          {Array.from(tools.entries()).map(([id, tool]) => (
+            <ToolProgressBar key={id} tool={tool} width={width - 6} />
+          ))}
+        </Box>
+      )}
       
-      {/* 流式文本 — 截断到最多 3 行，防止撑开消息区 */}
+      {/* ── 回复输出 ── */}
       {hasContent && (
-        <Text color="white">
-          {content.slice(-width)}
-        </Text>
+        <Box flexDirection="column" paddingY={1}>
+          <Text color="cyan" bold>✦ 回复中</Text>
+          <Box paddingLeft={2}>
+            <Text color="white">
+              {content.slice(-width)}
+            </Text>
+          </Box>
+        </Box>
       )}
     </Box>
   );
