@@ -706,5 +706,83 @@
     "completed": true,
     "priority": "high",
     "created_at": "2026-05-22T09:36:12.737412347+00:00"
+  },
+  {
+    "text": "Task 1: 扩展类型定义和主题色 (types.ts, theme.ts)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.701377390+00:00"
+  },
+  {
+    "text": "Task 2: 扩展状态管理 (state.ts)",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.703642887+00:00"
+  },
+  {
+    "text": "Task 3: 快捷键栏组件 (ShortcutBar.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.704451966+00:00"
+  },
+  {
+    "text": "Task 4: 斜杠命令自动补全 (InputArea.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.705752436+00:00"
+  },
+  {
+    "text": "Task 5: 消息搜索覆盖层 (SearchOverlay.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.706625060+00:00"
+  },
+  {
+    "text": "Task 6: 模型选择器 (ModelSelector.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.707520189+00:00"
+  },
+  {
+    "text": "Task 7: Markdown 语法高亮 (markdown.ts)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.708486439+00:00"
+  },
+  {
+    "text": "Task 8: 消息列表 Markdown 增强 (MessageList.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.709223736+00:00"
+  },
+  {
+    "text": "Task 9: 思考进度条 (StreamOutput.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.711111286+00:00"
+  },
+  {
+    "text": "Task 10: 状态栏增强 (StatusBar.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.712376626+00:00"
+  },
+  {
+    "text": "Task 11: 帮助覆盖层更新 (HelpOverlay.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.714591924+00:00"
+  },
+  {
+    "text": "Task 12: App 主组件整合 (App.tsx)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-08T13:55:38.715981570+00:00"
+  },
+  {
+    "text": "Task 13: 全量编译验证 + 运行测试",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-08T13:55:38.717211260+00:00"
   }
 ]

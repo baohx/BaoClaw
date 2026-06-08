@@ -8,7 +8,9 @@
     "outDir": "dist",
     "rootDir": ".",
     "declaration": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "tui/**/*.tsx", "tui/**/*.ts"]
 }
