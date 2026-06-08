@@ -1,7 +1,5 @@
 /**
- * 消息列表组件
- * 
- * 禅意设计：留白充足，层次分明，折叠长内容
+ * 消息列表 — 清晰分层：Q&A 分离、输出类型标签、滚动条
  */
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -16,18 +14,15 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, width, maxHeight = 40 }: MessageListProps) {
-  // 滚动状态 — 根据可用行高动态算可见消息数
   const visibleCount = Math.max(3, Math.floor(maxHeight / 4));
   const [scrollOffset, setScrollOffset] = useState(0);
   
-  // 新消息来时自动滚到底
   React.useEffect(() => {
     if (messages.length > visibleCount) {
       setScrollOffset(messages.length - visibleCount);
     }
   }, [messages.length, visibleCount]);
   
-  // 键盘滚动
   useInput((input, key) => {
     if (key.upArrow) {
       setScrollOffset(Math.max(0, scrollOffset - 1));
@@ -37,100 +32,109 @@ export function MessageList({ messages, width, maxHeight = 40 }: MessageListProp
   });
   
   const visibleMessages = messages.slice(scrollOffset, scrollOffset + visibleCount);
-  
-  return (
-    <Box flexDirection="column" gap={1}>
-      {visibleMessages.map((message, index) => (
-        <MessageItem 
-          key={message.id} 
-          message={message}
-          width={width}
-          isLast={index === visibleMessages.length - 1}
-        />
-      ))}
-      
-      {messages.length === 0 && (
-        <Box paddingY={2}>
-          <Text color="white">
-            {zen.zenLine}
-          </Text>
-          <Text color="gray">
-            {'  '}开始对话，按 ? 查看帮助
-          </Text>
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-interface MessageItemProps {
-  message: Message;
-  width: number;
-  isLast: boolean;
-}
-
-function MessageItem({ message, width, isLast }: MessageItemProps) {
-  const [expanded, setExpanded] = useState(false);
+  const hasMoreAbove = scrollOffset > 0;
+  const hasMoreBelow = scrollOffset + visibleCount < messages.length;
   
   return (
     <Box flexDirection="column">
-      {/* 消息头部 */}
-      <Box flexDirection="row" alignItems="center" gap={1}>
-        {message.role === 'user' ? (
-          <Text color="yellow" bold>❯ You</Text>
-        ) : (
-          <Text color="cyan" bold>◆ BaoClaw</Text>
-        )}
-        
-        {/* 统计信息 */}
-        {message.tokens && (
-          <Text color="gray">
-            {message.tokens.input + message.tokens.output}t
+      {/* ── 滚动条 ── */}
+      {messages.length > 0 && (
+        <Box flexDirection="row" justifyContent="center" paddingBottom={1}>
+          <Text color="gray" dimColor>
+            {hasMoreAbove ? '▲' : ' '}  [{scrollOffset + 1}–{scrollOffset + visibleMessages.length} / {messages.length}]  {hasMoreBelow ? '▼' : ' '}
           </Text>
-        )}
-        {message.cost && (
-          <Text color="yellow">
-            ${message.cost.toFixed(4)}
-          </Text>
-        )}
-        {message.duration && (
-          <Text color="gray">
-            {(message.duration / 1000).toFixed(1)}s
-          </Text>
-        )}
-      </Box>
-      
-      {/* 消息内容 */}
-      <Box paddingLeft={2} flexDirection="column">
-        {message.content.map((block, index) => (
-          <ContentBlockView 
-            key={index} 
-            block={block}
-            width={width - 4}
-            expanded={expanded}
-            onToggleExpand={() => setExpanded(!expanded)}
-          />
-        ))}
-      </Box>
-      
-      {/* 消息分隔 */}
-      {!isLast && (
-        <Box paddingTop={1}>
-          <Text color="gray" dimColor>───── · ─────</Text>
         </Box>
       )}
+      
+      {/* ── 空状态 ── */}
+      {messages.length === 0 && (
+        <Box paddingY={2}>
+          <Text color="white">{zen.zenLine}</Text>
+          <Text color="gray">{'  '}开始对话，按 ? 查看帮助</Text>
+        </Box>
+      )}
+      
+      {/* ── 消息列表 ── */}
+      {visibleMessages.map((message) => (
+        <MessageItem 
+          key={message.id} 
+          message={message}
+          width={width - 2}
+        />
+      ))}
     </Box>
   );
 }
+
+// ═══════════════════════════════════════════════════════
+// 单条消息 — 用户/助手清晰分层
+// ═══════════════════════════════════════════════════════
+
+function MessageItem({ message, width }: { message: Message; width: number }) {
+  const isUser = message.role === 'user';
+  const borderColor = isUser ? 'yellow' : 'cyan';
+  const label = isUser ? '❯ You' : '◆ BaoClaw';
+  const labelColor = isUser ? 'yellow' : 'cyan';
+  
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {/* ── Q&A 分隔条 ── */}
+      <Box flexDirection="row">
+        <Text color={borderColor}>
+          {isUser
+            ? '┌' + '─'.repeat(Math.min(width - 1, 60))
+            : '┌' + '─'.repeat(Math.min(width - 1, 60))}
+        </Text>
+      </Box>
+      
+      {/* ── 角色标签 ── */}
+      <Box flexDirection="row" paddingLeft={1}>
+        <Text color={borderColor}>│ </Text>
+        <Text color={labelColor} bold>{label}</Text>
+        {message.tokens && (
+          <Text color="gray">  {message.tokens.input + message.tokens.output}t</Text>
+        )}
+        {message.cost && (
+          <Text color="yellow">  ${message.cost.toFixed(4)}</Text>
+        )}
+        {message.duration && (
+          <Text color="gray">  {(message.duration / 1000).toFixed(1)}s</Text>
+        )}
+      </Box>
+      
+      {/* ── 消息内容 ── */}
+      <Box flexDirection="column" paddingLeft={2}>
+        {message.content.map((block, i) => (
+          <ContentBlockView 
+            key={i} 
+            block={block}
+            width={width - 4}
+            blockIndex={i}
+          />
+        ))}
+        
+        {/* 用户消息留空行，助手消息输出完毕标记 */}
+        {!isUser && message.content.length > 0 && (
+          <Box paddingTop={1}>
+            <Text color="gray" dimColor>└ 回复完毕</Text>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// 内容块 — 清晰标签：💭思考 / 🔧工具 / 📤输出 / ✦结果
+// ═══════════════════════════════════════════════════════
 
 interface ContentBlockViewProps {
   block: ContentBlock;
   width: number;
-  expanded: boolean;
-  onToggleExpand: () => void;
+  blockIndex: number;
 }
 
-function ContentBlockView({ block, width, expanded, onToggleExpand }: ContentBlockViewProps) {
+function ContentBlockView({ block, width }: ContentBlockViewProps) {
   switch (block.type) {
     case 'text':
       return <TextView text={block.text || ''} width={width} />;
@@ -145,115 +149,118 @@ function ContentBlockView({ block, width, expanded, onToggleExpand }: ContentBlo
   }
 }
 
-interface TextViewProps {
-  text: string;
-  width: number;
-}
-
-function TextView({ text, width }: TextViewProps) {
+// ── 文本输出 ──
+function TextView({ text, width }: { text: string; width: number }) {
   const elements = renderMarkdown(text);
   return (
-    <Box flexDirection="column">
-      {elements.map((el, i) => (
-        <React.Fragment key={i}>{el}</React.Fragment>
-      ))}
+    <Box flexDirection="column" paddingY={1}>
+      <Text color="gray" dimColor>✦ 回复</Text>
+      <Box flexDirection="column" paddingLeft={2}>
+        {elements.map((el, i) => (
+          <React.Fragment key={i}>{el}</React.Fragment>
+        ))}
+      </Box>
     </Box>
   );
 }
 
-interface ThinkingViewProps {
-  text: string;
-  width: number;
-}
-
-function ThinkingView({ text, width }: ThinkingViewProps) {
-  const [show] = useState(false);
-  
-  if (!show) {
-    return (
-      <Text color="magenta" dimColor>
-        ○ thinking...
-      </Text>
-    );
-  }
-  
-  const lines = text.split('\n').slice(0, 10);
+// ── 思考过程 ──
+function ThinkingView({ text, width }: { text: string; width: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split('\n');
+  const preview = lines.slice(0, expanded ? 20 : 1);
   
   return (
-    <Box flexDirection="column">
-      <Text color="magenta">💭 Thinking</Text>
-      {lines.map((line, i) => (
-        <Text key={i} color="gray">
-          {line.slice(0, width - 4)}
-        </Text>
-      ))}
+    <Box flexDirection="column" paddingY={1}>
+      <Box flexDirection="row" gap={1}>
+        <Text color="magenta">💭 思考过程</Text>
+        {lines.length > 1 && (
+          <Text color="gray" dimColor>
+            ({lines.length} 行 — 按 t 展开)
+          </Text>
+        )}
+      </Box>
+      <Box flexDirection="column" paddingLeft={2}>
+        {preview.map((line, i) => (
+          <Text key={i} color="magenta" dimColor>
+            {line.slice(0, width - 4)}
+            {line.length > width - 4 && '…'}
+          </Text>
+        ))}
+      </Box>
     </Box>
   );
 }
 
-interface ToolUseViewProps {
-  name: string;
-  input: Record<string, unknown> | undefined;
-  width: number;
-}
-
-function ToolUseView({ name, input, width }: ToolUseViewProps) {
-  const icon = toolIcons[name] || toolIcons.default;
-  const inputPreview = formatInputPreview(name, input, width - 20);
+// ── 工具调用 ──
+function ToolUseView({ name, input, width }: { name: string; input: Record<string, unknown> | undefined; width: number }) {
+  const icon = toolIcons[name] || '⚡';
+  const preview = formatToolInput(name, input, width - 20);
   
   return (
-    <Box flexDirection="row" alignItems="center" gap={1}>
-      <Text color="magenta">
-        {icon} {name}
-      </Text>
-      {inputPreview && (
-        <Text color="gray">
-          {inputPreview}
+    <Box flexDirection="column" paddingY={1}>
+      <Box flexDirection="row" gap={1}>
+        <Text color="yellow">🔧 工具调用</Text>
+        <Text color="cyan" bold>
+          {icon} {name}
         </Text>
+      </Box>
+      {preview && (
+        <Box paddingLeft={2}>
+          <Text color="gray">{preview}</Text>
+        </Box>
       )}
     </Box>
   );
 }
 
-interface ToolResultViewProps {
-  output: unknown;
-  isError: boolean | undefined;
-  width: number;
-}
-
-function ToolResultView({ output, isError, width }: ToolResultViewProps) {
-  const icon = isError ? '✗' : '✓';
-  const color = isError ? 'red' : 'green';
+// ── 工具输出 ──
+function ToolResultView({ output, isError, width }: { output: unknown; isError: boolean | undefined; width: number }) {
+  const statusIcon = isError ? '✗' : '✓';
+  const statusColor = isError ? 'red' : 'green';
   
   const outputStr = typeof output === 'string' 
     ? output 
     : JSON.stringify(output, null, 2);
   
-  const preview = outputStr.split('\n').slice(0, 2).join('\n').slice(0, width - 10);
+  const lines = outputStr.split('\n');
+  const preview = lines.slice(0, 3);
   
   return (
-    <Box paddingLeft={2}>
-      <Text color={color}>
-        {icon} {preview}
-        {outputStr.length > width - 10 && '...'}
-      </Text>
+    <Box flexDirection="column" paddingY={1}>
+      <Box flexDirection="row" gap={1}>
+        <Text color="green">📤 工具输出</Text>
+        <Text color={statusColor} bold>{statusIcon}</Text>
+      </Box>
+      <Box flexDirection="column" paddingLeft={2}>
+        {preview.map((line, i) => (
+          <Text key={i} color="gray">
+            {line.slice(0, width - 4)}
+            {line.length > width - 4 && '…'}
+          </Text>
+        ))}
+        {lines.length > 3 && (
+          <Text color="gray" dimColor>… 共 {lines.length} 行</Text>
+        )}
+      </Box>
     </Box>
   );
 }
 
-// 格式化输入预览
-function formatInputPreview(toolName: string, input: Record<string, unknown> | undefined, maxWidth: number): string {
+// ── 工具输入预览 ──
+function formatToolInput(name: string, input: Record<string, unknown> | undefined, maxWidth: number): string {
   if (!input) return '';
-  
-  switch (toolName) {
+  switch (name) {
     case 'Bash':
       return String(input.command || '').slice(0, maxWidth);
     case 'FileRead':
     case 'FileWrite':
     case 'FileEdit':
       return String(input.file_path || '').slice(0, maxWidth);
-    case 'Grep':
-      return String(input.pattern || '').slice(0, maxWidth);
+    case 'WebSearchTool':
+      return String(input.query || '').slice(0, maxWidth);
+    case 'WebFetchTool':
+      return String(input.url || '').slice(0, maxWidth);
     default:
       const keys = Object.keys(input).slice(0, 2);
       return keys.map(k => `${k}=${String(input[k]).slice(0, 20)}`).join(' ');
