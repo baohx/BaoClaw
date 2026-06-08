@@ -295,7 +295,7 @@ export function App({ socketPath }: AppProps) {
             <MessageList 
               messages={state.messages}
               width={width - layout.paddingX * 2}
-              maxHeight={height - 7}
+              maxHeight={height - 7 - (state.isStreaming ? 5 : 0)}
             />
           </Box>
           

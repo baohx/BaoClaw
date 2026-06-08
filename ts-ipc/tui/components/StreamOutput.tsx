@@ -32,10 +32,10 @@ export function StreamOutput({ content, thinking, tools, width }: StreamOutputPr
         <ToolProgressBar key={id} tool={tool} width={width - 6} />
       ))}
       
-      {/* 流式文本 */}
+      {/* 流式文本 — 截断到最多 3 行，防止撑开消息区 */}
       {hasContent && (
         <Text color="white">
-          {content.slice(-width * 2)}
+          {content.slice(-width)}
         </Text>
       )}
     </Box>
