@@ -18,6 +18,29 @@ marked.setOptions({highlight:(code,lang)=>{
   return hljs.highlightAuto(code).value;
 },breaks:true});
 
+// ── Mermaid 初始化 ──
+mermaid.initialize({startOnLoad:false,theme:'default',securityLevel:'loose'});
+
+// ── 渲染 Mermaid 图表 ──
+async function renderMermaidBlocks(container) {
+  const blocks=container.querySelectorAll('pre code.language-mermaid');
+  if(!blocks.length)return;
+  for(const code of blocks){
+    const pre=code.parentElement;
+    const text=code.textContent||'';
+    try{
+      const {svg}=await mermaid.render('mermaid-'+Math.random().toString(36).slice(2),text);
+      const wrapper=document.createElement('div');
+      wrapper.className='mermaid-block';
+      wrapper.innerHTML=svg;
+      pre.replaceWith(wrapper);
+    }catch(e){
+      pre.classList.add('mermaid-error');
+      code.textContent='// Mermaid render error: '+(e.message||'')+'\n'+text;
+    }
+  }
+}
+
 function scrollToBottom(){const el=getActiveMsgEl();el.scrollTop=el.scrollHeight;}
 function setStatus(t,c){statusTextEl.textContent=t;statusTextEl.className=c||'';}
 function fmtTok(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
@@ -170,6 +193,8 @@ function renderAssistantText(){
     pre.appendChild(btn);
   });
   body.querySelectorAll('img').forEach(img=>{img.classList.add('tool-image');img.onclick=()=>showImageModal(img.src);});
+  // 渲染 Mermaid 图表
+  renderMermaidBlocks(body);
   scrollToBottom();
 }
 

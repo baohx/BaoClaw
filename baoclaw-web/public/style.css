@@ -187,3 +187,22 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 #panel-body .panel-item-actions button { margin: 0; padding: 4px 8px; font-size: 11px; }
 #panel-body .panel-empty { color: var(--text-dim); text-align: center; padding: 20px; }
 #panel-body .panel-error { color: var(--red); padding: 8px; border: 1px solid var(--red); border-radius: 6px; margin: 8px 0; }
+
+/* ── Mermaid 图表 ── */
+.mermaid-block {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-error {
+  border-color: var(--red) !important;
+  background: rgba(255,0,0,0.05) !important;
+}
