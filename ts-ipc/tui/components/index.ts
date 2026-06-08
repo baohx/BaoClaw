@@ -6,3 +6,4 @@ export { InputArea } from './InputArea.js';
 export { HelpOverlay } from './HelpOverlay.js';
 export { ToolsPanel } from './ToolsPanel.js';
 export { ShortcutBar } from './ShortcutBar.js';
+export { SearchOverlay } from './SearchOverlay.js';
