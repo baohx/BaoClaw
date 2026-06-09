@@ -1,7 +1,7 @@
 /**
  * 状态管理
  */
-import type { TuiState, Action, Reducer } from './types.js';
+import type { TuiState, Action, Reducer, ContentBlock } from './types.js';
 
 // 初始状态
 export const initialState: TuiState = {
@@ -147,8 +147,34 @@ export const reducer: Reducer = (state: TuiState, action: Action): TuiState => {
       };
       
     case 'CLEAR_STREAM': {
-      const finalContent = state.streamingContent;
       const msgId = state.streamingMessageId || `assistant-${Date.now()}`;
+      
+      // 组装 content blocks：thinking → tools → text
+      const blocks: ContentBlock[] = [];
+      
+      // 💭 思考块
+      if (state.thinkingContent.trim()) {
+        blocks.push({ type: 'thinking', text: state.thinkingContent });
+      }
+      
+      // 🔧 工具块
+      if (state.currentTools.size > 0) {
+        for (const [id, tool] of state.currentTools) {
+          blocks.push({
+            type: 'tool_use',
+            toolName: tool.name,
+            input: tool.input,
+            output: tool.output,
+            isError: tool.status === 'error',
+          });
+        }
+      }
+      
+      // ✦ 回复块
+      if (state.streamingContent.trim()) {
+        blocks.push({ type: 'text', text: state.streamingContent });
+      }
+      
       return {
         ...state,
         isStreaming: false,
@@ -156,13 +182,12 @@ export const reducer: Reducer = (state: TuiState, action: Action): TuiState => {
         thinkingContent: '',
         currentTools: new Map(),
         streamingMessageId: null,
-        // 归档到 messages（仅当有实质内容时）
-        messages: finalContent.trim()
+        messages: blocks.length > 0
           ? [...state.messages, {
               id: msgId,
               role: 'assistant' as const,
               timestamp: new Date().toISOString(),
-              content: [{ type: 'text' as const, text: finalContent }],
+              content: blocks,
             }]
           : state.messages,
       };

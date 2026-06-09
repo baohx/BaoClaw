@@ -51,8 +51,11 @@ export function StatusBar({ session, connected, connecting, contextUsage, versio
       alignItems="center"
       paddingX={1}
     >
-      {/* 左侧：连接状态 + 会话信息 */}
+      {/* 左侧：🐻 Logo + 连接状态 + 会话信息 */}
       <Box flexDirection="row" alignItems="center" gap={1}>
+        <Text color="cyan">
+          {process.env.TERM_PROGRAM === 'iTerm.app' ? '🐻' : '\\_(`-`)_/'}
+        </Text>
         {statusIndicator}
         {session && (
           <>

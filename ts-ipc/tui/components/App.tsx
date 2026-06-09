@@ -295,7 +295,7 @@ export function App({ socketPath }: AppProps) {
             <MessageList 
               messages={state.messages}
               width={width - layout.paddingX * 2}
-              maxHeight={height - 7 - (state.isStreaming ? 5 : 0)}
+              maxHeight={height - 7 - (state.isStreaming ? 10 : 0)}
             />
           </Box>
           
@@ -445,6 +445,41 @@ function handleIpcEvent(event: Record<string, unknown>, dispatch: React.Dispatch
     
     case 'error': {
       dispatch({ type: 'SET_ERROR', payload: (event.message || event.error) as string });
+      break;
+    }
+    
+    // ── 会话指标更新 ──
+    case 'state_update': {
+      const patch = (event.patch || event) as Record<string, unknown>;
+      const sessionUpdate: Record<string, unknown> = {};
+      
+      // 映射 Rust StateUpdate 字段到 TUI SessionState
+      if (patch.total_cost_usd !== undefined) sessionUpdate.totalCost = patch.total_cost_usd;
+      if (patch.total_input_tokens !== undefined) sessionUpdate.totalTokens = (sessionUpdate.totalTokens as number || 0) + Number(patch.total_input_tokens);
+      if (patch.total_output_tokens !== undefined) sessionUpdate.totalTokens = (sessionUpdate.totalTokens as number || 0) + Number(patch.total_output_tokens);
+      if (patch.context_usage_pct !== undefined) sessionUpdate.contextUsage = patch.context_usage_pct;
+      if (patch.model !== undefined) sessionUpdate.model = patch.model;
+      
+      if (Object.keys(sessionUpdate).length > 0) {
+        dispatch({ type: 'SET_SESSION', payload: sessionUpdate });
+      }
+      break;
+    }
+    
+    // ── Turn 结束 — 更新 token 数 ──
+    case 'turn_end': {
+      const inputTokens = Number(event.input_tokens || 0);
+      const outputTokens = Number(event.output_tokens || 0);
+      if (inputTokens > 0 || outputTokens > 0) {
+        dispatch({
+          type: 'SET_SESSION',
+          payload: {
+            totalTokens: inputTokens + outputTokens,
+            // 标记 turn 结束用于更新成本估算
+            _turnTokens: { input: inputTokens, output: outputTokens },
+          },
+        });
+      }
       break;
     }
     
