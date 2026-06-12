@@ -35,8 +35,62 @@ pub enum UserIntent {
     GitOps,
     /// Web search / research.
     Research,
+    /// Targeted edit of existing code (small change, rename, tweak).
+    CodeEdit,
+    /// Searching within the codebase (grep / find symbol).
+    Search,
+    /// Image generation or editing.
+    ImageGen,
+    /// Web browsing / fetching a URL.
+    WebBrowse,
+    /// Deployment / DevOps operations.
+    Deployment,
     /// General question / conversation.
     General,
+}
+
+impl UserIntent {
+    /// Stable string key for an intent (used in configs/stats).
+    pub fn key(&self) -> &'static str {
+        match self {
+            UserIntent::CodeWriting => "code_writing",
+            UserIntent::Debugging => "debugging",
+            UserIntent::CodeReview => "code_review",
+            UserIntent::Refactoring => "refactoring",
+            UserIntent::Testing => "testing",
+            UserIntent::Documentation => "doc_write",
+            UserIntent::FileManagement => "file_management",
+            UserIntent::GitOps => "git_op",
+            UserIntent::Research => "research",
+            UserIntent::CodeEdit => "code_edit",
+            UserIntent::Search => "search",
+            UserIntent::ImageGen => "image",
+            UserIntent::WebBrowse => "web",
+            UserIntent::Deployment => "deployment",
+            UserIntent::General => "general",
+        }
+    }
+
+    /// Parse an intent from its string key.
+    pub fn from_key(key: &str) -> UserIntent {
+        match key {
+            "code_writing" => UserIntent::CodeWriting,
+            "debugging" | "debug" => UserIntent::Debugging,
+            "code_review" => UserIntent::CodeReview,
+            "refactoring" => UserIntent::Refactoring,
+            "testing" => UserIntent::Testing,
+            "doc_write" | "documentation" => UserIntent::Documentation,
+            "file_management" => UserIntent::FileManagement,
+            "git_op" | "git_ops" => UserIntent::GitOps,
+            "research" => UserIntent::Research,
+            "code_edit" => UserIntent::CodeEdit,
+            "search" => UserIntent::Search,
+            "image" => UserIntent::ImageGen,
+            "web" => UserIntent::WebBrowse,
+            "deployment" => UserIntent::Deployment,
+            _ => UserIntent::General,
+        }
+    }
 }
 
 /// Pattern learned from user interaction history.
@@ -192,6 +246,164 @@ impl IntentPredictor {
             },
         );
 
+        patterns.insert(
+            "code_edit".into(),
+            IntentPattern {
+                keywords: vec![
+                    "edit".into(),
+                    "modify".into(),
+                    "change".into(),
+                    "update".into(),
+                    "rename".into(),
+                    "修改".into(),
+                    "改一下".into(),
+                ],
+                tools_used: vec!["FileEdit".into(), "FileRead".into()],
+                file_extensions: vec![".rs".into(), ".ts".into()],
+                observation_count: 5,
+                next_intent: Some(UserIntent::Testing),
+                next_intent_prob: 0.4,
+            },
+        );
+
+        patterns.insert(
+            "search".into(),
+            IntentPattern {
+                keywords: vec![
+                    "grep".into(),
+                    "where is".into(),
+                    "locate".into(),
+                    "which file".into(),
+                    "搜索".into(),
+                    "哪个文件".into(),
+                ],
+                tools_used: vec!["Bash".into(), "FileRead".into()],
+                file_extensions: vec![],
+                observation_count: 5,
+                next_intent: Some(UserIntent::CodeEdit),
+                next_intent_prob: 0.5,
+            },
+        );
+
+        patterns.insert(
+            "doc_write".into(),
+            IntentPattern {
+                keywords: vec![
+                    "document".into(),
+                    "readme".into(),
+                    "docs".into(),
+                    "comment".into(),
+                    "documentation".into(),
+                    "文档".into(),
+                    "注释".into(),
+                ],
+                tools_used: vec!["FileWrite".into(), "FileRead".into()],
+                file_extensions: vec![".md".into()],
+                observation_count: 5,
+                next_intent: None,
+                next_intent_prob: 0.0,
+            },
+        );
+
+        patterns.insert(
+            "image".into(),
+            IntentPattern {
+                keywords: vec![
+                    "image".into(),
+                    "picture".into(),
+                    "draw".into(),
+                    "generate an image".into(),
+                    "logo".into(),
+                    "图片".into(),
+                    "画".into(),
+                ],
+                tools_used: vec!["ImageGenerator".into(), "ImageEditor".into()],
+                file_extensions: vec![".png".into(), ".jpg".into()],
+                observation_count: 3,
+                next_intent: None,
+                next_intent_prob: 0.0,
+            },
+        );
+
+        patterns.insert(
+            "web".into(),
+            IntentPattern {
+                keywords: vec![
+                    "http://".into(),
+                    "https://".into(),
+                    "url".into(),
+                    "website".into(),
+                    "fetch".into(),
+                    "browse".into(),
+                    "网页".into(),
+                ],
+                tools_used: vec!["WebFetch".into(), "WebSearch".into()],
+                file_extensions: vec![],
+                observation_count: 3,
+                next_intent: None,
+                next_intent_prob: 0.0,
+            },
+        );
+
+        patterns.insert(
+            "deployment".into(),
+            IntentPattern {
+                keywords: vec![
+                    "deploy".into(),
+                    "docker".into(),
+                    "kubernetes".into(),
+                    "k8s".into(),
+                    "release".into(),
+                    "ci/cd".into(),
+                    "部署".into(),
+                    "发布".into(),
+                ],
+                tools_used: vec!["Bash".into()],
+                file_extensions: vec![".yaml".into(), ".yml".into()],
+                observation_count: 3,
+                next_intent: None,
+                next_intent_prob: 0.0,
+            },
+        );
+
+        patterns.insert(
+            "code_review".into(),
+            IntentPattern {
+                keywords: vec![
+                    "review".into(),
+                    "explain".into(),
+                    "understand".into(),
+                    "what does".into(),
+                    "审查".into(),
+                    "解释".into(),
+                ],
+                tools_used: vec!["FileRead".into()],
+                file_extensions: vec![".rs".into(), ".ts".into()],
+                observation_count: 3,
+                next_intent: Some(UserIntent::CodeEdit),
+                next_intent_prob: 0.3,
+            },
+        );
+
+        patterns.insert(
+            "file_management".into(),
+            IntentPattern {
+                keywords: vec![
+                    "move".into(),
+                    "copy".into(),
+                    "delete file".into(),
+                    "mkdir".into(),
+                    "list files".into(),
+                    "移动".into(),
+                ],
+                tools_used: vec!["Bash".into()],
+                file_extensions: vec![],
+                observation_count: 3,
+                next_intent: None,
+                next_intent_prob: 0.0,
+            },
+        );
+
         Self {
             patterns,
             transitions: HashMap::new(),
@@ -201,19 +413,17 @@ impl IntentPredictor {
         }
     }
 
-    /// Predict user intent from their message.
-    pub fn predict(&mut self, user_message: &str) -> PredictedIntent {
+    /// Score all patterns against a message. Returns (intent_key, score, tools) tuples.
+    fn score_all(&self, user_message: &str) -> Vec<(String, f64, Vec<String>)> {
         let lower = user_message.to_lowercase();
-        let mut best_intent = UserIntent::General;
-        let mut best_score = 0.0;
-        let mut best_tools = Vec::new();
+        let mut scored = Vec::new();
 
         for (key, pattern) in &self.patterns {
             let mut score = 0.0;
             let mut matched_keywords = 0;
 
             for kw in &pattern.keywords {
-                if lower.contains(kw) {
+                if lower.contains(kw.as_str()) {
                     matched_keywords += 1;
                 }
             }
@@ -232,23 +442,25 @@ impl IntentPredictor {
                 }
             }
 
-            if score > best_score {
-                best_score = score;
-                best_tools = pattern.tools_used.clone();
-                best_intent = match key.as_str() {
-                    "debugging" => UserIntent::Debugging,
-                    "code_writing" => UserIntent::CodeWriting,
-                    "refactoring" => UserIntent::Refactoring,
-                    "testing" => UserIntent::Testing,
-                    "git_ops" => UserIntent::GitOps,
-                    "research" => UserIntent::Research,
-                    "documentation" => UserIntent::Documentation,
-                    "code_review" => UserIntent::CodeReview,
-                    "file_management" => UserIntent::FileManagement,
-                    _ => UserIntent::General,
-                };
+            if score > 0.0 {
+                scored.push((key.clone(), score, pattern.tools_used.clone()));
             }
         }
+
+        // Sort descending by score
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored
+    }
+
+    /// Predict user intent from their message.
+    pub fn predict(&mut self, user_message: &str) -> PredictedIntent {
+        let scored = self.score_all(user_message);
+
+        let (best_intent, best_score, best_tools) = scored
+            .into_iter()
+            .next()
+            .map(|(key, score, tools)| (UserIntent::from_key(&key), score, tools))
+            .unwrap_or((UserIntent::General, 0.0, Vec::new()));
 
         // Clamp confidence
         let confidence = best_score.min(1.0);
@@ -267,6 +479,45 @@ impl IntentPredictor {
             confidence,
             suggested_preloads,
         }
+    }
+
+    /// Predict multiple candidate intents with confidence scores, sorted descending.
+    ///
+    /// Returns up to `max_intents` predictions whose confidence exceeds `min_confidence`.
+    /// Useful for warmup: a message like "fix the test failure" may map to both
+    /// `debugging` and `testing` — warmup should consider both.
+    pub fn predict_multi(
+        &mut self,
+        user_message: &str,
+        max_intents: usize,
+        min_confidence: f64,
+    ) -> Vec<PredictedIntent> {
+        let scored = self.score_all(user_message);
+        self.prediction_count += 1;
+
+        let mut out: Vec<PredictedIntent> = scored
+            .into_iter()
+            .map(|(key, score, tools)| {
+                let confidence = score.min(1.0);
+                let suggested_preloads = if confidence > 0.3 { tools } else { Vec::new() };
+                PredictedIntent {
+                    intent: UserIntent::from_key(&key),
+                    confidence,
+                    suggested_preloads,
+                }
+            })
+            .filter(|p| p.confidence >= min_confidence)
+            .take(max_intents)
+            .collect();
+
+        if out.is_empty() {
+            out.push(PredictedIntent {
+                intent: UserIntent::General,
+                confidence: 0.0,
+                suggested_preloads: Vec::new(),
+            });
+        }
+        out
     }
 
     /// Record the actual intent (for learning).
@@ -317,5 +568,113 @@ impl IntentPredictor {
             prediction.confidence * 100.0,
             tools_str,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_intent_key_roundtrip() {
+        for intent in [
+            UserIntent::CodeWriting,
+            UserIntent::Debugging,
+            UserIntent::CodeReview,
+            UserIntent::Refactoring,
+            UserIntent::Testing,
+            UserIntent::Documentation,
+            UserIntent::FileManagement,
+            UserIntent::GitOps,
+            UserIntent::Research,
+            UserIntent::CodeEdit,
+            UserIntent::Search,
+            UserIntent::ImageGen,
+            UserIntent::WebBrowse,
+            UserIntent::Deployment,
+            UserIntent::General,
+        ] {
+            assert_eq!(UserIntent::from_key(intent.key()), intent);
+        }
+    }
+
+    #[test]
+    fn test_predict_debugging() {
+        let mut p = IntentPredictor::new();
+        let pred = p.predict("there is a bug, the program crash with an error");
+        assert_eq!(pred.intent, UserIntent::Debugging);
+        assert!(pred.confidence > 0.0);
+    }
+
+    #[test]
+    fn test_predict_new_categories() {
+        let mut p = IntentPredictor::new();
+        assert_eq!(
+            p.predict("please deploy the app with docker and kubernetes").intent,
+            UserIntent::Deployment
+        );
+        assert_eq!(
+            p.predict("draw a picture of a logo image").intent,
+            UserIntent::ImageGen
+        );
+        assert_eq!(
+            p.predict("fetch https://example.com website").intent,
+            UserIntent::WebBrowse
+        );
+    }
+
+    #[test]
+    fn test_predict_general_fallback() {
+        let mut p = IntentPredictor::new();
+        let pred = p.predict("你好");
+        assert_eq!(pred.intent, UserIntent::General);
+        assert_eq!(pred.confidence, 0.0);
+        assert!(pred.suggested_preloads.is_empty());
+    }
+
+    #[test]
+    fn test_predict_multi_returns_sorted() {
+        let mut p = IntentPredictor::new();
+        // Message touching both debugging and testing
+        let preds = p.predict_multi("fix the bug in the test, it fails with an error", 3, 0.0);
+        assert!(!preds.is_empty());
+        assert!(preds.len() <= 3);
+        // Sorted descending by confidence
+        for w in preds.windows(2) {
+            assert!(w[0].confidence >= w[1].confidence);
+        }
+        // Both debugging and testing should appear
+        let intents: Vec<_> = preds.iter().map(|p| p.intent.clone()).collect();
+        assert!(intents.contains(&UserIntent::Debugging));
+        assert!(intents.contains(&UserIntent::Testing));
+    }
+
+    #[test]
+    fn test_predict_multi_min_confidence() {
+        let mut p = IntentPredictor::new();
+        let preds = p.predict_multi("completely unrelated banana text", 3, 0.5);
+        // Falls back to General with 0 confidence
+        assert_eq!(preds.len(), 1);
+        assert_eq!(preds[0].intent, UserIntent::General);
+    }
+
+    #[test]
+    fn test_confidence_clamped() {
+        let mut p = IntentPredictor::new();
+        // Lots of keyword hits
+        let pred = p.predict("error bug fix crash fail broken traceback panic");
+        assert!(pred.confidence <= 1.0);
+        assert!(pred.confidence > 0.5);
+    }
+
+    #[test]
+    fn test_record_actual_updates_transitions() {
+        let mut p = IntentPredictor::new();
+        p.record_actual("debugging", &["Bash".to_string()]);
+        p.record_actual("testing", &[]);
+        assert_eq!(
+            p.transitions.get(&("debugging".to_string(), "testing".to_string())),
+            Some(&1)
+        );
     }
 }

@@ -306,6 +306,10 @@ pub struct QueryEngine {
     cached_git_info: Option<GitInfo>,
     /// Hook manager for triggering actions on events.
     hook_manager: Option<Arc<HookManager>>,
+    /// Intent predictor for context warmup (shared with warmup task).
+    intent_predictor: Arc<tokio::sync::Mutex<crate::engine::intent_predictor::IntentPredictor>>,
+    /// Warmup manager — preloads resources predicted from user input.
+    warmup_manager: Arc<tokio::sync::Mutex<crate::engine::warmup::WarmupManager>>,
 }
 
 impl QueryEngine {
@@ -336,6 +340,17 @@ impl QueryEngine {
             });
         }
         
+        // Context warmup: intent predictor + warmup manager share the file cache.
+        let intent_predictor = Arc::new(tokio::sync::Mutex::new(
+            crate::engine::intent_predictor::IntentPredictor::new(),
+        ));
+        let warmup_manager = Arc::new(tokio::sync::Mutex::new(
+            crate::engine::warmup::WarmupManager::new(
+                config.cwd.clone(),
+                config.file_cache.as_ref().map(Arc::clone),
+            ),
+        ));
+        
         Self {
             config,
             messages: Vec::new(),
@@ -349,12 +364,25 @@ impl QueryEngine {
             cached_rules_raw,
             cached_git_info,
             hook_manager,
+            intent_predictor,
+            warmup_manager,
         }
     }
 
     /// Signal the engine to abort the current operation.
     pub fn abort(&self) {
         let _ = self.abort_tx.send(true);
+    }
+
+    /// Shared warmup manager (for hit attribution when files are read,
+    /// and for periodic learning passes).
+    pub fn warmup_manager_arc(&self) -> Arc<tokio::sync::Mutex<crate::engine::warmup::WarmupManager>> {
+        Arc::clone(&self.warmup_manager)
+    }
+
+    /// Shared intent predictor (for recording actual intents / accuracy).
+    pub fn intent_predictor_arc(&self) -> Arc<tokio::sync::Mutex<crate::engine::intent_predictor::IntentPredictor>> {
+        Arc::clone(&self.intent_predictor)
     }
 
     /// Manually refresh the cached project instructions and rules.
@@ -830,6 +858,30 @@ impl QueryEngine {
                 let result = hm.process(TriggerType::UserMessage, ctx).await;
                 if !result.errors.is_empty() {
                     eprintln!("UserMessage hook errors: {:?}", result.errors);
+                }
+            });
+        }
+
+        // ── Context warmup (Task 4): predict intents and preload resources ──
+        // Fully async via tokio::spawn — never blocks the main query flow.
+        {
+            let predictor = Arc::clone(&self.intent_predictor);
+            let warmup = Arc::clone(&self.warmup_manager);
+            let prompt_text = prompt.clone();
+            tokio::spawn(async move {
+                let intents = {
+                    let mut p = predictor.lock().await;
+                    p.predict_multi(&prompt_text, 3, 0.1)
+                };
+                let mut w = warmup.lock().await;
+                let result = w.warmup(&prompt_text, &intents).await;
+                if !result.matched_rules.is_empty() {
+                    eprintln!(
+                        "Context warmup: rules={:?}, files={}, skills={:?}",
+                        result.matched_rules,
+                        result.warmed_files.len(),
+                        result.preload_skills,
+                    );
                 }
             });
         }
