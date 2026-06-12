@@ -784,5 +784,29 @@
     "completed": false,
     "priority": "medium",
     "created_at": "2026-06-08T13:55:38.717211260+00:00"
+  },
+  {
+    "text": "Fix StatusBar metrics not updating (contextUsage, tokens, cost)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-09T14:40:58.514266995+00:00"
+  },
+  {
+    "text": "Add bear ASCII logo to Header (参考启动画面)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-09T14:41:58.506562131+00:00"
+  },
+  {
+    "text": "Redesign StreamOutput: 3 fixed-height sections with internal scroll + collapse",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-09T14:41:58.508535290+00:00"
+  },
+  {
+    "text": "Redesign MessageList: collapsible thinking/tool blocks, precise height calc",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-09T14:41:58.510805717+00:00"
   }
 ]

@@ -49,6 +49,8 @@ struct SharedState {
     session_registry: Arc<SessionRegistry>,
     skill_prompt: Option<String>,
     memory_store: Arc<engine::memory::MemoryStore>,
+    memory_archive: Arc<engine::memory::MemoryArchive>,
+    memory_cleanup: Arc<engine::memory::MemoryCleanupScheduler>,
     evolution_engine: Arc<engine::evolution::EvolutionEngine>,
     cron_manager: Arc<engine::cron::CronManager>,
     project_registry: Arc<engine::projects::ProjectRegistry>,
@@ -56,6 +58,10 @@ struct SharedState {
     file_cache: Arc<tokio::sync::Mutex<engine::file_cache::FileCache>>,
     /// Tool result store for persisting large outputs to disk.
     tool_result_store: Option<Arc<engine::tool_result_store::ToolResultStore>>,
+    /// Hook manager for event-driven automation.
+    hook_manager: Arc<engine::hooks::HookManager>,
+    /// Team executor for managing sub-agent teams.
+    team_executor: Arc<engine::team::TeamManager>,
 }
 
 /// Socket directory for all BaoClaw daemon instances
@@ -608,6 +614,50 @@ async fn handle_shared_client(
                                 let count = shared.memory_store.clear().await;
                                 let mut conn_guard = conn.lock().await;
                                 let _ = conn_guard.send_response(id, serde_json::json!({"cleared": count})).await;
+                            }
+                            ClientMethod::MemoryStats => {
+                                let stats = shared.memory_store.stats().await;
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!(stats)).await;
+                            }
+                            ClientMethod::MemoryArchive { id: mem_id } => {
+                                let archived = shared.memory_store.archive_by_id(&mem_id, &shared.memory_archive).await;
+                                let mut conn_guard = conn.lock().await;
+                                match archived {
+                                    Some(entry) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"archived": entry})).await;
+                                    }
+                                    None => {
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory not found: {}", mem_id)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::MemoryRestore { id: mem_id } => {
+                                let restored = shared.memory_store.restore_from_archive(&mem_id, &shared.memory_archive).await;
+                                let mut conn_guard = conn.lock().await;
+                                match restored {
+                                    Some(entry) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"restored": entry})).await;
+                                    }
+                                    None => {
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Archived memory not found: {}", mem_id)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::MemoryArchiveList => {
+                                let archived = shared.memory_archive.list_archived().await;
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"archived": archived, "count": archived.len()})).await;
+                            }
+                            ClientMethod::MemoryCleanup => {
+                                let result = shared.memory_cleanup.run_now().await;
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({
+                                    "archived_count": result.archived_count,
+                                    "deleted_count": result.deleted_count,
+                                    "timestamp": result.timestamp,
+                                    "duration_ms": result.duration_ms,
+                                })).await;
                             }
                             ClientMethod::CronAdd { name, prompt, schedule, cwd } => {
                                 let mut conn_guard = conn.lock().await;
@@ -1177,6 +1227,281 @@ async fn handle_shared_client(
                                     }
                                 }
                             }
+                            ClientMethod::HooksList => {
+                                let hooks = shared.hook_manager.get_hooks().await;
+                                let count = hooks.len();
+                                let hooks_json: Vec<serde_json::Value> = hooks.iter().map(|h| {
+                                    serde_json::to_value(h).unwrap_or_default()
+                                }).collect();
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({
+                                    "hooks": hooks_json,
+                                    "count": count
+                                })).await;
+                            }
+                            ClientMethod::HooksAdd { id: hook_id, name, trigger, filter, action, enabled, priority } => {
+                                use std::str::FromStr;
+                                use engine::hooks::{Hook, Action, TriggerType, Filter};
+
+                                // Parse trigger type
+                                let trigger_type = match TriggerType::from_str(&trigger) {
+                                    Ok(t) => t,
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32602, e).await;
+                                        continue;
+                                    }
+                                };
+
+                                // Parse action
+                                let hook_action: Action = match serde_json::from_value(action) {
+                                    Ok(a) => a,
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32602, format!("Invalid action: {}", e)).await;
+                                        continue;
+                                    }
+                                };
+
+                                // Parse filter if provided
+                                let hook_filter: Option<Filter> = match filter {
+                                    Some(f) => match serde_json::from_value(f) {
+                                        Ok(f) => Some(f),
+                                        Err(e) => {
+                                            let mut conn_guard = conn.lock().await;
+                                            let _ = conn_guard.send_error(Some(id), -32602, format!("Invalid filter: {}", e)).await;
+                                            continue;
+                                        }
+                                    },
+                                    None => None,
+                                };
+
+                                // Create the hook
+                                let mut hook = Hook::new(hook_id.clone(), name, trigger_type, hook_action);
+                                hook.enabled = enabled;
+                                hook.priority = priority;
+                                if let Some(f) = hook_filter {
+                                    hook.filter = Some(f);
+                                }
+
+                                // Add the hook
+                                match shared.hook_manager.add_hook(hook.clone()).await {
+                                    Ok(()) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "hook": hook,
+                                            "message": "Hook added successfully"
+                                        })).await;
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, e).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::HooksToggle { id: hook_id } => {
+                                match shared.hook_manager.toggle_hook(&hook_id).await {
+                                    Some(new_enabled) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "id": hook_id,
+                                            "enabled": new_enabled,
+                                            "message": if new_enabled { "Hook enabled" } else { "Hook disabled" }
+                                        })).await;
+                                    }
+                                    None => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Hook not found: {}", hook_id)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::HooksRemove { id: hook_id } => {
+                                let removed = shared.hook_manager.remove_hook(&hook_id).await;
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({
+                                    "id": hook_id,
+                                    "removed": removed,
+                                    "message": if removed { "Hook removed" } else { "Hook not found" }
+                                })).await;
+                            }
+
+                            // ── Team Management RPC ──
+                            ClientMethod::TeamSpawn { count, mode, task, policy } => {
+                                use engine::team::{TeamExecutor, TeamConfig, TeamMode as EngineTeamMode, TeamPolicy};
+                                use std::str::FromStr;
+
+                                // Parse mode
+                                let team_mode = match EngineTeamMode::from_str(&mode) {
+                                    Ok(m) => m,
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32602, e).await;
+                                        continue;
+                                    }
+                                };
+
+                                // Parse policy if provided
+                                let team_policy: Option<TeamPolicy> = match policy {
+                                    Some(p) => match serde_json::from_value(p) {
+                                        Ok(policy) => Some(policy),
+                                        Err(e) => {
+                                            let mut conn_guard = conn.lock().await;
+                                            let _ = conn_guard.send_error(Some(id), -32602, format!("Invalid policy: {}", e)).await;
+                                            continue;
+                                        }
+                                    },
+                                    None => None,
+                                };
+
+                                // Create team config
+                                let config = TeamConfig {
+                                    mode: team_mode.clone(),
+                                    policy: team_policy,
+                                    cwd: Some(work_cwd.to_string_lossy().to_string()),
+                                    model: Some(shared.state_manager.get().model.clone()),
+                                    ..Default::default()
+                                };
+
+                                // Create the executor and team
+                                let executor = TeamExecutor::new(
+                                    Arc::clone(&shared.api_client),
+                                    shared.engine_tools.clone(),
+                                    work_cwd.clone(),
+                                    shared.state_manager.get().model.clone(),
+                                );
+
+                                match executor.create_team(task.clone(), config).await {
+                                    Ok(mut team) => {
+                                        // For parallel mode, create the specified number of agents
+                                        if team_mode == EngineTeamMode::Parallel {
+                                            if let Err(e) = executor.add_parallel_agents(&mut team, count.unwrap_or(1), &task).await {
+                                                let mut conn_guard = conn.lock().await;
+                                                let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to add agents: {}", e.message)).await;
+                                                continue;
+                                            }
+                                        }
+
+                                        let team_id = team.id.clone();
+                                        let team_json = serde_json::to_value(&team).unwrap_or_default();
+
+                                        // Store the team
+                                        shared.team_executor.store_team(team).await;
+
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "team_id": team_id,
+                                            "team": team_json,
+                                            "message": "Team created successfully"
+                                        })).await;
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, e.message).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TeamList => {
+                                let teams = shared.team_executor.list_teams().await;
+                                let count = teams.len();
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({
+                                    "teams": teams,
+                                    "count": count
+                                })).await;
+                            }
+                            ClientMethod::TeamStatus { team_id } => {
+                                match shared.team_executor.get_team(&team_id).await {
+                                    Some(team) => {
+                                        let summary = team.summary();
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "team": team,
+                                            "summary": summary
+                                        })).await;
+                                    }
+                                    None => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TeamResults { team_id } => {
+                                match shared.team_executor.get_team(&team_id).await {
+                                    Some(team) => {
+                                        let results = team.collect_results();
+                                        let agents: Vec<serde_json::Value> = team.agents.iter().map(|a| {
+                                            serde_json::json!({
+                                                "id": a.id,
+                                                "status": a.status.to_string(),
+                                                "result": a.result,
+                                                "error": a.error,
+                                                "tokens_used": a.tokens_used,
+                                                "cost_usd": a.cost_usd,
+                                            })
+                                        }).collect();
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "team_id": team_id,
+                                            "status": team.status.to_string(),
+                                            "results": results,
+                                            "agents": agents,
+                                            "total_tokens": team.total_tokens,
+                                            "total_cost_usd": team.total_cost_usd,
+                                        })).await;
+                                    }
+                                    None => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TeamAbort { team_id } => {
+                                match shared.team_executor.abort_team(&team_id).await {
+                                    Some(team) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "team_id": team_id,
+                                            "status": team.status.to_string(),
+                                            "message": "Team aborted"
+                                        })).await;
+                                    }
+                                    None => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TeamExecute { team_id } => {
+                                match shared.team_executor.get_team(&team_id).await {
+                                    Some(team) => {
+                                        // Spawn execution in background
+                                        let executor = engine::team::TeamExecutor::new(
+                                            Arc::clone(&shared.api_client),
+                                            shared.engine_tools.clone(),
+                                            work_cwd.clone(),
+                                            shared.state_manager.get().model.clone(),
+                                        );
+
+                                        // Execute the team
+                                        let result = executor.execute(team).await;
+
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "team_id": result.team.id,
+                                            "success": result.success,
+                                            "error": result.error,
+                                            "duration_ms": result.duration_ms,
+                                            "status": result.team.status.to_string(),
+                                            "total_tokens": result.team.total_tokens,
+                                            "total_cost_usd": result.team.total_cost_usd,
+                                        })).await;
+                                    }
+                                    None => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
+                                    }
+                                }
+                            }
                         }
                     }
                     Err(e) => {
@@ -1275,6 +1600,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     )),
                     file_cache: Some(Arc::clone(&shared_clone.file_cache)),
                     tool_result_store: shared_clone.tool_result_store.as_ref().map(Arc::clone),
+                    hook_manager: Some(Arc::clone(&shared_clone.hook_manager)),
                 })
             },
         ).await;
@@ -1847,6 +2173,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine_tools.clone(),
     ));
 
+    let team_executor = Arc::new(engine::team::TeamManager::new(
+        Arc::clone(&api_client),
+        engine_tools.clone(),
+        PathBuf::from(&cwd_str),
+        baoclaw_config.model.clone(),
+    ));
+
+    // Create memory archive and cleanup scheduler for periodic memory maintenance
+    let memory_archive = Arc::new(engine::memory::MemoryArchive::load());
+    let memory_decay_config = engine::memory::DecayConfig::load();
+    let memory_cleanup = Arc::new(engine::memory::MemoryCleanupScheduler::new(
+        Arc::clone(&memory_store),
+        Arc::clone(&memory_archive),
+        memory_decay_config,
+    ));
+
     let shared = SharedState {
         engine_tools,
         api_client,
@@ -1861,11 +2203,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_registry: Arc::new(SessionRegistry::new()),
         skill_prompt: combined_append_prompt,
         memory_store,
+        memory_archive,
+        memory_cleanup,
         evolution_engine,
         cron_manager: Arc::new(engine::cron::CronManager::new()),
         project_registry: Arc::new(engine::projects::ProjectRegistry::new()),
         file_cache: Arc::new(tokio::sync::Mutex::new(engine::file_cache::FileCache::default_capacity())),
         tool_result_store: Some(Arc::new(engine::tool_result_store::ToolResultStore::for_session(&session_id))),
+        hook_manager: Arc::new(engine::hooks::HookManager::new()),
+        team_executor,
     };
 
     // ══════════════════════════════════════════════════════════
@@ -1883,6 +2229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cron_session_id = shared.session_id.clone();
         let cron_file_cache = Arc::clone(&shared.file_cache);
         let cron_tool_result_store = shared.tool_result_store.as_ref().map(Arc::clone);
+        let cron_hook_manager = Arc::clone(&shared.hook_manager);
 
         let run_fn: Arc<dyn Fn(String, Option<String>) -> tokio::task::JoinHandle<String> + Send + Sync> =
             Arc::new(move |prompt: String, cwd: Option<String>| {
@@ -1894,6 +2241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let session_id = cron_session_id.clone();
                 let file_cache = Arc::clone(&cron_file_cache);
                 let tool_result_store = cron_tool_result_store.as_ref().map(Arc::clone);
+                let hook_manager = Arc::clone(&cron_hook_manager);
 
                 let job_session_id = format!("cron-{}", &uuid::Uuid::new_v4().to_string()[..8]);
 
@@ -1924,6 +2272,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         session_memory: None,
                         file_cache: Some(file_cache),
                         tool_result_store,
+                        hook_manager: Some(hook_manager),
                     });
 
                     let mut rx = engine.submit_message(prompt).await;
@@ -1952,6 +2301,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::spawn(async move {
             cron_manager.start_scheduler(run_fn).await;
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // Start memory cleanup scheduler — runs periodic memory maintenance.
+    // Applies decay to memories, archives low-importance ones,
+    // and cleans up the archive when it exceeds max_entries.
+    // ══════════════════════════════════════════════════════════
+    {
+        let memory_cleanup = Arc::clone(&shared.memory_cleanup);
+        tokio::spawn(async move {
+            memory_cleanup.start().await;
         });
     }
 

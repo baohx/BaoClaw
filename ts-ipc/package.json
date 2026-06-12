@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "start": "npx tsx cli.ts",
-    "tui": "npx tsx tui/index.tsx",
     "build:rust": "cd ../baoclaw-core && cargo build --release"
   },
   "dependencies": {

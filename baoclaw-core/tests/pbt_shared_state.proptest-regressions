@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5c9fffab600ad10cda66022eb722761471b339fbfe1f5dff705c688a3065c00e # shrinks to operations = ["contains"]
+cc 176e5cfe60d342fd77795a5fd1d2e2d717354ef0e770c21ed0c49e0276a337f0 # shrinks to results = [AgentResultForMerge { agent_id: "agent-2", text: "AAaA      ", success: false, tokens: 0, cost_usd: 0.0, duration_ms: 100, metadata: {} }, AgentResultForMerge { agent_id: "agent-20", text: " Aa AAaA A", success: true, tokens: 0, cost_usd: 0.0, duration_ms: 100, metadata: {} }]

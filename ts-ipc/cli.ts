@@ -776,7 +776,7 @@ const COMMANDS = [
   '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory', '/debug',
-  '/projects', '/cron', '/history', '/doc',
+  '/projects', '/cron', '/history', '/doc', '/team',
 ];
 
 /**
@@ -2056,12 +2056,63 @@ async function main() {
           const result = await client.request<{ cleared: number }>('memoryClear');
           console.log(`\n${FG_GREEN}✓ Cleared ${result.cleared} memories${RESET}\n`);
         } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else if (subCmd === 'stats') {
+        try {
+          const stats = await client.request<any>('memoryStats');
+          console.log(`\n${FG_ORANGE}${BOLD}Memory Statistics${RESET}\n`);
+          for (const [k, v] of Object.entries(stats)) {
+            console.log(`  ${FG_WHITE}${String(k).padEnd(24)}${RESET} ${FG_CYAN}${typeof v === 'number' && !Number.isInteger(v) ? (v as number).toFixed(3) : v}${RESET}`);
+          }
+          console.log();
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else if (subCmd === 'archive') {
+        if (!rest) {
+          console.log(`\n${FG_YELLOW}Usage: /memory archive <id>${RESET}\n`);
+        } else {
+          try {
+            const result = await client.request<{ archived: any }>('memoryArchive', { id: rest });
+            console.log(`\n${FG_GREEN}✓ Archived${RESET} ${DIM}[${result.archived.id}] ${result.archived.content}${RESET}\n`);
+          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        }
+      } else if (subCmd === 'restore') {
+        if (!rest) {
+          console.log(`\n${FG_YELLOW}Usage: /memory restore <id>${RESET}\n`);
+        } else {
+          try {
+            const result = await client.request<{ restored: any }>('memoryRestore', { id: rest });
+            console.log(`\n${FG_GREEN}✓ Restored${RESET} ${DIM}[${result.restored.id}] ${result.restored.content}${RESET}\n`);
+          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        }
+      } else if (subCmd === 'archives' || subCmd === 'archived') {
+        try {
+          const result = await client.request<{ archived: any[]; count: number }>('memoryArchiveList');
+          if (!result.count) {
+            console.log(`\n${DIM}No archived memories.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Archived Memories${RESET} ${DIM}(${result.count})${RESET}\n`);
+            for (const m of result.archived) {
+              const content = m.content.length > 80 ? m.content.slice(0, 80) + '…' : m.content;
+              console.log(`  ${FG_CYAN}${(m.category || 'fact').padEnd(10)}${RESET} ${FG_WHITE}${content}${RESET}  ${DIM}[${m.id}] imp=${(m.importance ?? 0).toFixed?.(2) ?? m.importance}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+      } else if (subCmd === 'cleanup') {
+        try {
+          const result = await client.request<any>('memoryCleanup');
+          console.log(`\n${FG_GREEN}✓ Cleanup complete${RESET} ${DIM}archived=${result.archived_count ?? 0} deleted=${result.deleted_count ?? 0} (${result.duration_ms ?? 0}ms)${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
       } else {
         console.log(`\n${FG_ORANGE}${BOLD}Memory Commands${RESET}\n`);
         console.log(`  ${FG_WHITE}/memory list${RESET}                    ${DIM}List all memories${RESET}`);
         console.log(`  ${FG_WHITE}/memory add [category] <text>${RESET}  ${DIM}Add a memory (fact/preference/decision)${RESET}`);
         console.log(`  ${FG_WHITE}/memory delete <id>${RESET}            ${DIM}Delete a memory${RESET}`);
         console.log(`  ${FG_WHITE}/memory clear${RESET}                  ${DIM}Clear all memories${RESET}`);
+        console.log(`  ${FG_WHITE}/memory stats${RESET}                  ${DIM}Memory statistics${RESET}`);
+        console.log(`  ${FG_WHITE}/memory archive <id>${RESET}           ${DIM}Archive a memory${RESET}`);
+        console.log(`  ${FG_WHITE}/memory restore <id>${RESET}           ${DIM}Restore an archived memory${RESET}`);
+        console.log(`  ${FG_WHITE}/memory archives${RESET}               ${DIM}List archived memories${RESET}`);
+        console.log(`  ${FG_WHITE}/memory cleanup${RESET}                ${DIM}Run decay & archive cleanup now${RESET}`);
         console.log();
       }
       rl.prompt();
@@ -2500,6 +2551,239 @@ async function main() {
       return;
     }
 
+    // ── /team commands ──
+    if (input.startsWith('/team')) {
+      const teamArgs = input.slice('/team'.length).trim();
+      const parts = teamArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'spawn') {
+        // Parse: /team spawn [n] --parallel|--sequence|--dag "task"
+        // Examples:
+        //   /team spawn 3 --parallel "Analyze codebase"
+        //   /team spawn --sequence "First analyze, then implement"
+        //   /team spawn --dag "Check code style and tests, then generate report"
+
+        let count: number | undefined;
+        let mode: 'parallel' | 'sequence' | 'dag' = 'parallel';
+        let task: string = '';
+
+        // Parse the remaining arguments
+        const rest = teamArgs.slice('spawn'.length).trim();
+
+        // Check for --parallel, --sequence, --dag
+        if (rest.includes('--parallel')) {
+          mode = 'parallel';
+          // Check if there's a number before --parallel
+          const numMatch = rest.match(/^(\d+)\s+--parallel/);
+          if (numMatch) {
+            count = parseInt(numMatch[1], 10);
+          }
+        } else if (rest.includes('--sequence')) {
+          mode = 'sequence';
+        } else if (rest.includes('--dag')) {
+          mode = 'dag';
+        }
+
+        // Extract task from quotes
+        const taskMatch = rest.match(/"([^"]+)"/);
+        if (taskMatch) {
+          task = taskMatch[1];
+        }
+
+        if (!task) {
+          console.log(`\n${FG_YELLOW}Usage: /team spawn [n] --parallel|--sequence|--dag "task"${RESET}`);
+          console.log(`${DIM}  /team spawn 3 --parallel "Analyze codebase"${RESET}`);
+          console.log(`${DIM}  /team spawn --sequence "First analyze, then implement"${RESET}`);
+          console.log(`${DIM}  /team spawn --dag "Check code style, then report"${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+
+        startSpinner(`Creating ${mode} team...`);
+        try {
+          const result = await client.request<{ team_id: string; status: string }>('teamSpawn', {
+            count,
+            mode,
+            task,
+          });
+          stopSpinner();
+          console.log(`\n${FG_GREEN}${BOLD}Team created${RESET} ${DIM}[${result.team_id}] ${mode}${count ? ` (${count} agents)` : ''}${RESET}`);
+          console.log(`${DIM}  Task: ${task}${RESET}`);
+          console.log(`${DIM}  Execute with: /team exec ${result.team_id}${RESET}\n`);
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}Failed to create team: ${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'list' || subCmd === '') {
+        try {
+          const result = await client.request<{ teams: Array<{ id: string; task: string; mode: string; status: string; agent_count: number; created_at: string }>; count: number }>('teamList');
+          if (result.count === 0) {
+            console.log(`\n${DIM}No teams. Use /team spawn to create one.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Teams${RESET} ${DIM}(${result.count})${RESET}\n`);
+            for (const t of result.teams) {
+              const statusIcon = t.status === 'Running' ? `${FG_YELLOW}●${RESET}`
+                : t.status === 'Completed' ? `${FG_GREEN}●${RESET}`
+                : t.status === 'Failed' ? `${FG_RED}●${RESET}`
+                : `${FG_GRAY}●${RESET}`;
+              const taskPreview = t.task.length > 50 ? t.task.slice(0, 50) + '…' : t.task;
+              console.log(`  ${statusIcon} ${FG_WHITE}${t.id}${RESET}  ${DIM}${t.mode}${RESET}  ${FG_WHITE}${taskPreview}${RESET}`);
+              console.log(`    ${DIM}${t.agent_count} agents · ${t.status} · ${t.created_at}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          console.error(`${FG_RED}Failed to list teams: ${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'status') {
+        const teamId = parts[1] || '';
+        if (!teamId) {
+          console.log(`\n${FG_YELLOW}Usage: /team status <id>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const t = await client.request<{ id: string; task: string; mode: string; status: string; agents: Array<{ id: string; status: string; prompt: string }>; total_cost_usd: number; total_tokens: number }>('teamStatus', { team_id: teamId });
+          const statusColor = t.status === 'Running' ? FG_YELLOW
+            : t.status === 'Completed' ? FG_GREEN
+            : t.status === 'Failed' ? FG_RED : FG_GRAY;
+          console.log(`\n${FG_ORANGE}${BOLD}Team${RESET} ${FG_WHITE}${t.id}${RESET}`);
+          console.log(`  ${FG_WHITE}Status:${RESET}  ${statusColor}${t.status}${RESET}`);
+          console.log(`  ${FG_WHITE}Mode:${RESET}    ${t.mode}`);
+          console.log(`  ${FG_WHITE}Task:${RESET}    ${t.task}`);
+          if (t.total_cost_usd > 0) {
+            console.log(`  ${FG_WHITE}Cost:${RESET}    $${t.total_cost_usd.toFixed(4)}`);
+          }
+          if (t.total_tokens > 0) {
+            console.log(`  ${FG_WHITE}Tokens:${RESET}  ${t.total_tokens.toLocaleString()}`);
+          }
+          if (t.agents && t.agents.length > 0) {
+            console.log(`\n  ${FG_GRAY}── Agents (${t.agents.length}) ──${RESET}`);
+            for (const a of t.agents) {
+              const aStatusIcon = a.status === 'Running' ? `${FG_YELLOW}●${RESET}`
+                : a.status === 'Completed' ? `${FG_GREEN}●${RESET}`
+                : a.status === 'Failed' ? `${FG_RED}●${RESET}`
+                : `${FG_GRAY}●${RESET}`;
+              const promptPreview = a.prompt.length > 40 ? a.prompt.slice(0, 40) + '…' : a.prompt;
+              console.log(`    ${aStatusIcon} ${DIM}${a.id}${RESET}  ${promptPreview}`);
+            }
+          }
+          console.log();
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'exec' || subCmd === 'execute') {
+        const teamId = parts[1] || '';
+        if (!teamId) {
+          console.log(`\n${FG_YELLOW}Usage: /team exec <id>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        startSpinner(`Executing team ${teamId}...`);
+        try {
+          const result = await client.request<{ team_id: string; success: boolean; duration_ms: number }>('teamExecute', { team_id: teamId });
+          stopSpinner();
+          if (result.success) {
+            const dur = result.duration_ms >= 1000
+              ? `${(result.duration_ms / 1000).toFixed(1)}s`
+              : `${result.duration_ms}ms`;
+            console.log(`\n${FG_GREEN}${BOLD}Team completed${RESET} ${DIM}${result.team_id} in ${dur}${RESET}\n`);
+          } else {
+            console.log(`\n${FG_RED}Team execution failed${RESET} ${DIM}${result.team_id}${RESET}\n`);
+          }
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}Failed to execute team: ${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'results') {
+        const teamId = parts[1] || '';
+        if (!teamId) {
+          console.log(`\n${FG_YELLOW}Usage: /team results <id>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ team_id: string; results: Array<{ agent_id: string; status: string; result?: string; error?: string }> }>('teamResults', { team_id: teamId });
+          console.log(`\n${FG_ORANGE}${BOLD}Team Results${RESET} ${FG_WHITE}${result.team_id}${RESET}\n`);
+          for (const r of result.results) {
+            const statusIcon = r.status === 'Completed' ? `${FG_GREEN}✓${RESET}`
+              : r.status === 'Failed' ? `${FG_RED}✗${RESET}`
+              : `${FG_GRAY}○${RESET}`;
+            console.log(`  ${statusIcon} ${FG_WHITE}${r.agent_id}${RESET}`);
+            if (r.result) {
+              const lines = r.result.split('\n').slice(0, 5);
+              for (const line of lines) {
+                console.log(`    ${DIM}${line.slice(0, 100)}${RESET}`);
+              }
+              if (r.result.split('\n').length > 5) {
+                console.log(`    ${DIM}... (${r.result.length} chars total)${RESET}`);
+              }
+            }
+            if (r.error) {
+              console.log(`    ${FG_RED}${r.error}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'abort') {
+        const teamId = parts[1] || '';
+        if (!teamId) {
+          console.log(`\n${FG_YELLOW}Usage: /team abort <id>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ team_id: string; aborted: boolean }>('teamAbort', { team_id: teamId });
+          if (result.aborted) {
+            console.log(`\n${FG_GREEN}Team ${teamId} aborted.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_YELLOW}Team ${teamId} was not running or not found.${RESET}\n`);
+          }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      // Unknown /team subcommand — show help
+      console.log(`\n${FG_ORANGE}${BOLD}Team Commands${RESET}\n`);
+      console.log(`  ${FG_WHITE}/team spawn [n] --parallel "task"${RESET}  ${DIM}Create parallel team${RESET}`);
+      console.log(`  ${FG_WHITE}/team spawn --sequence "task"${RESET}    ${DIM}Create sequential team${RESET}`);
+      console.log(`  ${FG_WHITE}/team spawn --dag "task"${RESET}         ${DIM}Create DAG team${RESET}`);
+      console.log(`  ${FG_WHITE}/team list${RESET}                       ${DIM}List all teams${RESET}`);
+      console.log(`  ${FG_WHITE}/team status <id>${RESET}                 ${DIM}Show team status${RESET}`);
+      console.log(`  ${FG_WHITE}/team exec <id>${RESET}                   ${DIM}Execute a team${RESET}`);
+      console.log(`  ${FG_WHITE}/team results <id>${RESET}                ${DIM}Show team results${RESET}`);
+      console.log(`  ${FG_WHITE}/team abort <id>${RESET}                  ${DIM}Abort a running team${RESET}`);
+      console.log();
+      rl.prompt();
+      return;
+    }
+
     if (input.startsWith('/telemetry')) {
       const arg = input.slice('/telemetry'.length).trim().toLowerCase();
       if (arg === 'on') {
@@ -2543,6 +2827,7 @@ async function main() {
       console.log(`  ${FG_WHITE}/task${RESET}       ${DIM}Background tasks: run, list, status, stop${RESET}`);
       console.log(`  ${FG_WHITE}/cron${RESET}       ${DIM}Scheduled tasks: add, list, remove, toggle${RESET}`);
       console.log(`  ${FG_WHITE}/memory${RESET}     ${DIM}Long-term memory: list, add, delete, clear${RESET}`);
+      console.log(`  ${FG_WHITE}/team${RESET}       ${DIM}Sub-agent teams: spawn, list, status, exec${RESET}`);
       console.log();
 
       console.log(`  ${FG_GRAY}── Input & Integrations ──${RESET}`);

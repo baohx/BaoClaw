@@ -73,6 +73,7 @@ proptest! {
             frozen_hash: None,
             adaptive_compact: baoclaw_core::engine::query_engine::AdaptiveCompactTracker::new(),
             tool_health: baoclaw_core::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: None,
         };
 
         let system = build_system_prompt(&config);

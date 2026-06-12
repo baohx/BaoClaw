@@ -104,6 +104,7 @@ impl TaskManager {
                 session_memory: None,
                 file_cache: None,
                 tool_result_store: None,
+                hook_manager: None,
             };
 
             let mut engine = QueryEngine::new(config);

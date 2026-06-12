@@ -11,6 +11,7 @@ use crate::api::fallback::{FallbackAction, FallbackController};
 use crate::config::BaoclawConfig;
 use crate::engine::cost_tracker::CostTracker;
 use crate::engine::git_info::{get_git_info, get_git_info_async, GitInfo};
+use crate::engine::hooks::{HookManager, TriggerContext, TriggerType};
 use crate::engine::session_memory::SessionMemory;
 use crate::engine::token_counter::BudgetStatus;
 use crate::engine::transcript::{TranscriptEntry, TranscriptEntryType, TranscriptWriter};
@@ -55,6 +56,8 @@ pub struct QueryEngineConfig {
     pub file_cache: Option<Arc<tokio::sync::Mutex<crate::engine::file_cache::FileCache>>>,
     /// Tool result store for persisting large outputs to disk.
     pub tool_result_store: Option<Arc<crate::engine::tool_result_store::ToolResultStore>>,
+    /// Hook manager for triggering actions on events.
+    pub hook_manager: Option<Arc<HookManager>>,
 }
 
 /// Thinking mode configuration for the LLM.
@@ -301,6 +304,8 @@ pub struct QueryEngine {
     cached_rules_raw: Vec<CachedRule>,
     /// Cached git info (loaded once in new(), refreshed async each turn).
     cached_git_info: Option<GitInfo>,
+    /// Hook manager for triggering actions on events.
+    hook_manager: Option<Arc<HookManager>>,
 }
 
 impl QueryEngine {
@@ -317,6 +322,20 @@ impl QueryEngine {
         let cached_project_instructions = load_project_instructions(&config.cwd);
         let cached_rules_raw = load_all_rule_files(&config.cwd);
         let cached_git_info = get_git_info(&config.cwd);
+        
+        // Initialize hook manager from config if present
+        let hook_manager = config.hook_manager.clone();
+        if let Some(ref hm) = hook_manager {
+            // Set working directory for the hook executor
+            // Note: This is async, but we're in a sync context. The working directory
+            // will be set lazily when hooks are first processed.
+            let hm_clone = Arc::clone(hm);
+            let cwd = config.cwd.clone();
+            tokio::spawn(async move {
+                hm_clone.set_working_directory(cwd).await;
+            });
+        }
+        
         Self {
             config,
             messages: Vec::new(),
@@ -329,6 +348,7 @@ impl QueryEngine {
             cached_project_instructions,
             cached_rules_raw,
             cached_git_info,
+            hook_manager,
         }
     }
 
@@ -769,7 +789,7 @@ impl QueryEngine {
         // Build user message content: plain string or multimodal array
         let content = if let Some(att) = attachments {
             if att.is_empty() {
-                Value::String(prompt)
+                Value::String(prompt.clone())
             } else {
                 let mut blocks: Vec<Value> = Vec::new();
                 for a in att {
@@ -781,7 +801,7 @@ impl QueryEngine {
                 Value::Array(blocks)
             }
         } else {
-            Value::String(prompt)
+            Value::String(prompt.clone())
         };
 
         // Build the user message and append to history
@@ -798,6 +818,21 @@ impl QueryEngine {
             },
         };
         self.messages.push(user_msg);
+        
+        // Trigger UserMessage hook
+        if let Some(ref hook_manager) = self.hook_manager {
+            let hm = Arc::clone(hook_manager);
+            let prompt_text = prompt.clone();
+            let cwd = self.config.cwd.clone();
+            tokio::spawn(async move {
+                let ctx = TriggerContext::user_message(&prompt_text)
+                    .with_cwd(cwd);
+                let result = hm.process(TriggerType::UserMessage, ctx).await;
+                if !result.errors.is_empty() {
+                    eprintln!("UserMessage hook errors: {:?}", result.errors);
+                }
+            });
+        }
 
         // ── Token budget check: auto-compact if context is too large ──
         let _ = tx.send(EngineEvent::Progress {
@@ -890,6 +925,7 @@ impl QueryEngine {
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: self.hook_manager.clone(),
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -960,6 +996,8 @@ pub struct QueryLoopConfig {
     pub adaptive_compact: AdaptiveCompactTracker,
     /// Tool health tracker — learns success/failure rates.
     pub tool_health: crate::engine::tool_health::ToolHealthTracker,
+    /// Hook manager for triggering actions on events.
+    pub hook_manager: Option<Arc<HookManager>>,
 }
 
 impl QueryLoopConfig {
@@ -1256,6 +1294,7 @@ async fn run_query_loop(
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: config.hook_manager.clone(),
         };
         let request = build_api_request(&messages, &current_config);
 
@@ -1661,6 +1700,24 @@ async fn run_query_loop(
         };
         messages.push(assistant_msg.clone());
 
+        // Trigger AssistantMessage hook
+        if let Some(ref hook_manager) = config.hook_manager {
+            let hm = Arc::clone(hook_manager);
+            let text: String = assistant_content_blocks.iter().filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            }).collect::<Vec<_>>().join(" ");
+            let cwd = config.cwd.clone();
+            tokio::spawn(async move {
+                let ctx = TriggerContext::assistant_message(&text)
+                    .with_cwd(cwd);
+                let result = hm.process(TriggerType::AssistantMessage, ctx).await;
+                if !result.errors.is_empty() {
+                    eprintln!("AssistantMessage hook errors: {:?}", result.errors);
+                }
+            });
+        }
+
         // Write assistant message to transcript
         append_transcript(&mut transcript_writer, &TranscriptEntry {
             timestamp: assistant_msg.timestamp.clone(),
@@ -1936,6 +1993,71 @@ async fn run_query_loop(
                     "is_error": result.is_error,
                 }),
             });
+            
+            // Trigger ToolResult hook for each tool result
+            if let Some(ref hook_manager) = config.hook_manager {
+                // Find the tool use for this result
+                let tool_use = tool_uses.iter().find(|tu| tu.id == result.tool_use_id);
+                let tool_name = tool_use.map(|tu| tu.name.clone()).unwrap_or_default();
+                let input = tool_use.map(|tu| serde_json::to_string(&tu.input).unwrap_or_default()).unwrap_or_default();
+                let output = serde_json::to_string(&result.output).unwrap_or_default();
+                
+                let hm = Arc::clone(hook_manager);
+                let cwd = config.cwd.clone();
+                tokio::spawn(async move {
+                    let ctx = TriggerContext::tool_result(&tool_name, &input, &output)
+                        .with_cwd(cwd);
+                    let result = hm.process(TriggerType::ToolResult, ctx).await;
+                    if !result.errors.is_empty() {
+                        eprintln!("ToolResult hook errors: {:?}", result.errors);
+                    }
+                });
+                
+                // Trigger file-related hooks for file operation tools
+                // Only trigger on successful file operations (not errors)
+                if !result.is_error {
+                    if let Some(tool_use) = tool_use {
+                        let trigger_type = match tool_use.name.as_str() {
+                            "Write" | "write_file" | "FileWrite" => {
+                                tool_use.input.get("file_path")
+                                    .or_else(|| tool_use.input.get("path"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|path| (TriggerType::FileCreated, path.to_string()))
+                            }
+                            "Edit" | "edit_file" | "FileEdit" => {
+                                tool_use.input.get("file_path")
+                                    .or_else(|| tool_use.input.get("path"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|path| (TriggerType::FileEdited, path.to_string()))
+                            }
+                            "Delete" | "delete_file" | "FileDelete" => {
+                                tool_use.input.get("file_path")
+                                    .or_else(|| tool_use.input.get("path"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|path| (TriggerType::FileDeleted, path.to_string()))
+                            }
+                            _ => None,
+                        };
+                        
+                        if let Some((trigger, file_path)) = trigger_type {
+                            let hm = Arc::clone(hook_manager);
+                            let cwd = config.cwd.clone();
+                            tokio::spawn(async move {
+                                let ctx = match trigger {
+                                    TriggerType::FileCreated => TriggerContext::file_created(&file_path, &cwd),
+                                    TriggerType::FileEdited => TriggerContext::file_edited(&file_path, &cwd),
+                                    TriggerType::FileDeleted => TriggerContext::file_deleted(&file_path, &cwd),
+                                    _ => TriggerContext::new(),
+                                };
+                                let result = hm.process(trigger, ctx).await;
+                                if !result.errors.is_empty() {
+                                    eprintln!("File hook errors: {:?}", result.errors);
+                                }
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         // Build tool result user message and append to messages
@@ -3285,6 +3407,7 @@ mod tests {
             session_memory: None,
             file_cache: None,
             tool_result_store: None,
+            hook_manager: None,
         }
     }
 
@@ -3751,6 +3874,7 @@ mod tests {
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3797,6 +3921,7 @@ mod tests {
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -3843,6 +3968,7 @@ mod tests {
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: None,
         };
         let messages = vec![
             Message {
@@ -3982,6 +4108,7 @@ mod tests {
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -4028,6 +4155,7 @@ mod tests {
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: None,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -4230,6 +4358,7 @@ mod tests {
             frozen_hash: None,
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
+            hook_manager: None,
         }
     }
 

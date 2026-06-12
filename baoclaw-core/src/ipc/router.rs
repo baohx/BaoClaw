@@ -100,6 +100,20 @@ pub enum ClientMethod {
     },
     #[serde(rename = "memoryClear")]
     MemoryClear,
+    #[serde(rename = "memoryStats")]
+    MemoryStats,
+    #[serde(rename = "memoryArchive")]
+    MemoryArchive {
+        id: String,
+    },
+    #[serde(rename = "memoryRestore")]
+    MemoryRestore {
+        id: String,
+    },
+    #[serde(rename = "memoryArchiveList")]
+    MemoryArchiveList,
+    #[serde(rename = "memoryCleanup")]
+    MemoryCleanup,
     #[serde(rename = "switchCwd")]
     SwitchCwd {
         cwd: PathBuf,
@@ -177,6 +191,62 @@ pub enum ClientMethod {
     SpecEdit {
         feature_name: String,
         phase: String,
+    },
+    #[serde(rename = "hooksList")]
+    HooksList,
+    #[serde(rename = "hooksAdd")]
+    HooksAdd {
+        id: String,
+        name: String,
+        trigger: String,
+        #[serde(default)]
+        filter: Option<Value>,
+        action: Value,
+        #[serde(default)]
+        enabled: bool,
+        #[serde(default)]
+        priority: i32,
+    },
+    #[serde(rename = "hooksToggle")]
+    HooksToggle {
+        id: String,
+    },
+    #[serde(rename = "hooksRemove")]
+    HooksRemove {
+        id: String,
+    },
+
+    // ── Team Management RPC ──
+    #[serde(rename = "teamSpawn")]
+    TeamSpawn {
+        /// Number of parallel agents to create (for parallel mode).
+        #[serde(default)]
+        count: Option<usize>,
+        /// Execution mode: "parallel", "sequence", or "dag".
+        mode: String,
+        /// The task prompt for the team.
+        task: String,
+        /// Optional team policy for budget and permissions.
+        #[serde(default)]
+        policy: Option<Value>,
+    },
+    #[serde(rename = "teamList")]
+    TeamList,
+    #[serde(rename = "teamStatus")]
+    TeamStatus {
+        team_id: String,
+    },
+    #[serde(rename = "teamResults")]
+    TeamResults {
+        team_id: String,
+    },
+    #[serde(rename = "teamAbort")]
+    TeamAbort {
+        team_id: String,
+    },
+    #[serde(rename = "teamExecute")]
+    TeamExecute {
+        team_id: String,
     },
 }
 
@@ -597,5 +667,270 @@ mod tests {
         let req = make_request("docUpload", json!({}));
         let err = parse_client_method(&req).unwrap_err();
         assert!(matches!(err, RouterError::InvalidParams(_)));
+    }
+
+    // --- Hooks management RPC tests ---
+
+    #[test]
+    fn test_parse_hooks_list() {
+        let req = make_request("hooksList", json!(null));
+        let method = parse_client_method(&req).unwrap();
+        assert_eq!(method, ClientMethod::HooksList);
+    }
+
+    #[test]
+    fn test_parse_hooks_add() {
+        let req = make_request(
+            "hooksAdd",
+            json!({
+                "id": "auto-lint",
+                "name": "Auto Lint on Save",
+                "trigger": "file_edited",
+                "filter": { "file_pattern": "*.ts" },
+                "action": { "type": "run_command", "command": "npm run lint" },
+                "enabled": true,
+                "priority": 100
+            }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::HooksAdd { id, name, trigger, filter, action, enabled, priority } => {
+                assert_eq!(id, "auto-lint");
+                assert_eq!(name, "Auto Lint on Save");
+                assert_eq!(trigger, "file_edited");
+                assert!(filter.is_some());
+                assert_eq!(action["type"], "run_command");
+                assert!(enabled);
+                assert_eq!(priority, 100);
+            }
+            _ => panic!("Expected HooksAdd, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_hooks_add_minimal() {
+        let req = make_request(
+            "hooksAdd",
+            json!({
+                "id": "test-hook",
+                "name": "Test Hook",
+                "trigger": "file_created",
+                "action": { "type": "ask_agent", "prompt": "Review this file" }
+            }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::HooksAdd { id, name, trigger, filter, action, enabled, priority } => {
+                assert_eq!(id, "test-hook");
+                assert_eq!(name, "Test Hook");
+                assert_eq!(trigger, "file_created");
+                assert!(filter.is_none());
+                assert_eq!(action["type"], "ask_agent");
+                assert!(!enabled); // default false when not specified
+                assert_eq!(priority, 0); // default 0
+            }
+            _ => panic!("Expected HooksAdd, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_hooks_add_missing_required() {
+        let req = make_request("hooksAdd", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        assert!(matches!(err, RouterError::InvalidParams(_)));
+    }
+
+    #[test]
+    fn test_parse_hooks_toggle() {
+        let req = make_request(
+            "hooksToggle",
+            json!({ "id": "auto-lint" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::HooksToggle { id } => {
+                assert_eq!(id, "auto-lint");
+            }
+            _ => panic!("Expected HooksToggle, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_hooks_toggle_missing_id() {
+        let req = make_request("hooksToggle", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        assert!(matches!(err, RouterError::InvalidParams(_)));
+    }
+
+    #[test]
+    fn test_parse_hooks_remove() {
+        let req = make_request(
+            "hooksRemove",
+            json!({ "id": "auto-lint" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::HooksRemove { id } => {
+                assert_eq!(id, "auto-lint");
+            }
+            _ => panic!("Expected HooksRemove, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_hooks_remove_missing_id() {
+        let req = make_request("hooksRemove", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        assert!(matches!(err, RouterError::InvalidParams(_)));
+    }
+
+    // --- Team Management RPC tests ---
+
+    #[test]
+    fn test_parse_team_spawn_parallel() {
+        let req = make_request(
+            "teamSpawn",
+            json!({
+                "count": 3,
+                "mode": "parallel",
+                "task": "Analyze the codebase"
+            }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TeamSpawn { count, mode, task, policy } => {
+                assert_eq!(count, Some(3));
+                assert_eq!(mode, "parallel");
+                assert_eq!(task, "Analyze the codebase");
+                assert!(policy.is_none());
+            }
+            _ => panic!("Expected TeamSpawn, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_team_spawn_sequence() {
+        let req = make_request(
+            "teamSpawn",
+            json!({
+                "mode": "sequence",
+                "task": "First analyze, then implement"
+            }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TeamSpawn { count, mode, task, .. } => {
+                assert_eq!(count, None);
+                assert_eq!(mode, "sequence");
+                assert_eq!(task, "First analyze, then implement");
+            }
+            _ => panic!("Expected TeamSpawn, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_team_spawn_with_policy() {
+        let req = make_request(
+            "teamSpawn",
+            json!({
+                "mode": "parallel",
+                "task": "Test task",
+                "policy": {
+                    "max_turns_per_agent": 5,
+                    "max_cost_per_agent": 1.0
+                }
+            }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TeamSpawn { policy, .. } => {
+                assert!(policy.is_some());
+                let p = policy.unwrap();
+                assert_eq!(p["max_turns_per_agent"], 5);
+                assert_eq!(p["max_cost_per_agent"], 1.0);
+            }
+            _ => panic!("Expected TeamSpawn, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_team_spawn_missing_required() {
+        let req = make_request("teamSpawn", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        assert!(matches!(err, RouterError::InvalidParams(_)));
+    }
+
+    #[test]
+    fn test_parse_team_list() {
+        let req = make_request("teamList", json!(null));
+        let method = parse_client_method(&req).unwrap();
+        assert_eq!(method, ClientMethod::TeamList);
+    }
+
+    #[test]
+    fn test_parse_team_status() {
+        let req = make_request(
+            "teamStatus",
+            json!({ "team_id": "team-123" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TeamStatus { team_id } => {
+                assert_eq!(team_id, "team-123");
+            }
+            _ => panic!("Expected TeamStatus, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_team_status_missing_id() {
+        let req = make_request("teamStatus", json!({}));
+        let err = parse_client_method(&req).unwrap_err();
+        assert!(matches!(err, RouterError::InvalidParams(_)));
+    }
+
+    #[test]
+    fn test_parse_team_results() {
+        let req = make_request(
+            "teamResults",
+            json!({ "team_id": "team-456" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TeamResults { team_id } => {
+                assert_eq!(team_id, "team-456");
+            }
+            _ => panic!("Expected TeamResults, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_team_abort() {
+        let req = make_request(
+            "teamAbort",
+            json!({ "team_id": "team-789" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TeamAbort { team_id } => {
+                assert_eq!(team_id, "team-789");
+            }
+            _ => panic!("Expected TeamAbort, got {:?}", method),
+        }
+    }
+
+    #[test]
+    fn test_parse_team_execute() {
+        let req = make_request(
+            "teamExecute",
+            json!({ "team_id": "team-abc" }),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::TeamExecute { team_id } => {
+                assert_eq!(team_id, "team-abc");
+            }
+            _ => panic!("Expected TeamExecute, got {:?}", method),
+        }
     }
 }

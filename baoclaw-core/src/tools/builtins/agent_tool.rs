@@ -139,6 +139,7 @@ impl Tool for AgentTool {
             session_memory: None, // Sub-agents do not use session memory
             file_cache: None,     // Sub-agents share parent's context
             tool_result_store: None, // Sub-agents don't persist tool results
+            hook_manager: None,   // Sub-agents don't trigger hooks
         };
 
         let mut sub_engine = QueryEngine::new(sub_engine_config);

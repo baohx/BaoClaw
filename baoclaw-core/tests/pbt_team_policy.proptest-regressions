@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7cb0ff8fea16a17903d853e7c89abd53916737868a531ad13fdd14208c889a48 # shrinks to blacklist = {}, tool = "FileRead", depth = 4
+cc a9f5cbc7c5ced88e07c51c697e1cc450aadfbefdadde5569a8230e3beede0d99 # shrinks to whitelist = {"WebSearch"}, tool = "WebSearch", depth = 4

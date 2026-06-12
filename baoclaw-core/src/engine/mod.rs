@@ -29,3 +29,5 @@ pub mod subagent_policy;
 pub mod streaming_executor;
 pub mod export;
 pub mod spec_engine;
+pub mod hooks;
+pub mod team;
