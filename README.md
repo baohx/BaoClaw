@@ -1,4 +1,4 @@
-# 🐾 BaoClaw v2.0.0
+# 🐾 BaoClaw v2.1.0
 
 **The AI coding agent that remembers, evolves, and follows you everywhere.**
 
@@ -62,7 +62,7 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 - **Project instructions** — `BAOCLAW.md` loaded into system prompt per project
 - **Memory isolation** — each project has its own memory store
 
-### 🛠️ 15+ Built-in Tools
+### 🛠️ 20+ Built-in Tools
 | Tool | Description |
 |------|-------------|
 | Bash | Shell commands (respects project cwd) |
@@ -167,6 +167,53 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 - Configurable timeout (5 min default), buffer size, max output (1MB default)
 - Concurrent stdout/stderr reading with `tokio::select!`
 
+### 🚀 v2.1 — Evolution Engine (NEW)
+
+#### 📋 Workflow Template Engine (#17)
+- **5 built-in templates**: `code_review`, `bug_fix`, `feature`, `docs`, `refactor`
+- Trigger-based matching (`/review` → code_review template)
+- Variable substitution with `${variable}` syntax and step output references `${stepN.output}`
+- Conditional workflow steps with `condition` field
+- Import/export templates as JSON for sharing
+- Create custom templates with custom workflows and variables
+
+#### 🌿 Git Integration (#18)
+- **Branch Management**: create, list, switch, merge with name validation and protected branch detection
+- **Commit Management**: stage files, commit with conventional format (`feat:`, `fix:`, `chore:`), amend, undo
+- **Conflict Resolution**: detect conflicts from merge markers, resolve by taking ours/theirs
+- **PR Management**: create pull requests, list by status, review, merge
+- SSH and HTTPS credential management with host-based lookup
+
+#### 🧭 Model Router (#19)
+- **Intelligent routing**: select model by task type (code/completion/creative/analysis)
+- **Cost-aware**: prefer cheaper models for simple tasks, route to premium models for complex work
+- **Budget tracking**: set spending limits, track token usage, alert on threshold exceeded
+- **Usage learning**: record route history, generate optimization suggestions based on usage patterns
+- **Fallback chain**: automatic failover when primary model unavailable
+
+#### 📊 Telemetry & Monitoring (#20)
+- **Event collection**: record tool calls, model invocations, errors, session events
+- **Trend analysis**: detect increasing/decreasing/stable patterns over time windows
+- **Multi-format export**: JSON for programmatic use, CSV for spreadsheet analysis
+- **Aggregated statistics**: per-tool usage counts, model distribution, error rates
+
+#### 🔐 Permission Gate (#21)
+- **Tool-level access control**: grant/revoke permissions per tool per session
+- **Interactive prompts**: ask user for approval before executing sensitive operations
+- **Permission caching**: cache decisions with configurable TTL to avoid prompt fatigue
+- **Default-deny mode**: start with all tools denied, explicitly grant as needed
+
+### 🖥️ CLI & TUI
+
+- **18 new CLI commands** across 5 modules (`/template`, `/git`, `/model`, `/telemetry`, `/permission`)
+- **Terminal UI (TUI)** built with Ink (React terminal framework):
+  - Split-pane layout: message list + streaming output
+  - Tool execution panel with live status
+  - Syntax-highlighted code blocks
+  - Keyboard shortcuts overlay (`Ctrl+H`)
+- **Unix socket IPC**: JSON-RPC 2.0 over Unix domain sockets with NDJSON streaming
+- Auto-discovers daemon socket at `/tmp/baoclaw-sockets/baoclaw-<pid>.sock`
+
 ## Architecture
 
 ```
@@ -191,7 +238,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
        │         └───────┬───────┘         │
        │         ┌───────┴───────┐         │
        │         │ Tool Executor │         │
-       │         │ 15+ built-in  │         │
+       │         │ 20+ built-in  │         │
        │         │ + MCP servers │         │
        │         └───────────────┘         │
        │  ┌──────────────┐ ┌────────────┐ │
@@ -1048,7 +1095,7 @@ BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持�
 - 项目指令 — `BAOCLAW.md` 按项目加载到系统提示词
 - 记忆隔离 — 每个项目有独立的记忆存储
 
-### 🛠️ 15+ 内置工具
+### 🛠️ 20+ 内置工具
 Bash、文件读写编辑、Grep、Glob、Web 搜索、Web 抓取、记忆管理、子 Agent、自我进化、Todo、Notebook 编辑、项目笔记、工具搜索等。
 
 ### 🔌 可扩展
