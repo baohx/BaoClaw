@@ -172,6 +172,8 @@ impl HostMatcher {
 mod tests {
     use super::*;
 
+    use std::net::Ipv4Addr;
+    use std::net::Ipv6Addr;
     #[test]
     fn test_any_matcher() {
         let matcher = HostMatcher::Any;

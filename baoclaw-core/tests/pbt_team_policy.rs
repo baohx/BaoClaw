@@ -13,9 +13,11 @@ use proptest::prelude::*;
 use std::collections::HashSet;
 
 // Import from the crate
-use baoclaw_core::engine::team::{
-    AgentPolicy, TeamPolicy, BudgetExceededAction, DepthTools,
+use baoclaw_core::engine::team::policy::{
+    AgentPolicy, BudgetExceededAction, DepthTools,
 };
+use baoclaw_core::engine::team::TeamPolicy;
+use baoclaw_core::engine::team::agent::BudgetEnforcer;
 
 /// Strategy for generating valid tool names
 fn tool_name_strategy() -> impl Strategy<Value = String> {
@@ -269,7 +271,7 @@ proptest! {
             .with_max_cost_per_agent(max_cost);
         
         let agent_policy = AgentPolicy::from_team_policy(&team_policy, 1);
-        let mut enforcer = baoclaw_core::engine::team::BudgetEnforcer::from_policy(&agent_policy);
+        let mut enforcer = baoclaw_core::engine::team::agent::BudgetEnforcer::from_policy(&agent_policy);
         
         let mut total_cost = 0.0_f64;
         let mut all_within_budget = true;
@@ -302,7 +304,7 @@ proptest! {
             .with_max_turns_per_agent(max_turns);
         
         let agent_policy = AgentPolicy::from_team_policy(&team_policy, 1);
-        let mut enforcer = baoclaw_core::engine::team::BudgetEnforcer::from_policy(&agent_policy);
+        let mut enforcer = baoclaw_core::engine::team::agent::BudgetEnforcer::from_policy(&agent_policy);
         
         let mut all_within_limit = true;
         

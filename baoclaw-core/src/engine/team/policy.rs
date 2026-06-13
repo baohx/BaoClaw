@@ -908,6 +908,9 @@ impl TeamResults {
 mod tests {
     use super::*;
 
+    use crate::engine::team::policy::TeamPolicy;
+    use crate::engine::team::policy::AgentPolicy;
+    use crate::engine::team::policy::DepthTools;
     #[test]
     fn test_team_policy_default() {
         let policy = TeamPolicy::default();

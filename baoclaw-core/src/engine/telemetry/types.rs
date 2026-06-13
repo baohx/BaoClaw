@@ -227,6 +227,7 @@ impl Trend {
 mod tests {
     use super::*;
 
+    use crate::engine::telemetry::types::TrendDirection;
     #[test]
     fn test_usage_stats_default() {
         let stats = UsageStats::default();

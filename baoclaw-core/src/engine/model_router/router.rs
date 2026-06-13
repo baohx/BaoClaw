@@ -217,6 +217,7 @@ fn get_current_hour() -> u32 {
 mod tests {
     use super::*;
 
+    use crate::engine::model_router::types::RouteCondition;
     fn make_router() -> ModelRouter {
         ModelRouter::new()
     }

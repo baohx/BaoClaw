@@ -194,6 +194,7 @@ impl RoutingDecision {
 mod tests {
     use super::*;
 
+    use crate::engine::model_router::types::RouteCondition;
     #[test]
     fn test_model_info_estimate_cost() {
         let model = ModelInfo::new("test-model", "test", 200_000, 0.003, 0.015);

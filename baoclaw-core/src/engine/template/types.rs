@@ -195,6 +195,7 @@ impl Template {
 mod tests {
     use super::*;
 
+    use crate::engine::template::types::Variable;
     #[test]
     fn test_matches_trigger() {
         let t = Template::new("Code Review", "/review");

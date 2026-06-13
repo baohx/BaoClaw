@@ -341,6 +341,7 @@ mod tests {
     use tempfile::tempdir;
 
     /// Create a collector with a temp DB for testing.
+    use crate::engine::telemetry::types::TrendDirection;
     fn setup_test_db() -> TelemetryCollector {
         let dir = tempdir().unwrap();
         let path = dir.path().join("test_trends.db");

@@ -291,7 +291,7 @@ fn now_iso8601() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::memory::MemoryCategory;
+    use crate::engine::memory::store::MemoryCategory;
 
     fn create_test_memory(importance: f64) -> MemoryEntry {
         MemoryEntry {

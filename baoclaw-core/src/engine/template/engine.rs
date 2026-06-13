@@ -391,6 +391,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    use crate::engine::template::types::Variable;
     fn test_engine() -> (TemplateEngine, TempDir) {
         let dir = TempDir::new().unwrap();
         let engine = TemplateEngine::with_dir(dir.path().to_path_buf());
