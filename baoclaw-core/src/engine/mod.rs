@@ -35,3 +35,7 @@ pub mod spec_engine;
 pub mod hooks;
 pub mod team;
 pub mod template;
+pub mod telemetry;
+pub mod model_router;
+pub mod git_integration;
+pub mod permission_gate;
