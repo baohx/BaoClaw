@@ -31,13 +31,13 @@
   },
   {
     "text": "Compact 质量追踪 — 记录压缩后信息丢失率，差则回退",
-    "completed": false,
+    "completed": true,
     "priority": "medium",
     "created_at": "2026-05-06T08:30:00+08:00"
   },
   {
     "text": "增量 Compact — 分段渐进式压缩替代全量总结",
-    "completed": false,
+    "completed": true,
     "priority": "low",
     "created_at": "2026-05-06T08:30:00+08:00"
   },
@@ -808,5 +808,281 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-09T14:41:58.510805717+00:00"
+  },
+  {
+    "text": "Fix sandbox module compilation (file not found errors)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T02:37:09.699033993+00:00"
+  },
+  {
+    "text": "Task 5.1: sandbox.json profiles (read_only, web_dev, full_access)",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:37:09.702561143+00:00"
+  },
+  {
+    "text": "Task 5.2: SandboxExecutor — network whitelist, env filter, mem/cpu limits",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:37:09.703984756+00:00"
+  },
+  {
+    "text": "Task 5.3: Auto profile selection by tool type & file path",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:37:09.704934813+00:00"
+  },
+  {
+    "text": "Task 5.4: Permission escalation flow (detect, confirm, temp/permanent)",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:37:09.706050979+00:00"
+  },
+  {
+    "text": "Task 5.5: Audit log (decisions, file changes, security events)",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:37:09.707009092+00:00"
+  },
+  {
+    "text": "Task 5.5: Create sandbox/audit.rs — AuditLog with SQLite persistence",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T02:43:43.846274276+00:00"
+  },
+  {
+    "text": "Task 5.4: Create sandbox/permission.rs — escalation detection + user confirmation flow",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T02:43:43.847764641+00:00"
+  },
+  {
+    "text": "Task 6.1: Create TemplateEngine (load, parse, variable substitution, workflow exec)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T02:51:50.139394916+00:00"
+  },
+  {
+    "text": "Task 6.2: Define template JSON format (trigger, system_prompt_addon, workflow, variables)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T02:51:50.141034396+00:00"
+  },
+  {
+    "text": "Task 6.3: Implement 5 built-in templates (Code Review, Bug Fix, Feature, Docs, Refactor)",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:51:50.154504314+00:00"
+  },
+  {
+    "text": "Task 6.4: Implement CLI commands (/template list, create, edit, import)",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:51:50.155961514+00:00"
+  },
+  {
+    "text": "Task 6.5: Implement template sharing (export JSON, import from URL)",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T02:51:50.157035617+00:00"
+  },
+  {
+    "text": "Task 6.4: CLI commands /template list|create|edit|import — ts-ipc/cli.ts + IPC router",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:17:09.797879804+00:00"
+  },
+  {
+    "text": "Task 7: Git集成增强 — PR/分支/冲突/Commit/智能分析（5子任务）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:17:09.800056646+00:00"
+  },
+  {
+    "text": "Task 8: 遥测监控 — Telemetry模块/统计/趋势/导出（5子任务）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:17:09.814983904+00:00"
+  },
+  {
+    "text": "Task 9: 多模型路由 — ModelRouter/规则/预算/学习（5子任务）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:17:09.816609657+00:00"
+  },
+  {
+    "text": "Task 10: 交互式权限 — PermissionGate/TUI界面/缓存（5子任务）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:17:09.818229618+00:00"
+  },
+  {
+    "text": "Create types.rs with all data types (PrInfo, BranchInfo, ConflictInfo, CommitInfo)",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.572392418+00:00"
+  },
+  {
+    "text": "Create pr.rs with PrManager",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.573920958+00:00"
+  },
+  {
+    "text": "Create branch.rs with BranchManager",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.575219023+00:00"
+  },
+  {
+    "text": "Create conflict.rs with ConflictResolver",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.576792112+00:00"
+  },
+  {
+    "text": "Create commit.rs with CommitManager",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.578738278+00:00"
+  },
+  {
+    "text": "Create auth.rs with GitAuth",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.580972232+00:00"
+  },
+  {
+    "text": "Create mod.rs module entry with re-exports",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.582441716+00:00"
+  },
+  {
+    "text": "Run cargo check and fix any errors",
+    "completed": true,
+    "priority": "medium",
+    "created_at": "2026-06-13T03:18:42.583530909+00:00"
+  },
+  {
+    "text": "Create telemetry/types.rs with data types",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:43.661669063+00:00"
+  },
+  {
+    "text": "Create types.rs with PermissionRule, PermissionRequest, PermissionDecision, DecisionType, CacheEntry",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:47.049952290+00:00"
+  },
+  {
+    "text": "Create cache.rs with thread-safe PermissionCache manager",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:47.052310670+00:00"
+  },
+  {
+    "text": "Create gate.rs with PermissionGate core logic",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:47.065942568+00:00"
+  },
+  {
+    "text": "Create interactive.rs with InteractivePrompter",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:47.067738978+00:00"
+  },
+  {
+    "text": "Create mod.rs module entry with submodule declarations and re-exports",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:47.069555027+00:00"
+  },
+  {
+    "text": "Run cargo check and fix any errors",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:47.071117114+00:00"
+  },
+  {
+    "text": "Create types.rs with ModelInfo, RoutingRule, RouteCondition, RoutingDecision",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:48.935365540+00:00"
+  },
+  {
+    "text": "Create router.rs with ModelRouter struct and routing logic",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:48.937298620+00:00"
+  },
+  {
+    "text": "Create budget.rs with BudgetManager and budget tracking",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:48.964132046+00:00"
+  },
+  {
+    "text": "Create learning.rs with RouterLearning and SQLite stats",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:48.966544994+00:00"
+  },
+  {
+    "text": "Create mod.rs module entry with re-exports",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:48.969066437+00:00"
+  },
+  {
+    "text": "Run cargo check and fix all errors",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:18:48.970801064+00:00"
+  },
+  {
+    "text": "Create telemetry/trends.rs with trend analysis",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:19:53.376489191+00:00"
+  },
+  {
+    "text": "Create telemetry/export.rs with data export",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:19:53.378283196+00:00"
+  },
+  {
+    "text": "Create telemetry/mod.rs module entry",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:19:53.380184614+00:00"
+  },
+  {
+    "text": "Create telemetry/collector.rs with SQLite storage",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T03:31:26.334803219+00:00"
+  },
+  {
+    "text": "编译验证所有新模块（git_integration/model_router/telemetry/permission_gate）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:26:23.487521435+00:00"
+  },
+  {
+    "text": "修复所有编译错误，运行测试",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:26:23.488984647+00:00"
+  },
+  {
+    "text": "更新 tasks.md，git 提交并推送 6.4 + Tasks 7-10",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:26:23.490070633+00:00"
   }
 ]

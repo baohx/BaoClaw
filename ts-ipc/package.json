@@ -2,8 +2,12 @@
   "name": "baoclaw-cli",
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "baoclaw-tui": "./tui/index.tsx"
+  },
   "scripts": {
     "start": "npx tsx cli.ts",
+    "tui": "npx tsx tui/index.tsx",
     "build:rust": "cd ../baoclaw-core && cargo build --release"
   },
   "dependencies": {
