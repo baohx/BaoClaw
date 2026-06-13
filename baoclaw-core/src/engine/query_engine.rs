@@ -2851,12 +2851,40 @@ fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> CreateMe
     let mut api_messages: Vec<Value> = validated_messages.iter().filter_map(|msg| {
         match &msg.content {
             MessageContent::User { message, .. } => {
+                // Skip empty user messages
+                let is_empty = match &message.content {
+                    Value::String(s) => s.trim().is_empty(),
+                    Value::Array(arr) => arr.is_empty(),
+                    _ => message.content.is_null(),
+                };
+                if is_empty {
+                    eprintln!("Skipping empty user message");
+                    return None;
+                }
                 Some(serde_json::json!({
                     "role": message.role,
                     "content": message.content,
                 }))
             }
             MessageContent::Assistant { message, .. } => {
+                // Skip empty assistant messages
+                if message.content.is_empty() {
+                    eprintln!("Skipping empty assistant message");
+                    return None;
+                }
+                // Also check if all content blocks are empty
+                let has_content = message.content.iter().any(|block| {
+                    match block {
+                        ContentBlock::Text { text } => !text.trim().is_empty(),
+                        ContentBlock::Thinking { thinking } => !thinking.trim().is_empty(),
+                        ContentBlock::ToolUse { .. } => true,
+                        _ => false,
+                    }
+                });
+                if !has_content {
+                    eprintln!("Skipping assistant message with no valid content");
+                    return None;
+                }
                 let content_value = serde_json::to_value(&message.content).unwrap_or(Value::Array(vec![]));
                 Some(serde_json::json!({
                     "role": message.role,

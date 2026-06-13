@@ -25,6 +25,8 @@ pub mod intent_predictor;
 pub mod warmup;
 pub mod context_allocator;
 pub mod sandbox;
+// Legacy sandbox types from sandbox_legacy.rs
+pub mod sandbox_legacy;
 pub mod prompt_injection;
 pub mod subagent_policy;
 pub mod streaming_executor;
