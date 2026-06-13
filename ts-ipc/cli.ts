@@ -777,6 +777,7 @@ const COMMANDS = [
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory', '/debug',
   '/projects', '/cron', '/history', '/doc', '/team',
+  '/template', '/permission',
 ];
 
 /**
@@ -2797,13 +2798,455 @@ async function main() {
       return;
     }
 
+    // ── /template commands ──
+    if (input.startsWith('/template')) {
+      const tplArgs = input.slice('/template'.length).trim();
+      const parts = tplArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'list' || subCmd === '') {
+        try {
+          const result = await client.request<{ templates: any[]; count: number }>('templateList');
+          if (result.count === 0) {
+            console.log(`\n${DIM}No templates found. Use /template create to create one.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Templates${RESET} ${DIM}(${result.count})${RESET}\n`);
+            for (const t of result.templates) {
+              const builtin = t.builtin ? ` ${FG_BLUE}[builtin]${RESET}` : '';
+              const trigger = t.trigger ? ` ${DIM}trigger:${RESET} ${FG_WHITE}${t.trigger}${RESET}` : '';
+              console.log(`  ${FG_WHITE}${BOLD}${t.name}${RESET}${builtin}`);
+              console.log(`    ${DIM}${t.description || 'No description'}${RESET}  v${t.version}${trigger}  ${DIM}steps:${t.steps_count} vars:${t.variables_count}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'create') {
+        const rest = tplArgs.slice('create'.length).trim();
+        const match = rest.match(/^(\S+)\s+(\S+)\s+(.+)/);
+        if (!match) {
+          console.log(`\n${FG_YELLOW}Usage: /template create <name> <trigger> <description>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        const name = match[1];
+        const trigger = match[2];
+        const description = match[3];
+        const templateJson = JSON.stringify({ name, trigger, description, version: '1.0.0', workflow: [], variables: {} });
+        try {
+          await client.request('templateCreate', { json: templateJson });
+          console.log(`\n${FG_GREEN}✓ Template created:${RESET} ${FG_WHITE}${name}${RESET} ${DIM}${trigger}${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'delete' || subCmd === 'rm') {
+        const name = parts.slice(1).join(' ');
+        if (!name) {
+          console.log(`\n${FG_YELLOW}Usage: /template delete <name>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          await client.request('templateDelete', { name });
+          console.log(`\n${FG_GREEN}✓ Template deleted:${RESET} ${FG_WHITE}${name}${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'export') {
+        const name = parts.slice(1).join(' ');
+        if (!name) {
+          console.log(`\n${FG_YELLOW}Usage: /template export <name>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ name: string; template: any }>('templateExport', { name });
+          console.log(`\n${FG_ORANGE}${BOLD}Template: ${result.name}${RESET}\n`);
+          console.log(JSON.stringify(result.template, null, 2));
+          console.log();
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'import') {
+        const url = parts.slice(1).join(' ');
+        if (!url) {
+          console.log(`\n${FG_YELLOW}Usage: /template import <url>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        startSpinner('Importing template...');
+        try {
+          const result = await client.request<{ success: boolean; name: string; trigger: string }>('templateImport', { url });
+          stopSpinner();
+          console.log(`\n${FG_GREEN}✓ Template imported:${RESET} ${FG_WHITE}${result.name}${RESET} ${DIM}${result.trigger}${RESET}\n`);
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      console.log(`\n${FG_ORANGE}${BOLD}Template Commands${RESET}\n`);
+      console.log(`  ${FG_WHITE}/template list${RESET}                    ${DIM}List all templates${RESET}`);
+      console.log(`  ${FG_WHITE}/template create <name> <t> <d>${RESET}    ${DIM}Create a template${RESET}`);
+      console.log(`  ${FG_WHITE}/template delete <name>${RESET}             ${DIM}Delete a template${RESET}`);
+      console.log(`  ${FG_WHITE}/template export <name>${RESET}             ${DIM}Export template as JSON${RESET}`);
+      console.log(`  ${FG_WHITE}/template import <url>${RESET}              ${DIM}Import template from URL${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+
+    // ── Extended /git commands ──
+    if (input.startsWith('/git ')) {
+      const gitArgs = input.slice('/git'.length).trim();
+      const parts = gitArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'pr' && parts[1] === 'list') {
+        startSpinner('Fetching pull requests...');
+        try {
+          const result = await client.request<{ pull_requests?: any[]; error?: string }>('gitPrList');
+          stopSpinner();
+          if (result.error) {
+            console.log(`\n${FG_YELLOW}${result.error}${RESET}\n`);
+          } else if (!result.pull_requests || result.pull_requests.length === 0) {
+            console.log(`\n${DIM}No open pull requests.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Pull Requests${RESET} ${DIM}(${result.pull_requests.length})${RESET}\n`);
+            for (const pr of result.pull_requests) {
+              console.log(`  ${FG_CYAN}#${pr.number}${RESET} ${FG_WHITE}${pr.title}${RESET}`);
+              console.log(`    ${DIM}${pr.state}${RESET}  ${pr.head_branch} → ${pr.base_branch}  ${DIM}by ${pr.author}${RESET}  ${pr.url}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'pr' && parts[1] === 'create') {
+        const title = parts.slice(2).join(' ');
+        if (!title) {
+          console.log(`\n${FG_YELLOW}Usage: /git pr create <title>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        startSpinner('Creating PR...');
+        try {
+          const result = await client.request<{ success: boolean; number?: number; url?: string; error?: string }>('gitPrCreate', { title, body: '', base: '', head: '' });
+          stopSpinner();
+          if (result.success) {
+            console.log(`\n${FG_GREEN}✓ PR #${result.number} created${RESET} ${DIM}${result.url}${RESET}\n`);
+          } else {
+            console.log(`\n${FG_RED}${result.error}${RESET}\n`);
+          }
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'branch') {
+        startSpinner('Listing branches...');
+        try {
+          const result = await client.request<{ branches?: any[]; error?: string }>('gitBranchList');
+          stopSpinner();
+          if (result.error) {
+            console.log(`\n${FG_YELLOW}${result.error}${RESET}\n`);
+          } else if (!result.branches || result.branches.length === 0) {
+            console.log(`\n${DIM}No branches.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Branches${RESET} ${DIM}(${result.branches.length})${RESET}\n`);
+            for (const b of result.branches) {
+              const marker = b.is_current ? `${FG_GREEN}*${RESET}` : ' ';
+              const ahead = b.ahead > 0 ? ` ${FG_GREEN}↑${b.ahead}${RESET}` : '';
+              const behind = b.behind > 0 ? ` ${FG_RED}↓${b.behind}${RESET}` : '';
+              console.log(`  ${marker} ${FG_WHITE}${b.name}${RESET}${ahead}${behind}  ${DIM}${b.last_commit} ${b.last_commit_msg}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'conflict') {
+        startSpinner('Checking conflicts...');
+        try {
+          const result = await client.request<{ conflicts?: any[]; has_conflicts?: boolean; error?: string }>('gitConflictCheck');
+          stopSpinner();
+          if (result.error) {
+            console.log(`\n${FG_YELLOW}${result.error}${RESET}\n`);
+          } else if (!result.has_conflicts) {
+            console.log(`\n${FG_GREEN}✓ No conflicts detected${RESET}\n`);
+          } else {
+            console.log(`\n${FG_RED}${BOLD}Conflicts detected${RESET} ${DIM}(${(result.conflicts || []).length})${RESET}\n`);
+            for (const c of (result.conflicts || [])) {
+              console.log(`  ${FG_YELLOW}⚠${RESET} ${FG_WHITE}${c.file}${RESET} ${c.resolved ? FG_GREEN + 'resolved' : FG_RED + 'unresolved'}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      console.log(`\n${FG_ORANGE}${BOLD}Git Commands${RESET}\n`);
+      console.log(`  ${FG_WHITE}/git${RESET}               ${DIM}Git status (branch, changes)${RESET}`);
+      console.log(`  ${FG_WHITE}/git pr list${RESET}       ${DIM}List pull requests${RESET}`);
+      console.log(`  ${FG_WHITE}/git pr create <title>${RESET} ${DIM}Create a pull request${RESET}`);
+      console.log(`  ${FG_WHITE}/git branch${RESET}         ${DIM}List branches${RESET}`);
+      console.log(`  ${FG_WHITE}/git conflict${RESET}       ${DIM}Check for merge conflicts${RESET}`);
+      console.log(`  ${FG_WHITE}/diff${RESET}              ${DIM}Git diff summary${RESET}`);
+      console.log(`  ${FG_WHITE}/commit <msg>${RESET}      ${DIM}Stage all and commit${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+
+    // ── Extended /model commands ──
+    if (input.startsWith('/model ')) {
+      const modelArgs = input.slice('/model'.length).trim();
+      const parts = modelArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'list') {
+        try {
+          const result = await client.request<{ models: any[]; count: number }>('modelList');
+          console.log(`\n${FG_ORANGE}${BOLD}Available Models${RESET} ${DIM}(${result.count})${RESET}\n`);
+          for (const m of result.models) {
+            const costIn = `$${m.cost_per_1k_input}/1K`;
+            const costOut = `$${m.cost_per_1k_output}/1K`;
+            const caps = (m.capabilities || []).join(', ');
+            console.log(`  ${FG_WHITE}${BOLD}${m.name}${RESET}  ${DIM}${m.provider}${RESET}  priority:${m.priority}`);
+            console.log(`    ${DIM}ctx:${(m.max_tokens/1000).toFixed(0)}K  in:${costIn}  out:${costOut}${caps ? '  [' + caps + ']' : ''}${RESET}`);
+          }
+          console.log();
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'route') {
+        const task = parts.slice(1).join(' ');
+        if (!task) {
+          console.log(`\n${FG_YELLOW}Usage: /model route <task description>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ selected_model: string; reason: string; confidence: number }>('modelRoute', { task });
+          console.log(`\n${FG_ORANGE}${BOLD}Model Routing${RESET}\n`);
+          console.log(`  ${FG_WHITE}Task:${RESET} ${task}`);
+          console.log(`  ${FG_WHITE}Model:${RESET} ${FG_GREEN}${result.selected_model}${RESET}`);
+          console.log(`  ${FG_WHITE}Confidence:${RESET} ${(result.confidence * 100).toFixed(0)}%`);
+          console.log(`  ${DIM}${result.reason}${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'budget') {
+        try {
+          const result = await client.request<{
+            daily_limit: number; monthly_limit: number;
+            current_daily: number; current_monthly: number;
+            remaining_daily: number; remaining_monthly: number;
+          }>('modelBudget');
+          const dailyPct = result.daily_limit > 0 ? (result.current_daily / result.daily_limit * 100).toFixed(1) : '0';
+          const monthlyPct = result.monthly_limit > 0 ? (result.current_monthly / result.monthly_limit * 100).toFixed(1) : '0';
+          console.log(`\n${FG_ORANGE}${BOLD}Budget${RESET}\n`);
+          console.log(`  ${FG_WHITE}Daily:${RESET}   $${result.current_daily.toFixed(4)} / $${result.daily_limit.toFixed(2)} ${DIM}(${dailyPct}%)${RESET}  ${FG_GREEN}$${result.remaining_daily.toFixed(4)} remaining${RESET}`);
+          console.log(`  ${FG_WHITE}Monthly:${RESET} $${result.current_monthly.toFixed(4)} / $${result.monthly_limit.toFixed(2)} ${DIM}(${monthlyPct}%)${RESET}  ${FG_GREEN}$${result.remaining_monthly.toFixed(4)} remaining${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      // /model alone (existing behavior) — show current model and allow switch
+      // falls through to the existing handler below
+    }
+
+    // ── Extended /telemetry commands ──
+    if (input.startsWith('/telemetry ')) {
+      const telArgs = input.slice('/telemetry'.length).trim();
+      const parts = telArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'stats') {
+        startSpinner('Loading telemetry...');
+        try {
+          const result = await client.request<{
+            total_turns: number; total_tokens: number; total_cost_usd: number;
+            total_tools_called: number; sessions_count: number; files_modified: number;
+            avg_response_time_ms: number; most_used_tool: string | null;
+          }>('telemetryStats');
+          stopSpinner();
+          console.log(`\n${FG_ORANGE}${BOLD}Telemetry Stats${RESET}\n`);
+          console.log(`  ${FG_WHITE}Turns:${RESET}       ${result.total_turns}`);
+          console.log(`  ${FG_WHITE}Tokens:${RESET}      ${(result.total_tokens / 1000).toFixed(1)}K`);
+          console.log(`  ${FG_WHITE}Cost:${RESET}        $${result.total_cost_usd.toFixed(4)}`);
+          console.log(`  ${FG_WHITE}Tools Called:${RESET} ${result.total_tools_called}`);
+          console.log(`  ${FG_WHITE}Sessions:${RESET}     ${result.sessions_count}`);
+          console.log(`  ${FG_WHITE}Files Modified:${RESET} ${result.files_modified}`);
+          console.log(`  ${FG_WHITE}Avg Response:${RESET}  ${result.avg_response_time_ms.toFixed(0)}ms`);
+          if (result.most_used_tool) console.log(`  ${FG_WHITE}Top Tool:${RESET}     ${result.most_used_tool}`);
+          console.log();
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'trends') {
+        const days = parseInt(parts[1], 10) || 7;
+        startSpinner(`Loading ${days}-day trends...`);
+        try {
+          const result = await client.request<{ days: number; daily: any[]; count: number }>('telemetryTrends', { days });
+          stopSpinner();
+          if (result.count === 0) {
+            console.log(`\n${DIM}No telemetry data for the last ${days} days.${RESET}\n`);
+          } else {
+            console.log(`\n${FG_ORANGE}${BOLD}Daily Trends${RESET} ${DIM}(last ${days} days)${RESET}\n`);
+            console.log(`  ${DIM}Date         Turns  Tokens    Cost     Tools  Sessions${RESET}`);
+            for (const d of result.daily) {
+              const tokensK = (d.tokens / 1000).toFixed(1) + 'K';
+              console.log(`  ${FG_WHITE}${d.date}${RESET}  ${String(d.turns).padStart(5)}  ${tokensK.padStart(7)}  $${d.cost.toFixed(3).padStart(7)}  ${String(d.tools).padStart(5)}  ${String(d.sessions).padStart(8)}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'export') {
+        const format = parts[1] || 'summary';
+        if (!['json', 'csv', 'summary', 'md', 'markdown'].includes(format)) {
+          console.log(`\n${FG_YELLOW}Usage: /telemetry export <json|csv|summary>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        startSpinner(`Exporting as ${format}...`);
+        try {
+          const result = await client.request<{ format: string; data: string }>('telemetryExport', { format });
+          stopSpinner();
+          console.log(`\n${FG_GREEN}✓ Exported (${format})${RESET}\n`);
+          console.log(result.data);
+          console.log();
+        } catch (err) {
+          stopSpinner();
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      // Falls through to /telemetry on|off handler
+    }
+
+    // ── /permission commands ──
+    if (input.startsWith('/permission')) {
+      const permArgs = input.slice('/permission'.length).trim();
+      const parts = permArgs.split(/\s+/);
+      const subCmd = parts[0] || '';
+
+      if (subCmd === 'status' || subCmd === '') {
+        try {
+          const result = await client.request<{ rules: any[]; count: number }>('permissionStatus');
+          console.log(`\n${FG_ORANGE}${BOLD}Permission Rules${RESET} ${DIM}(${result.count})${RESET}\n`);
+          for (const r of result.rules) {
+            const deny = r.auto_deny ? ` ${FG_RED}[deny]${RESET}` : '';
+            const confirm = r.require_confirmation ? ` ${FG_YELLOW}[confirm]${RESET}` : '';
+            const allow = (!r.auto_deny && !r.require_confirmation) ? ` ${FG_GREEN}[allow]${RESET}` : '';
+            console.log(`  ${FG_WHITE}${r.tool}${RESET} ${DIM}${r.action}${RESET} ${DIM}→${RESET} ${r.target_pattern || '*'}${deny}${confirm}${allow}`);
+            console.log(`    ${DIM}${r.description}${RESET}`);
+          }
+          console.log();
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'grant') {
+        const tool = parts[1];
+        const action = parts[2];
+        const target = parts[3];
+        if (!tool || !action || !target) {
+          console.log(`\n${FG_YELLOW}Usage: /permission grant <tool> <action> <target> [--permanent]${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        const permanent = parts.includes('--permanent');
+        try {
+          await client.request('permissionGrant', { tool, action, target, permanent });
+          console.log(`\n${FG_GREEN}✓ Granted:${RESET} ${FG_WHITE}${tool} ${action} ${target}${RESET} ${DIM}${permanent ? '(permanent)' : '(session)'}${RESET}\n`);
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      if (subCmd === 'revoke') {
+        const tool = parts[1];
+        const action = parts[2];
+        const target = parts[3];
+        if (!tool || !action || !target) {
+          console.log(`\n${FG_YELLOW}Usage: /permission revoke <tool> <action> <target>${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ success: boolean; removed: number }>('permissionRevoke', { tool, action, target });
+          if (result.success) {
+            console.log(`\n${FG_GREEN}✓ Revoked ${result.removed} grant(s)${RESET}\n`);
+          } else {
+            console.log(`\n${FG_YELLOW}No matching grants found${RESET}\n`);
+          }
+        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        rl.prompt();
+        return;
+      }
+
+      console.log(`\n${FG_ORANGE}${BOLD}Permission Commands${RESET}\n`);
+      console.log(`  ${FG_WHITE}/permission status${RESET}                        ${DIM}Show all permission rules${RESET}`);
+      console.log(`  ${FG_WHITE}/permission grant <tool> <action> <target>${RESET}  ${DIM}Grant permission${RESET}`);
+      console.log(`  ${FG_WHITE}/permission revoke <tool> <action> <target>${RESET} ${DIM}Revoke permission${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+
     if (input === '/help') {
       console.log(`\n${FG_ORANGE}${BOLD}Commands${RESET}\n`);
 
       console.log(`  ${FG_GRAY}── Conversation ──${RESET}`);
       console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
       console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
-      console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model${RESET}`);
+      console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model: /model list|route|budget${RESET}`);
       console.log(`  ${FG_WHITE}/history${RESET}    ${DIM}Recent conversation: /history [n]${RESET}`);
       console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
       console.log(`  ${FG_WHITE}/debug${RESET}      ${DIM}Toggle timing debug for next query${RESET}`);
@@ -2812,6 +3255,9 @@ async function main() {
       console.log(`  ${FG_GRAY}── Projects & Git ──${RESET}`);
       console.log(`  ${FG_WHITE}/projects${RESET}   ${DIM}List, switch, create projects${RESET}`);
       console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Git status (branch, changes)${RESET}`);
+      console.log(`  ${FG_WHITE}/git pr list|create${RESET}   ${DIM}Pull request management${RESET}`);
+      console.log(`  ${FG_WHITE}/git branch${RESET}  ${DIM}List branches${RESET}`);
+      console.log(`  ${FG_WHITE}/git conflict${RESET}${DIM} Check for merge conflicts${RESET}`);
       console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Git diff summary${RESET}`);
       console.log(`  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit${RESET}`);
       console.log();
@@ -2823,11 +3269,17 @@ async function main() {
       console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
       console.log();
 
-      console.log(`  ${FG_GRAY}── Automation ──${RESET}`);
+      console.log(`  ${FG_GRAY}── Templates & Automation ──${RESET}`);
+      console.log(`  ${FG_WHITE}/template${RESET}   ${DIM}Workflow templates: list, create, delete, export, import${RESET}`);
       console.log(`  ${FG_WHITE}/task${RESET}       ${DIM}Background tasks: run, list, status, stop${RESET}`);
       console.log(`  ${FG_WHITE}/cron${RESET}       ${DIM}Scheduled tasks: add, list, remove, toggle${RESET}`);
       console.log(`  ${FG_WHITE}/memory${RESET}     ${DIM}Long-term memory: list, add, delete, clear${RESET}`);
       console.log(`  ${FG_WHITE}/team${RESET}       ${DIM}Sub-agent teams: spawn, list, status, exec${RESET}`);
+      console.log();
+
+      console.log(`  ${FG_GRAY}── Telemetry & Permissions ──${RESET}`);
+      console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Telemetry: stats, trends, export, on|off${RESET}`);
+      console.log(`  ${FG_WHITE}/permission${RESET} ${DIM}Permission gate: status, grant, revoke${RESET}`);
       console.log();
 
       console.log(`  ${FG_GRAY}── Input & Integrations ──${RESET}`);
@@ -2835,7 +3287,6 @@ async function main() {
       console.log(`  ${FG_WHITE}/voice${RESET}      ${DIM}Voice input (requires whisper.cpp)${RESET}`);
       console.log(`  ${FG_WHITE}@file.pdf${RESET}   ${DIM}Attach file: @photo.png @doc.pdf @doc.docx${RESET}`);
       console.log(`  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway${RESET}`);
-      console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Toggle telemetry: on|off${RESET}`);
       console.log();
 
       console.log(`  ${FG_GRAY}── Session ──${RESET}`);

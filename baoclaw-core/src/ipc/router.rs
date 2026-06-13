@@ -248,6 +248,90 @@ pub enum ClientMethod {
     TeamExecute {
         team_id: String,
     },
+
+    // ── Template Engine RPC ──
+    #[serde(rename = "templateList")]
+    TemplateList,
+    #[serde(rename = "templateCreate")]
+    TemplateCreate {
+        json: String,
+    },
+    #[serde(rename = "templateDelete")]
+    TemplateDelete {
+        name: String,
+    },
+    #[serde(rename = "templateExport")]
+    TemplateExport {
+        name: String,
+    },
+    #[serde(rename = "templateImport")]
+    TemplateImport {
+        url: String,
+    },
+
+    // ── Git Integration RPC ──
+    #[serde(rename = "gitPrCreate")]
+    GitPrCreate {
+        title: String,
+        body: String,
+        base: String,
+        head: String,
+    },
+    #[serde(rename = "gitPrList")]
+    GitPrList,
+    #[serde(rename = "gitBranchList")]
+    GitBranchList,
+    #[serde(rename = "gitBranchCreate")]
+    GitBranchCreate {
+        name: String,
+    },
+    #[serde(rename = "gitConflictCheck")]
+    GitConflictCheck,
+    #[serde(rename = "gitCommitAmend")]
+    GitCommitAmend,
+    #[serde(rename = "gitUndo")]
+    GitUndo,
+
+    // ── Model Router RPC ──
+    #[serde(rename = "modelList")]
+    ModelList,
+    #[serde(rename = "modelRoute")]
+    ModelRoute {
+        task: String,
+    },
+    #[serde(rename = "modelBudget")]
+    ModelBudget,
+    #[serde(rename = "modelStats")]
+    ModelStats,
+
+    // ── Telemetry RPC ──
+    #[serde(rename = "telemetryStats")]
+    TelemetryStats,
+    #[serde(rename = "telemetryTrends")]
+    TelemetryTrends {
+        days: u32,
+    },
+    #[serde(rename = "telemetryExport")]
+    TelemetryExport {
+        format: String,
+    },
+
+    // ── Permission Gate RPC ──
+    #[serde(rename = "permissionStatus")]
+    PermissionStatus,
+    #[serde(rename = "permissionGrant")]
+    PermissionGrant {
+        tool: String,
+        action: String,
+        target: String,
+        permanent: bool,
+    },
+    #[serde(rename = "permissionRevoke")]
+    PermissionRevoke {
+        tool: String,
+        action: String,
+        target: String,
+    },
 }
 
 fn default_tail_count() -> usize { 10 }

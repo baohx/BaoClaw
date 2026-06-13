@@ -1126,5 +1126,41 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-13T05:42:56.940755696+00:00"
+  },
+  {
+    "text": "为所有新模块添加 CLI 命令（/template, /git, /model, /telemetry, /permission）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:47:32.243108541+00:00"
+  },
+  {
+    "text": "添加 IPC daemon handlers（连接 main.rs 到新模块）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:47:32.244739443+00:00"
+  },
+  {
+    "text": "Phase 1: Add new ClientMethod variants to router.rs",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:47:56.924259869+00:00"
+  },
+  {
+    "text": "Phase 2: Add daemon IPC handlers in main.rs",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:47:56.925767087+00:00"
+  },
+  {
+    "text": "Phase 3: Add CLI commands in ts-ipc/cli.ts",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:47:56.927193085+00:00"
+  },
+  {
+    "text": "Phase 4: Verify, commit, and push",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:47:56.928779861+00:00"
   }
 ]

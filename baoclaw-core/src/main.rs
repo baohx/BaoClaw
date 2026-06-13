@@ -1502,6 +1502,370 @@ async fn handle_shared_client(
                                     }
                                 }
                             }
+
+                            // ── Template Engine handlers ──
+                            ClientMethod::TemplateList => {
+                                let engine = engine::template::engine::TemplateEngine::new();
+                                let templates = engine.list_all();
+                                let result: Vec<serde_json::Value> = templates.iter().map(|t| {
+                                    serde_json::json!({
+                                        "name": t.name,
+                                        "trigger": t.trigger,
+                                        "description": t.description,
+                                        "version": t.version,
+                                        "author": t.author,
+                                        "builtin": t.builtin,
+                                        "tags": t.tags,
+                                        "variables_count": t.variables.len(),
+                                        "steps_count": t.workflow.len(),
+                                    })
+                                }).collect();
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"templates": result, "count": result.len()})).await;
+                            }
+                            ClientMethod::TemplateCreate { json } => {
+                                let mut engine = engine::template::engine::TemplateEngine::new();
+                                match serde_json::from_str::<engine::template::types::Template>(&json) {
+                                    Ok(template) => {
+                                        match engine.create_template(&template) {
+                                            Ok(()) => {
+                                                let mut conn_guard = conn.lock().await;
+                                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": template.name})).await;
+                                            }
+                                            Err(e) => {
+                                                let mut conn_guard = conn.lock().await;
+                                                let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to create template: {}", e)).await;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Invalid template JSON: {}", e)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TemplateDelete { name } => {
+                                let mut engine = engine::template::engine::TemplateEngine::new();
+                                match engine.delete_template(&name) {
+                                    Ok(()) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": name})).await;
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to delete template: {}", e)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TemplateExport { name } => {
+                                let engine = engine::template::engine::TemplateEngine::new();
+                                match engine.export_template(&name) {
+                                    Ok(json_str) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"name": name, "template": serde_json::from_str::<serde_json::Value>(&json_str).unwrap_or_default()})).await;
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to export template: {}", e)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TemplateImport { url } => {
+                                let mut engine = engine::template::engine::TemplateEngine::new();
+                                match engine.import_template_url(&url).await {
+                                    Ok(template) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": template.name, "trigger": template.trigger})).await;
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to import template: {}", e)).await;
+                                    }
+                                }
+                            }
+
+                            // ── Git Integration handlers ──
+                            ClientMethod::GitPrList => {
+                                let result = match engine::git_integration::pr::PrManager::list_prs(None) {
+                                    Ok(prs) => {
+                                        let pr_list: Vec<serde_json::Value> = prs.iter().map(|p| {
+                                            serde_json::json!({
+                                                "number": p.number,
+                                                "title": p.title,
+                                                "state": p.state,
+                                                "author": p.author,
+                                                "base_branch": p.base_branch,
+                                                "head_branch": p.head_branch,
+                                                "created_at": p.created_at,
+                                                "url": p.url,
+                                            })
+                                        }).collect();
+                                        serde_json::json!({"pull_requests": pr_list, "count": pr_list.len()})
+                                    }
+                                    Err(e) => serde_json::json!({"error": format!("{}", e)}),
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::GitPrCreate { title, body, base, head } => {
+                                let body_opt = if body.is_empty() { None } else { Some(body.as_str()) };
+                                let base_opt = if base.is_empty() { None } else { Some(base.as_str()) };
+                                let result = match engine::git_integration::pr::PrManager::create_pr(&title, body_opt, base_opt) {
+                                    Ok(pr) => serde_json::json!({
+                                        "success": true,
+                                        "number": pr.number,
+                                        "title": pr.title,
+                                        "url": pr.url,
+                                    }),
+                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::GitBranchList => {
+                                let result = match engine::git_integration::branch::BranchManager::list_branches() {
+                                    Ok(branches) => {
+                                        let branch_list: Vec<serde_json::Value> = branches.iter().map(|b| {
+                                            serde_json::json!({
+                                                "name": b.name,
+                                                "is_current": b.is_current,
+                                                "ahead": b.ahead,
+                                                "behind": b.behind,
+                                                "last_commit": b.last_commit,
+                                                "last_commit_msg": b.last_commit_msg,
+                                            })
+                                        }).collect();
+                                        serde_json::json!({"branches": branch_list, "count": branch_list.len()})
+                                    }
+                                    Err(e) => serde_json::json!({"error": format!("{}", e)}),
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::GitBranchCreate { name } => {
+                                let result = match engine::git_integration::branch::BranchManager::create_branch(&name, None) {
+                                    Ok(()) => serde_json::json!({"success": true, "name": name}),
+                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::GitConflictCheck => {
+                                let result = match engine::git_integration::conflict::ConflictResolver::detect_conflicts() {
+                                    Ok(conflicts) => {
+                                        let conflict_list: Vec<serde_json::Value> = conflicts.iter().map(|c| {
+                                            serde_json::json!({
+                                                "file": c.file,
+                                                "resolved": c.resolved,
+                                            })
+                                        }).collect();
+                                        serde_json::json!({"conflicts": conflict_list, "count": conflict_list.len(), "has_conflicts": !conflicts.is_empty()})
+                                    }
+                                    Err(e) => serde_json::json!({"error": format!("{}", e)}),
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::GitCommitAmend => {
+                                let result = match engine::git_integration::commit::CommitManager::amend_commit() {
+                                    Ok(()) => serde_json::json!({"success": true}),
+                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::GitUndo => {
+                                let result = match engine::git_integration::commit::CommitManager::undo_commit() {
+                                    Ok(()) => serde_json::json!({"success": true}),
+                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
+                                };
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+
+                            // ── Model Router handlers ──
+                            ClientMethod::ModelList => {
+                                let router = engine::model_router::router::ModelRouter::new();
+                                let models = router.list_models();
+                                let model_list: Vec<serde_json::Value> = models.iter().map(|m| {
+                                    serde_json::json!({
+                                        "name": m.name,
+                                        "provider": m.provider,
+                                        "max_tokens": m.max_tokens,
+                                        "cost_per_1k_input": m.cost_per_1k_input,
+                                        "cost_per_1k_output": m.cost_per_1k_output,
+                                        "capabilities": m.capabilities,
+                                        "priority": m.priority,
+                                    })
+                                }).collect();
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"models": model_list, "count": model_list.len()})).await;
+                            }
+                            ClientMethod::ModelRoute { task } => {
+                                let router = engine::model_router::router::ModelRouter::new();
+                                let decision = router.route(&task, 0, 0.5);
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({
+                                    "selected_model": decision.selected_model,
+                                    "reason": decision.reason,
+                                    "confidence": decision.confidence,
+                                })).await;
+                            }
+                            ClientMethod::ModelBudget => {
+                                let mut budget = engine::model_router::budget::BudgetManager::load();
+                                let result = serde_json::json!({
+                                    "daily_limit": budget.daily_limit,
+                                    "monthly_limit": budget.monthly_limit,
+                                    "current_daily": budget.current_daily,
+                                    "current_monthly": budget.current_monthly,
+                                    "remaining_daily": budget.remaining_daily(),
+                                    "remaining_monthly": budget.remaining_monthly(),
+                                });
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::ModelStats => {
+                                let router = engine::model_router::router::ModelRouter::new();
+                                let models = router.list_models();
+                                let rules = router.list_rules();
+                                let result = serde_json::json!({
+                                    "models_count": models.len(),
+                                    "rules_count": rules.len(),
+                                    "rules": rules.iter().map(|r| serde_json::json!({
+                                        "id": r.id,
+                                        "description": r.description,
+                                        "target_model": r.target_model,
+                                        "priority": r.priority,
+                                        "enabled": r.enabled,
+                                    })).collect::<Vec<_>>(),
+                                });
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+
+                            // ── Telemetry handlers ──
+                            ClientMethod::TelemetryStats => {
+                                let collector = match engine::telemetry::collector::TelemetryCollector::new() {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Telemetry unavailable: {}", e)).await;
+                                        continue;
+                                    }
+                                };
+                                match collector.get_stats() {
+                                    Ok(stats) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({
+                                            "total_turns": stats.total_turns,
+                                            "total_tokens": stats.total_tokens,
+                                            "total_cost_usd": stats.total_cost_usd,
+                                            "total_tools_called": stats.total_tools_called,
+                                            "sessions_count": stats.sessions_count,
+                                            "files_modified": stats.files_modified,
+                                            "avg_response_time_ms": stats.avg_response_time_ms,
+                                            "most_used_tool": stats.most_used_tool,
+                                        })).await;
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to get stats: {}", e)).await;
+                                    }
+                                }
+                            }
+                            ClientMethod::TelemetryTrends { days } => {
+                                let collector = match engine::telemetry::collector::TelemetryCollector::new() {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Telemetry unavailable: {}", e)).await;
+                                        continue;
+                                    }
+                                };
+                                let daily = match collector.get_daily_stats(days) {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to get trends: {}", e)).await;
+                                        continue;
+                                    }
+                                };
+                                let daily_list: Vec<serde_json::Value> = daily.iter().map(|d| {
+                                    serde_json::json!({
+                                        "date": d.date,
+                                        "turns": d.turns,
+                                        "tokens": d.tokens,
+                                        "cost": d.cost,
+                                        "tools": d.tools,
+                                        "sessions": d.sessions,
+                                    })
+                                }).collect();
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"days": days, "daily": daily_list, "count": daily_list.len()})).await;
+                            }
+                            ClientMethod::TelemetryExport { format } => {
+                                let collector = match engine::telemetry::collector::TelemetryCollector::new() {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Telemetry unavailable: {}", e)).await;
+                                        continue;
+                                    }
+                                };
+                                let exporter = engine::telemetry::export::TelemetryExporter::new(collector);
+                                let result = match format.to_lowercase().as_str() {
+                                    "json" => exporter.export_json(None),
+                                    "csv" => exporter.export_csv(None),
+                                    "summary" | "md" | "markdown" => exporter.export_summary(),
+                                    _ => Err(format!("Unknown export format: {}. Use json, csv, or summary.", format)),
+                                };
+                                match result {
+                                    Ok(data) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"format": format, "data": data})).await;
+                                    }
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Export failed: {}", e)).await;
+                                    }
+                                }
+                            }
+
+                            // ── Permission Gate handlers ──
+                            ClientMethod::PermissionStatus => {
+                                let gate = engine::permission_gate::gate::PermissionGate::new();
+                                let rules = gate.list_rules();
+                                let rule_list: Vec<serde_json::Value> = rules.iter().map(|r| {
+                                    serde_json::json!({
+                                        "id": r.id,
+                                        "description": r.description,
+                                        "tool": r.tool,
+                                        "action": r.action,
+                                        "target_pattern": r.target_pattern,
+                                        "require_confirmation": r.require_confirmation,
+                                        "auto_deny": r.auto_deny,
+                                    })
+                                }).collect();
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"rules": rule_list, "count": rule_list.len()})).await;
+                            }
+                            ClientMethod::PermissionGrant { tool, action, target, permanent } => {
+                                let mut gate = engine::permission_gate::gate::PermissionGate::new();
+                                let decision = if permanent {
+                                    engine::permission_gate::types::DecisionType::AllowPermanent
+                                } else {
+                                    engine::permission_gate::types::DecisionType::AllowSession
+                                };
+                                gate.grant(&tool, &action, &target, decision, None);
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "tool": tool, "action": action, "target": target, "permanent": permanent})).await;
+                            }
+                            ClientMethod::PermissionRevoke { tool, action, target } => {
+                                let mut gate = engine::permission_gate::gate::PermissionGate::new();
+                                let removed = gate.revoke(&tool, &action, &target);
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"success": removed > 0, "removed": removed})).await;
+                            }
                         }
                     }
                     Err(e) => {
