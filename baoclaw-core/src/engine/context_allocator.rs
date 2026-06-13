@@ -124,7 +124,7 @@ impl ContextAllocator {
         let mut included = mandatory;
         let mut excluded = Vec::new();
 
-        for (score, block) in scored {
+        for (_score, block) in scored {
             if block.token_count <= remaining {
                 remaining -= block.token_count;
                 included.push(block);

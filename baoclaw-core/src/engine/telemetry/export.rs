@@ -5,7 +5,6 @@
 
 use super::collector::TelemetryCollector;
 use super::types::{DailyStats, SessionSnapshot, ToolUsageStat, UsageStats};
-use std::path::PathBuf;
 
 /// Exports telemetry data to various formats.
 pub struct TelemetryExporter {

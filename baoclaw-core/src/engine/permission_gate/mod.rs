@@ -28,13 +28,3 @@ pub mod gate;
 pub mod interactive;
 
 // Re-export all public types for convenient access
-pub use types::{
-    CacheEntry,
-    DecisionType,
-    PermissionDecision,
-    PermissionRequest,
-    PermissionRule,
-};
-pub use cache::PermissionCache;
-pub use gate::PermissionGate;
-pub use interactive::InteractivePrompter;

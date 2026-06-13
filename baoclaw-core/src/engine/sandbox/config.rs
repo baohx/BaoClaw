@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::profile::{SandboxProfile, NetworkRule};
+use super::profile::SandboxProfile;
 
 /// Sandbox configuration file structure.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

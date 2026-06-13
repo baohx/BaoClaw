@@ -4,7 +4,7 @@
 //! provides simple linear forecasting.
 
 use super::collector::TelemetryCollector;
-use super::types::{DailyStats, Trend, TrendDirection};
+use super::types::{DailyStats, Trend};
 
 /// A helper struct that directly queries the telemetry database.
 struct DbHelper {

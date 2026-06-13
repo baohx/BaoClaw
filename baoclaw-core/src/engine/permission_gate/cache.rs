@@ -5,7 +5,6 @@
 //! Uses a Mutex-protected Vec for thread safety.
 
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::types::{CacheEntry, DecisionType};
 

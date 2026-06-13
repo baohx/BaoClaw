@@ -4,7 +4,7 @@
 //! plus 5 built-in templates embedded in the binary.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::types::{Template, WorkflowAction, WorkflowStep};
 use super::builtins::builtin_templates;

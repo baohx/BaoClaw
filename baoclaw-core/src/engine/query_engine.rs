@@ -1899,7 +1899,7 @@ async fn run_query_loop(
                     };
                     let compact_abort_rx = config.abort_rx.clone();
                     let compact_api_client = Arc::clone(&config.api_client);
-                    let compact_model = config.model.clone();
+                    let _compact_model = config.model.clone();
                     let summary_result = async move {
                         let mut stream = compact_api_client.create_message_stream(summary_request).await
                             .map_err(|e| format!("{}", e))?;
@@ -2748,7 +2748,7 @@ fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
     let mut tool_use_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for (idx, msg) in messages.iter().enumerate() {
+    for (_idx, msg) in messages.iter().enumerate() {
         match &msg.content {
             MessageContent::Assistant { message, .. } => {
                 let ids: Vec<String> = message.content.iter()

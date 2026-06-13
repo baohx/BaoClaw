@@ -2,8 +2,7 @@
 //!
 //! Provides pattern matching for hostnames and network rules.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::str::FromStr;
+use std::net::IpAddr;
 
 /// Network whitelist matcher.
 #[derive(Clone, Debug, Default)]

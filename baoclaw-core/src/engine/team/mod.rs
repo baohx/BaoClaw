@@ -75,37 +75,7 @@ pub mod shared_state;
 pub mod types;
 
 // Re-export main types for convenience
-pub use agent::{BudgetEnforcer, ExecutionTracker, SubAgentError, SubAgentExecutor};
-pub use executor::{TeamConfig, TeamError, TeamExecutor, TeamResult};
+pub use executor::{TeamConfig, TeamExecutor};
 pub use manager::TeamManager;
-pub use policy::{
-    AgentPolicy,
-    AgentResult,
-    AgentUsage,
-    BudgetExceededAction,
-    DepthTools,
-    TeamPolicy,
-    TeamResults,
-};
-pub use shared_state::{
-    AgentResultForMerge,
-    MergedResults,
-    MergeStrategy,
-    ProgressEvent,
-    SharedMetrics as SharedManagerMetrics,
-    SharedStateManager,
-};
-pub use scheduler::{
-    DagNode, DagScheduler, DagStats, ExecutionWave, NodeStatus, SchedulerError,
-};
-pub use types::{
-    AgentTeam,
-    ProgressReport,
-    SharedState,
-    SubAgent,
-    SubAgentStatus,
-    TeamBudget,
-    TeamMode,
-    TeamStatus,
-    TeamSummary,
-};
+pub use policy::TeamPolicy;
+pub use types::TeamMode;

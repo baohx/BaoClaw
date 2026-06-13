@@ -4,7 +4,7 @@
 //! to `~/.baoclaw/telemetry.db`. It provides aggregated queries for
 //! usage stats, tool usage, daily stats, and session history.
 
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Mutex;
 

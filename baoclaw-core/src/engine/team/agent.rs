@@ -19,7 +19,7 @@ use tokio::sync::{watch, RwLock};
 
 use crate::api::unified::UnifiedClient;
 use crate::engine::query_engine::{EngineEvent, QueryEngine, QueryEngineConfig, ThinkingConfig};
-use crate::engine::team::policy::{AgentPolicy, AgentResult, AgentUsage, BudgetExceededAction, TeamPolicy};
+use crate::engine::team::policy::{AgentPolicy, AgentResult, AgentUsage, BudgetExceededAction};
 use crate::tools::trait_def::Tool;
 use serde::{Deserialize, Serialize};
 

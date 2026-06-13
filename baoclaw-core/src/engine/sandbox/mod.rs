@@ -18,12 +18,6 @@ mod permission;
 mod legacy;
 
 // Public exports
-pub use profile::{SandboxProfile, NetworkRule, ProfilePreset};
-pub use executor::SandboxExecutor;
-pub use network::{NetworkWhitelist, HostMatcher, WhitelistRule};
-pub use config::{SandboxConfigFile, load_sandbox_config, sandbox_config_path};
-pub use audit::{AuditLog, AuditEvent, AuditEventRecord, audit_db_path};
-pub use permission::{PermissionManager, EscalationRequest, EscalationResult};
 
 // Re-export legacy types for backward compatibility
 pub use legacy::{SandboxBackend, SandboxConfig};

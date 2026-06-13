@@ -343,7 +343,7 @@ impl TeamExecutor {
         mut team: AgentTeam,
         abort_rx: watch::Receiver<bool>,
     ) -> TeamResult {
-        use crate::engine::team::policy::AgentResult;
+        
 
         let shared_state = Arc::new(RwLock::new(team.shared_state.clone()));
         let cwd = team
@@ -849,7 +849,7 @@ impl TeamExecutor {
         agent_policy: Option<crate::engine::team::policy::AgentPolicy>,
         agent_id: String,
     ) -> Result<crate::engine::team::policy::AgentResult, TeamError> {
-        use crate::engine::team::policy::{AgentPolicy, AgentResult, AgentUsage};
+        use crate::engine::team::policy::{AgentResult, AgentUsage};
 
         let start_time = std::time::Instant::now();
 
@@ -912,11 +912,11 @@ impl TeamExecutor {
         let mut total_input_tokens: u64 = 0;
         let mut total_output_tokens: u64 = 0;
         let mut total_cost: f64 = 0.0;
-        let mut turns: u32 = 0;
-        let mut tools_used: Vec<String> = Vec::new();
-        let mut files_read: Vec<String> = Vec::new();
-        let mut files_written: Vec<String> = Vec::new();
-        let mut commands_executed: Vec<String> = Vec::new();
+        let turns: u32 = 0;
+        let _tools_used: Vec<String> = Vec::new();
+        let _files_read: Vec<String> = Vec::new();
+        let _files_written: Vec<String> = Vec::new();
+        let _commands_executed: Vec<String> = Vec::new();
 
         loop {
             tokio::select! {
@@ -1068,7 +1068,7 @@ impl TeamExecutor {
         &self,
         team: &AgentTeam,
     ) -> crate::engine::team::policy::TeamPolicy {
-        use crate::engine::team::policy::TeamPolicy;
+        
 
         team.shared_state
             .get("policy")

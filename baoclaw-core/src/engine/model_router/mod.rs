@@ -49,7 +49,3 @@ pub mod router;
 pub mod types;
 
 // Re-export main types for convenience
-pub use budget::{BudgetManager, BudgetResult};
-pub use learning::{RouterLearning, RouterMetrics};
-pub use router::ModelRouter;
-pub use types::{ModelInfo, RouteCondition, RoutingDecision, RoutingRule};

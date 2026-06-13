@@ -30,7 +30,7 @@ use ipc::router::{parse_client_method, ClientMethod};
 use ipc::server::{IpcConnection, IpcError, IpcServer};
 use permissions::gate::{PermissionDecision, PermissionGate};
 use state::manager::{CoreState, StateManager};
-use tools::builtins::{AgentTool, BashTool, FileEditTool, FileReadTool, FileWriteTool, GlobTool, GrepTool, ImageEditTool, ImageGenTool, MemoryTool, NotebookEditTool, ProjectNoteTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
+use tools::builtins::{AgentTool, BashTool, FileEditTool, FileReadTool, FileWriteTool, ImageEditTool, ImageGenTool, MemoryTool, NotebookEditTool, ProjectNoteTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
 use mcp::tool_wrapper::McpToolWrapper;
 
 /// Shared state cloned into each spawned client task.
@@ -1177,7 +1177,7 @@ async fn handle_shared_client(
                             ClientMethod::SpecRun { feature_name, task_id } => {
                                 let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
                                 let mut conn_guard = conn.lock().await;
-                                let task = if let Some(tid) = &task_id {
+                                let task = if let Some(_tid) = &task_id {
                                     // Find specific task
                                     match spec_engine.next_task(&feature_name) {
                                         Ok(t) => t,
@@ -2238,7 +2238,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let baoclaw_config = cron_baoclaw_config.clone();
                 let thinking_config = cron_thinking_config.clone();
                 let append_prompt = cron_append_prompt.clone();
-                let session_id = cron_session_id.clone();
+                let _session_id = cron_session_id.clone();
                 let file_cache = Arc::clone(&cron_file_cache);
                 let tool_result_store = cron_tool_result_store.as_ref().map(Arc::clone);
                 let hook_manager = Arc::clone(&cron_hook_manager);

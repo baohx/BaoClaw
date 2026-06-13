@@ -1084,5 +1084,47 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-13T05:26:23.490070633+00:00"
+  },
+  {
+    "text": "Step 1: cargo fix 自动修46个warnings → 提交",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:42:40.761230493+00:00"
+  },
+  {
+    "text": "Step 2: 添加所有模版CLI+IPC handler 并提交",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:42:40.762792660+00:00"
+  },
+  {
+    "text": "Run cargo fix --lib for lib warnings",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:42:56.937225761+00:00"
+  },
+  {
+    "text": "Run cargo fix --bin for binary warnings",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:42:56.938457395+00:00"
+  },
+  {
+    "text": "Verify with cargo check",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:42:56.939215072+00:00"
+  },
+  {
+    "text": "Manually fix any remaining warnings",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:42:56.940198135+00:00"
+  },
+  {
+    "text": "Commit the changes",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-13T05:42:56.940755696+00:00"
   }
 ]

@@ -3,7 +3,7 @@
 //! The `ModelRouter` maintains a list of available models and routing rules,
 //! and selects the best model for a given task based on the rules.
 
-use super::types::{ModelInfo, RouteCondition, RoutingDecision, RoutingRule};
+use super::types::{ModelInfo, RoutingDecision, RoutingRule};
 
 /// The model routing engine.
 ///

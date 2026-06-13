@@ -17,9 +17,3 @@ pub mod commit;
 pub mod auth;
 
 // Re-export all public types for convenient access
-pub use types::{PrInfo, BranchInfo, ConflictInfo, CommitInfo};
-pub use pr::{PrManager, GitIntegrationError};
-pub use branch::BranchManager;
-pub use conflict::ConflictResolver;
-pub use commit::CommitManager;
-pub use auth::{GitAuth, GitPlatform, AuthError};

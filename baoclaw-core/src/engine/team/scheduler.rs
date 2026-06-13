@@ -461,7 +461,7 @@ impl DagScheduler {
         
         let mut in_degree = self.in_degree.clone();
         
-        let mut queue: VecDeque<String> = self
+        let queue: VecDeque<String> = self
             .nodes
             .keys()
             .filter(|id| in_degree.get(*id) == Some(&0))

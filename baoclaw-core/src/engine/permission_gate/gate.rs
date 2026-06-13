@@ -4,8 +4,6 @@
 //! When a tool requests an action, the gate checks cache first,
 //! then evaluates rules in priority order, and returns a decision.
 
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::cache::PermissionCache;
 use super::types::{DecisionType, PermissionDecision, PermissionRequest, PermissionRule};

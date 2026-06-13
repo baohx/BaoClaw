@@ -147,7 +147,7 @@ impl PermissionManager {
             }
         };
 
-        let desired = config.get_profile(needed_profile)?.clone();
+        let _desired = config.get_profile(needed_profile)?.clone();
 
         Some(EscalationRequest {
             request_id: format!("esc-{}-{}", tool, std::process::id()),

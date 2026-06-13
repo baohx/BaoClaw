@@ -1,4 +1,5 @@
 // Library entry point for integration tests and external consumers
+#![allow(dead_code)]
 
 pub mod api;
 pub mod bridge;

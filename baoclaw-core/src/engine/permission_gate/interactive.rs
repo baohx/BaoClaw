@@ -84,7 +84,7 @@ impl InteractivePrompter {
     /// Generate a list of quick-action descriptions for display.
     ///
     /// Each string describes one available action and its shortcut.
-    pub fn quick_actions(request: &PermissionRequest) -> Vec<String> {
+    pub fn quick_actions(_request: &PermissionRequest) -> Vec<String> {
         vec![
             "[y] 允许本次 (Allow this once)".to_string(),
             "[n] 拒绝 (Deny)".to_string(),

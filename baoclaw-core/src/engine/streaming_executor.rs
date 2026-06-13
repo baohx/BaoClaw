@@ -1,7 +1,6 @@
 //! Streaming tool executor — provides real-time progress for long-running tools.
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// A chunk of streaming output from a tool execution.
