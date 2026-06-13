@@ -34,3 +34,4 @@ pub mod export;
 pub mod spec_engine;
 pub mod hooks;
 pub mod team;
+pub mod template;
