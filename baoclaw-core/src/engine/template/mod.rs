@@ -11,3 +11,6 @@ pub mod types;
 pub mod builtins;
 pub mod engine;
 
+#[cfg(test)]
+mod engine_tests;
+
