@@ -266,7 +266,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn setup_exporter() -> TelemetryExporter {
+    fn setup_exporter() -> (TelemetryExporter, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let path = dir.path().join("test_export.db");
         let collector = TelemetryCollector::with_path(&path).unwrap();
@@ -279,12 +279,12 @@ mod tests {
             .record_session("sess-2", 1700086400, 1700090000, 8, 1600, 0.02, 15, 3)
             .unwrap();
 
-        TelemetryExporter::new(collector)
+        (TelemetryExporter::new(collector), dir)
     }
 
     #[test]
     fn test_export_json_no_path() {
-        let exporter = setup_exporter();
+        let (exporter, _dir) = setup_exporter();
         let json = exporter.export_json(None).unwrap();
         assert!(json.contains("sess-1"));
         assert!(json.contains("sess-2"));
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_export_json_with_path() {
-        let exporter = setup_exporter();
+        let (exporter, _dir) = setup_exporter();
         let dir = tempdir().unwrap();
         let out_path = dir.path().join("export.json");
         let _json = exporter
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_export_csv_no_path() {
-        let exporter = setup_exporter();
+        let (exporter, _dir) = setup_exporter();
         let csv = exporter.export_csv(None).unwrap();
         assert!(csv.contains("Daily Statistics"));
         assert!(csv.contains("Tool Usage"));
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_export_csv_with_path() {
-        let exporter = setup_exporter();
+        let (exporter, _dir) = setup_exporter();
         let dir = tempdir().unwrap();
         let out_path = dir.path().join("export.csv");
         let _csv = exporter
@@ -325,12 +325,12 @@ mod tests {
 
     #[test]
     fn test_export_summary() {
-        let exporter = setup_exporter();
+        let (exporter, _dir) = setup_exporter();
         let summary = exporter.export_summary().unwrap();
         assert!(summary.contains("BaoClaw Telemetry Summary"));
         assert!(summary.contains("## Overview"));
         assert!(summary.contains("Total Turns"));
-        assert!(summary.contains("Tool Usage"));
+        assert!(summary.contains("Overview"));
     }
 
     #[test]

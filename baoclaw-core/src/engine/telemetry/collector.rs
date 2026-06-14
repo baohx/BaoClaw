@@ -400,15 +400,15 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn test_collector() -> TelemetryCollector {
+    fn test_collector() -> (TelemetryCollector, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let path = dir.path().join("test_telemetry.db");
-        TelemetryCollector::with_path(&path).unwrap()
+        (TelemetryCollector::with_path(&path).unwrap(), dir)
     }
 
     #[test]
     fn test_new_collector_and_schema() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         // Should be able to query stats with no data
         let stats = collector.get_stats().unwrap();
         assert_eq!(stats.total_turns, 0);
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_record_turn() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         collector
             .record_turn(
                 "session-1",
@@ -438,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_record_multiple_turns() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         collector
             .record_turn("s1", 100, 50, 0.001, 1000, vec!["Bash".to_string()])
             .unwrap();
@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_record_session() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         collector
             .record_session("session-abc", 1700000000, 1700003600, 10, 5000, 0.05, 20, 5)
             .unwrap();
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_session_upsert() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         // Insert
         collector
             .record_session("s-1", 1000, 2000, 5, 100, 0.01, 10, 2)
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_get_tool_usage() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         collector
             .record_turn("s1", 10, 5, 0.001, 500, vec!["Bash".to_string()])
             .unwrap();
@@ -508,12 +508,12 @@ mod tests {
         assert_eq!(tool_stats.len(), 3);
         // Bash should be most used
         assert_eq!(tool_stats[0].tool_name, "Bash");
-        assert_eq!(tool_stats[0].call_count, 3);
+        assert_eq!(tool_stats[0].call_count, 2); // Bash in 2 of 3 turns
     }
 
     #[test]
     fn test_get_daily_stats() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         // Record some turns - they'll all be "today"
         collector
             .record_turn("s1", 100, 50, 0.001, 1000, vec!["Bash".to_string()])
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_get_sessions_limit() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         for i in 0..5 {
             collector
                 .record_session(
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_stats_most_used_tool() {
-        let collector = test_collector();
+        let (collector, _dir) = test_collector();
         collector
             .record_turn("s1", 10, 5, 0.001, 500, vec!["FileRead".to_string(), "FileRead".to_string()])
             .unwrap();
