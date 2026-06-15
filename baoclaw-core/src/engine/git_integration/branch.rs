@@ -167,12 +167,21 @@ impl BranchManager {
             let mut last_commit_msg = String::new();
 
             if parts.len() > 1 {
-                let rest_str = parts[1];
+                let rest_str = parts[1].trim();
+                // Extract commit hash (first word before tracking info)
+                // Format: "hash [tracking] msg" or "hash msg"
+                let hash_end = rest_str.find(' ').unwrap_or(rest_str.len());
+                let hash_part = &rest_str[..hash_end];
+                // Only treat as hash if it looks like one (7+ hex chars)
+                if hash_part.len() >= 7 && hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                    last_commit = hash_part.to_string();
+                }
                 // Try to find [ahead X, behind Y] pattern
                 if let Some(bracket_start) = rest_str.find('[') {
                     let bracket_end = rest_str[bracket_start..].find(']').unwrap_or(0);
                     let bracket_content = &rest_str[bracket_start + 1..bracket_start + bracket_end];
-                    for part in bracket_content.split(',') {
+                    // Support both "," and ":" as separators (e.g. "[origin/main: ahead 3]")
+                    for part in bracket_content.split(|c: char| c == ',' || c == ':') {
                         let part = part.trim();
                         if let Some(num_str) = part.strip_prefix("ahead ") {
                             ahead = num_str.parse().unwrap_or(0);
@@ -181,24 +190,16 @@ impl BranchManager {
                         }
                     }
                 }
-                // Extract last commit hash (short, after the tracking info)
-                // Format: "branch_name hash commit_msg"
+                // Extract commit message (after the tracking info bracket)
+                // Format: "...] msg" or without bracket: "hash msg"
                 let after_tracking = if let Some(bracket_end) = rest_str.find("] ") {
                     &rest_str[bracket_end + 2..]
-                } else if rest_str.len() > 8 {
-                    // No tracking bracket, rest_str may start with hash directly
-                    rest_str
+                } else if rest_str.len() > hash_end + 1 {
+                    &rest_str[hash_end + 1..]
                 } else {
                     ""
                 };
-
-                let commit_parts: Vec<&str> = after_tracking.splitn(2, ' ').collect();
-                if commit_parts.len() >= 1 && !commit_parts[0].is_empty() {
-                    last_commit = commit_parts[0].to_string();
-                }
-                if commit_parts.len() >= 2 {
-                    last_commit_msg = commit_parts[1].to_string();
-                }
+                last_commit_msg = after_tracking.to_string();
             }
 
             branches.push(BranchInfo {
