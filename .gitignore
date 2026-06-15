@@ -34,8 +34,8 @@ Thumbs.db
 .baoclaw/mcp.local.json
 
 # Book (source tracked, PDF generated locally)
-/book
-/book2
+book
+book2
 .baoclaw/backups/
 BAOCLAW.md
 .pdf
