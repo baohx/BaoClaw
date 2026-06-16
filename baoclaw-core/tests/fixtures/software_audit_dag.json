@@ -1,0 +1,70 @@
+{
+  "id": "dag-software-audit-001",
+  "name": "Software Code Audit Pipeline",
+  "task": "Perform a comprehensive code audit: scan security, analyze style, review architecture, measure performance, then merge reports and generate final audit document",
+  "mode": "dag",
+  "status": "pending",
+  "agents": [
+    {
+      "id": "security-scan",
+      "name": "Security Scanner",
+      "prompt": "Scan the entire codebase for security vulnerabilities: hardcoded secrets, SQL injection, XSS, insecure crypto, path traversal, and missing input validation. Output a structured report.",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "style-check",
+      "name": "Code Style Checker",
+      "prompt": "Run style analysis across the codebase: check for consistent naming conventions, code formatting, unused imports, dead code, and comment coverage. Output findings.",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "arch-review",
+      "name": "Architecture Reviewer",
+      "prompt": "Review the high-level architecture: module boundaries, dependency graph, coupling/cohesion metrics, circular dependencies, and adherence to design patterns. Output an architecture assessment.",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "perf-bench",
+      "name": "Performance Analyzer",
+      "prompt": "Analyze performance hotspots: identify O(n²) algorithms, excessive allocations, blocking I/O, unoptimized queries, and memory leaks. Output performance report.",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "dep-scan",
+      "name": "Dependency Scanner",
+      "prompt": "Scan all third-party dependencies: check for known CVEs, outdated versions, license compliance issues, and supply chain risks. Output dependency audit.",
+      "status": "pending",
+      "dependencies": ["security-scan"]
+    },
+    {
+      "id": "merge-report",
+      "name": "Report Merger",
+      "prompt": "Merge all individual analysis reports (security, style, architecture, performance, dependencies) into a unified audit document. De-duplicate findings, prioritize by severity, and create an executive summary.",
+      "status": "pending",
+      "dependencies": ["security-scan", "style-check", "arch-review", "perf-bench", "dep-scan"]
+    },
+    {
+      "id": "final-doc",
+      "name": "Final Documentation",
+      "prompt": "Generate the final PDF/HTML audit report with executive summary, detailed findings by category, remediation recommendations, and an appendix with raw data. Format professionally.",
+      "status": "pending",
+      "dependencies": ["merge-report"]
+    }
+  ],
+  "budget": {
+    "max_cost_usd": 5.0,
+    "max_tokens": 500000,
+    "max_time_secs": 1800
+  },
+  "shared_state": {
+    "data": {},
+    "progress": []
+  },
+  "created_at": "2026-06-16T14:00:00Z",
+  "total_tokens": 0,
+  "total_cost_usd": 0.0
+}

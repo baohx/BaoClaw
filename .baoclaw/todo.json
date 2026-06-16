@@ -1174,5 +1174,17 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-14T12:46:21.756286352+00:00"
+  },
+  {
+    "text": "自动生成 DAG JSON 配置文件（多智能体编排用）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T14:16:27.938542323+00:00"
+  },
+  {
+    "text": "创建 DAG JSON 配置文件（真实多智能体场景）",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-16T14:16:59.063205929+00:00"
   }
 ]
