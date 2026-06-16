@@ -1186,5 +1186,11 @@
     "completed": true,
     "priority": "high",
     "created_at": "2026-06-16T14:16:59.063205929+00:00"
+  },
+  {
+    "text": "创建 bao-team CLI 子命令（validate / dot / run DAG）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T14:39:25.746496415+00:00"
   }
 ]

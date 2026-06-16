@@ -67,3 +67,18 @@ clean: ## Clean build artifacts
 	cd baoclaw-core && cargo clean
 	cd ts-ipc && rm -rf node_modules
 	@echo "Cleaned."
+
+# ======== Team ========
+
+team-build: ## Build bao-team CLI
+	cd baoclaw-core && cargo build --release --bin bao-team
+	@echo "Built: baoclaw-core/target/release/bao-team"
+
+team-validate: ## Validate a DAG JSON file (usage: make team-validate DAG=my_workflow.json)
+	cd baoclaw-core && cargo run --bin bao-team -- validate $(DAG)
+
+team-dot: ## Generate DOT graph from DAG (usage: make team-dot DAG=my_workflow.json)
+	cd baoclaw-core && cargo run --bin bao-team -- dot $(DAG)
+
+team-run: ## Execute a DAG workflow (usage: make team-run DAG=my_workflow.json)
+	cd baoclaw-core && cargo run --bin bao-team -- run $(DAG)
