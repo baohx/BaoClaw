@@ -113,8 +113,23 @@ impl Tool for GrepTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(2) as usize;
 
-        let matches =
-            grep_search(pattern, &search_path, include_glob, context_lines, MAX_RESULTS)?;
+        // Offload synchronous filesystem I/O to blocking thread pool
+        let search_path_clone = search_path.clone();
+        let pattern_owned = pattern.to_string();
+        let include_glob_owned = include_glob.map(|s| s.to_string());
+        let matches = tokio::task::spawn_blocking(move || {
+            grep_search(
+                &pattern_owned,
+                &search_path_clone,
+                include_glob_owned.as_deref(),
+                context_lines,
+                MAX_RESULTS,
+            )
+        })
+        .await
+        .map_err(|e| {
+            ToolError::ExecutionFailed(format!("Grep task panicked: {}", e))
+        })??;
 
         let truncated = matches.len() >= MAX_RESULTS;
 

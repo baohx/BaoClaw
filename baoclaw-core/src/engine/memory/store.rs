@@ -148,16 +148,40 @@ impl MemoryStore {
             last_recalled_at: None,
             archived: false,
         };
-        let mut entries = self.entries.lock().await;
-        entries.push(entry.clone());
-        // Append to file
-        if let Ok(line) = serde_json::to_string(&entry) {
-            use std::io::Write;
-            let fp = self.file_path.lock().await;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&*fp) {
-                let _ = writeln!(f, "{}", line);
-            }
+
+        // Serialize before acquiring any locks
+        let serialized_line = serde_json::to_string(&entry);
+
+        // Phase 1: acquire entries lock, push, release
+        {
+            let mut entries = self.entries.lock().await;
+            entries.push(entry.clone());
         }
+
+        // Phase 2: acquire file_path lock, clone path, release (deadlock prevention:
+        //          never hold entries lock while acquiring file_path lock)
+        let fp = {
+            let fp_guard = self.file_path.lock().await;
+            fp_guard.clone()
+        };
+
+        // Phase 3: offload filesystem I/O to blocking thread pool
+        if let Ok(line) = serialized_line {
+            let _ = tokio::task::spawn_blocking(move || {
+                let mut f = match std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&fp)
+                {
+                    Ok(f) => f,
+                    Err(_) => return,
+                };
+                use std::io::Write;
+                let _ = writeln!(f, "{}", line);
+            })
+            .await;
+        }
+
         entry
     }
 
@@ -168,12 +192,20 @@ impl MemoryStore {
 
     /// Delete a memory by ID prefix.
     pub async fn delete(&self, id_prefix: &str) -> bool {
+        let entries_snapshot;
         let mut entries = self.entries.lock().await;
         let before = entries.len();
         entries.retain(|e| !e.id.starts_with(id_prefix));
         if entries.len() < before {
-            let fp = self.file_path.lock().await;
-            Self::write_all_sync(&fp, &entries);
+            entries_snapshot = entries.clone();
+            drop(entries);
+            let fp = self.file_path.lock().await.clone();
+            // Offload filesystem I/O — lock already released
+            tokio::task::spawn_blocking(move || {
+                Self::write_all_sync(&fp, &entries_snapshot);
+            })
+            .await
+            .ok();
             true
         } else {
             false
@@ -182,11 +214,19 @@ impl MemoryStore {
 
     /// Clear all memories.
     pub async fn clear(&self) -> usize {
-        let mut entries = self.entries.lock().await;
-        let count = entries.len();
-        entries.clear();
-        let fp = self.file_path.lock().await;
-        let _ = std::fs::write(&*fp, "");
+        let count = {
+            let mut entries = self.entries.lock().await;
+            let count = entries.len();
+            entries.clear();
+            count
+        };
+        // Drop entries lock, then do file I/O
+        let fp = self.file_path.lock().await.clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = std::fs::write(&fp, "");
+        })
+        .await
+        .ok();
         count
     }
 

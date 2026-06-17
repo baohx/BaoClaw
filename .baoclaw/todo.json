@@ -1192,5 +1192,131 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-16T14:39:25.746496415+00:00"
+  },
+  {
+    "text": "实现自然语义 → DAG 映射（DAG Registry + intent matcher + REPL）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T14:51:17.828147963+00:00"
+  },
+  {
+    "text": "List all .rs files in baoclaw-core/src/",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T15:05:07.457937393+00:00"
+  },
+  {
+    "text": "Scan for hardcoded secrets",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T15:05:07.459734083+00:00"
+  },
+  {
+    "text": "Scan for SQL injection",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T15:05:07.461159720+00:00"
+  },
+  {
+    "text": "Find all unsafe blocks",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T15:05:07.462178473+00:00"
+  },
+  {
+    "text": "Check path traversal vulnerabilities",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T15:05:07.463580664+00:00"
+  },
+  {
+    "text": "Check command injection risks",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T15:05:07.464940512+00:00"
+  },
+  {
+    "text": "Compile final security report",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T15:05:07.466034173+00:00"
+  },
+  {
+    "text": "Search O(n²) patterns: nested loops, collect+immediate-iterate, repeated lookups",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:01:21.272228817+00:00"
+  },
+  {
+    "text": "Search excessive allocation: clone, to_string, to_owned, collect on hot paths",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:01:21.274060937+00:00"
+  },
+  {
+    "text": "Search blocking I/O in async context",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:01:21.275344594+00:00"
+  },
+  {
+    "text": "Search lock contention: Mutex, RwLock patterns",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:01:21.276574485+00:00"
+  },
+  {
+    "text": "Search memory issues: Vec::new(), String concat, Box abuse",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:01:21.279216666+00:00"
+  },
+  {
+    "text": "读取 Cargo.toml 和 Cargo.lock",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:31:32.593865732+00:00"
+  },
+  {
+    "text": "扫描第三方依赖 CVE",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:31:32.596167821+00:00"
+  },
+  {
+    "text": "检查过时依赖版本",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:31:32.598219015+00:00"
+  },
+  {
+    "text": "License 合规性检查",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:31:32.600321269+00:00"
+  },
+  {
+    "text": "供应链风险评估",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:31:32.601791815+00:00"
+  },
+  {
+    "text": "输出结构化审计报告",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-16T23:31:32.603389292+00:00"
+  },
+  {
+    "text": "迭代1: C1 grep_tool 阻塞 I/O → spawn_blocking",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T13:13:57.359005870+00:00"
+  },
+  {
+    "text": "迭代1: C3 memory/store.rs 持锁做同步I/O + 死锁风险",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T13:14:06.728174927+00:00"
   }
 ]
