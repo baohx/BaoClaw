@@ -172,7 +172,9 @@ function stopSpinner() {
   if (spinnerInterval) {
     clearInterval(spinnerInterval);
     spinnerInterval = null;
-    process.stderr.write('\r' + ' '.repeat(60) + '\r');
+    // Clear the spinner line with spaces, then advance to next line
+    // so subsequent output doesn't overlap on the same line
+    process.stderr.write('\r' + ' '.repeat(60) + '\r\n');
   }
 }
 
