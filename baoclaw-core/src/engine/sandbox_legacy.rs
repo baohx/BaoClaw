@@ -311,6 +311,10 @@ impl SandboxConfig {
 /// Check if a command exists in PATH (async version for tokio runtime).
 ///
 /// Uses spawn_blocking to avoid blocking the async runtime.
+///
+/// NOTE: This is a legacy internal helper. Only invoked with hard-coded
+/// program names (e.g. "bwrap", "docker") during backend detection.
+/// Not exposed to LLM output; no whitelist validation needed.
 pub async fn which_exists_async(cmd: &str) -> bool {
     let cmd = cmd.to_string();
     tokio::task::spawn_blocking(move || {
@@ -327,6 +331,9 @@ pub async fn which_exists_async(cmd: &str) -> bool {
 }
 
 /// Check if a command exists in PATH (synchronous, for non-async contexts).
+///
+/// NOTE: Legacy internal helper — only called with hard-coded program names.
+/// Not exposed to LLM output; no whitelist validation needed.
 fn which_exists(cmd: &str) -> bool {
     std::process::Command::new("which")
         .arg(cmd)

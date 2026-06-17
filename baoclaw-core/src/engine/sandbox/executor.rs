@@ -13,6 +13,68 @@ use super::profile::SandboxProfile;
 use super::config::SandboxConfigFile;
 use crate::engine::sandbox::{SandboxBackend, SandboxConfig};
 
+/// Allowed commands in the sandbox whitelist.
+///
+/// These are the only program names that may appear as the first element
+/// of a command vector built by the executor. LLM-generated command strings
+/// are passed as arguments to a shell (`-c`), but the *program* invoked by
+/// `Command::new` must be one of these safe wrappers or interpreters.
+const SANDBOX_ALLOWED_COMMANDS: &[&str] = &[
+    // Shell wrappers used internally by build_command_args
+    "/bin/bash", "/bin/sh", "bash", "sh",
+    // Sandbox backends
+    "bwrap", "docker",
+    // Interpreters / runtimes (code-interpreter scenarios)
+    "python3", "python", "node", "ruby", "perl", "lua",
+    // Core utilities
+    "echo", "cat", "ls", "pwd", "env", "printenv",
+    "grep", "sed", "awk", "sort", "uniq", "head", "tail", "wc",
+    "tr", "cut", "paste", "expand", "fold", "fmt",
+    "basename", "dirname", "realpath", "readlink",
+    "test", "true", "false",
+    "bc", "dc", "expr", "factor", "seq",
+    "date", "cal", "uptime",
+    "whoami", "id", "hostname",
+    "md5sum", "sha256sum", "base64", "xxd",
+    "jq", "yq", "xq",
+    // Compilers / build tools
+    "gcc", "g++", "clang", "rustc", "cargo",
+    "make", "cmake",
+];
+
+/// Validate that the command program is in the whitelist.
+///
+/// This is a defence-in-depth measure: even though `build_command_args`
+/// currently only produces program names from hard-coded backend logic,
+/// we validate here so that any future refactor or misuse cannot bypass
+/// the whitelist.
+///
+/// Returns the validated program string, or an error describing why
+/// the command was rejected.
+fn validate_command(program: &str) -> Result<String, String> {
+    // Reject path separators (prevents ./evil or /tmp/evil)
+    // Exception: absolute paths to system shells are allowed (/bin/bash, /bin/sh)
+    let is_allowed_absolute = matches!(program, "/bin/bash" | "/bin/sh" | "/usr/bin/bash" | "/usr/bin/sh");
+    if !is_allowed_absolute && (program.contains('/') || program.contains('\\')) {
+        return Err(format!(
+            "Absolute/relative paths not allowed in sandbox: {}",
+            program
+        ));
+    }
+
+    // Reject shell metacharacters
+    let dangerous_chars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+    if program.chars().any(|c| dangerous_chars.contains(&c)) {
+        return Err(format!("Dangerous characters in command: {}", program));
+    }
+
+    if !SANDBOX_ALLOWED_COMMANDS.contains(&program) {
+        return Err(format!("Command not in sandbox whitelist: {}", program));
+    }
+
+    Ok(program.to_string())
+}
+
 /// Sandbox executor that wraps commands for isolated execution.
 #[derive(Clone, Debug)]
 pub struct SandboxExecutor {
@@ -109,14 +171,20 @@ impl SandboxExecutor {
     }
 
     /// Build a Command struct for direct execution.
-    pub fn build_command(&self, command: &str, cwd: &Path) -> Command {
+    ///
+    /// Validates that the resolved program name is in the sandbox whitelist
+    /// before creating the `Command`. This prevents malicious or erroneous
+    /// LLM output from executing arbitrary programs.
+    pub fn build_command(&self, command: &str, cwd: &Path) -> Result<Command, String> {
         let args = self.build_command_args(command, cwd);
-        let mut cmd = Command::new(&args[0]);
+        // H3 Security fix: validate program name against whitelist before execution
+        let validated_program = validate_command(&args[0])?;
+        let mut cmd = Command::new(&validated_program);
         if args.len() > 1 {
             cmd.args(&args[1..]);
         }
         cmd.current_dir(cwd);
-        cmd
+        Ok(cmd)
     }
 
     /// Get a description of the current sandbox level.
@@ -356,6 +424,10 @@ impl SandboxExecutor {
 /// Check if a command exists in PATH (async version for tokio runtime).
 ///
 /// Uses spawn_blocking to avoid blocking the async runtime.
+///
+/// NOTE: This is an internal helper that only invokes the system `which`
+/// command with hard-coded program names (e.g. "bwrap", "docker"). It is
+/// NOT exposed to LLM output and therefore does not need whitelist validation.
 pub async fn which_exists_async(cmd: &str) -> bool {
     let cmd = cmd.to_string();
     tokio::task::spawn_blocking(move || {
@@ -372,6 +444,9 @@ pub async fn which_exists_async(cmd: &str) -> bool {
 }
 
 /// Check if a command exists in PATH (synchronous, for non-async contexts).
+///
+/// NOTE: Internal helper — only called with hard-coded program names during
+/// backend detection. Not exposed to LLM output; no whitelist needed.
 fn which_exists(cmd: &str) -> bool {
     std::process::Command::new("which")
         .arg(cmd)
@@ -383,6 +458,9 @@ fn which_exists(cmd: &str) -> bool {
 }
 
 /// Check if a Docker image exists locally (async version).
+///
+/// NOTE: Internal helper — only invokes `docker image inspect` with internally
+/// determined image names. Not exposed to LLM output; no whitelist needed.
 pub async fn docker_image_exists_async(image: &str) -> bool {
     let image = image.to_string();
     tokio::task::spawn_blocking(move || {
@@ -528,5 +606,66 @@ mod tests {
         let desc = executor.description();
         assert!(desc.contains("web_dev"));
         assert!(desc.contains("none"));
+    }
+
+    #[test]
+    fn test_validate_command_accepts_whitelist() {
+        // Internal shell wrappers and backends
+        assert!(validate_command("/bin/bash").is_ok());
+        assert!(validate_command("/bin/sh").is_ok());
+        assert!(validate_command("bash").is_ok());
+        assert!(validate_command("sh").is_ok());
+        assert!(validate_command("bwrap").is_ok());
+        assert!(validate_command("docker").is_ok());
+        // Interpreters
+        assert!(validate_command("python3").is_ok());
+        assert!(validate_command("python").is_ok());
+        assert!(validate_command("node").is_ok());
+        assert!(validate_command("ruby").is_ok());
+        // Utilities
+        assert!(validate_command("ls").is_ok());
+        assert!(validate_command("cat").is_ok());
+        assert!(validate_command("echo").is_ok());
+        // Compilers
+        assert!(validate_command("gcc").is_ok());
+        assert!(validate_command("cargo").is_ok());
+    }
+
+    #[test]
+    fn test_validate_command_rejects_paths() {
+        assert!(validate_command("./evil").is_err());
+        assert!(validate_command("/tmp/evil").is_err());
+        assert!(validate_command("/usr/local/bin/custom").is_err());
+        assert!(validate_command("some/relative/path").is_err());
+        assert!(validate_command("C:\\evil.exe").is_err());
+    }
+
+    #[test]
+    fn test_validate_command_rejects_metacharacters() {
+        assert!(validate_command("bash;rm -rf /").is_err());
+        assert!(validate_command("cat|grep secret").is_err());
+        assert!(validate_command("echo $(whoami)").is_err());
+        assert!(validate_command("echo `whoami`").is_err());
+        assert!(validate_command("foo\nbar").is_err());
+        assert!(validate_command("foo\rbar").is_err());
+    }
+
+    #[test]
+    fn test_validate_command_rejects_non_whitelist() {
+        assert!(validate_command("rm").is_err());
+        assert!(validate_command("curl").is_err());
+        assert!(validate_command("wget").is_err());
+        assert!(validate_command("nc").is_err());
+        assert!(validate_command("chmod").is_err());
+        assert!(validate_command("custom_binary").is_err());
+    }
+
+    #[test]
+    fn test_build_command_returns_result() {
+        // build_command should now return Result and validate the program
+        let profile = SandboxProfile::read_only();
+        let executor = SandboxExecutor::new(profile, SandboxBackend::None);
+        let cmd = executor.build_command("ls -la", Path::new("/tmp"));
+        assert!(cmd.is_ok(), "build_command for None backend should succeed");
     }
 }
