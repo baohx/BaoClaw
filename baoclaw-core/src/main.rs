@@ -1834,7 +1834,7 @@ async fn handle_shared_client(
 
                             // ── Permission Gate handlers ──
                             ClientMethod::PermissionStatus => {
-                                let gate = engine::permission_gate::gate::PermissionGate::new();
+                                let gate = engine::permission_gate::gate::RuleBasedPermissionGate::new();
                                 let rules = gate.list_rules();
                                 let rule_list: Vec<serde_json::Value> = rules.iter().map(|r| {
                                     serde_json::json!({
@@ -1851,7 +1851,7 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, serde_json::json!({"rules": rule_list, "count": rule_list.len()})).await;
                             }
                             ClientMethod::PermissionGrant { tool, action, target, permanent } => {
-                                let mut gate = engine::permission_gate::gate::PermissionGate::new();
+                                let mut gate = engine::permission_gate::gate::RuleBasedPermissionGate::new();
                                 let decision = if permanent {
                                     engine::permission_gate::types::DecisionType::AllowPermanent
                                 } else {
@@ -1862,7 +1862,7 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "tool": tool, "action": action, "target": target, "permanent": permanent})).await;
                             }
                             ClientMethod::PermissionRevoke { tool, action, target } => {
-                                let mut gate = engine::permission_gate::gate::PermissionGate::new();
+                                let mut gate = engine::permission_gate::gate::RuleBasedPermissionGate::new();
                                 let removed = gate.revoke(&tool, &action, &target);
                                 let mut conn_guard = conn.lock().await;
                                 let _ = conn_guard.send_response(id, serde_json::json!({"success": removed > 0, "removed": removed})).await;

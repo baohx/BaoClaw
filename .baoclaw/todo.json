@@ -1318,5 +1318,143 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-17T13:14:06.728174927+00:00"
+  },
+  {
+    "text": "H1: 封装 async run_command，12 处 Command 调用改用 spawn_blocking",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:45:20.580730104+00:00"
+  },
+  {
+    "text": "H2: memory/store.rs 双锁死锁风险（已在 C3 修复中一并解决，验证即可）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:45:56.811255745+00:00"
+  },
+  {
+    "text": "H3: 代码解释器 LLM 输出直传 Command 安全加固（白名单校验）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:46:24.728397009+00:00"
+  },
+  {
+    "text": "H6: 合并 permissions/ 与 engine/permission_gate/（thin wrapper）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:47:26.650414315+00:00"
+  },
+  {
+    "text": "H7: 合并 telemetry.rs 与 engine/telemetry/（一套 canonical + re-export）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:48:27.052687739+00:00"
+  },
+  {
+    "text": "H4/H5: query_engine.rs(4559行) + main.rs(2735行) 巨型文件拆分（Iteration 3 专项）",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:48:58.889633182+00:00"
+  },
+  {
+    "text": "Create baoclaw-core/src/utils/command.rs with async command helper",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:50:59.515663078+00:00"
+  },
+  {
+    "text": "Add async wrapper functions to git_integration modules (conflict, branch, commit, pr)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:51:05.953593545+00:00"
+  },
+  {
+    "text": "Fix git_info.rs sync get_git_info to use spawn_blocking",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:51:05.956252339+00:00"
+  },
+  {
+    "text": "Fix sandbox/executor.rs and sandbox_legacy.rs which_exists/docker_image_exists",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-17T21:51:05.958350526+00:00"
+  },
+  {
+    "text": "Verify cargo check and cargo test pass",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:51:05.960279237+00:00"
+  },
+  {
+    "text": "Commit changes",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T21:51:05.961927674+00:00"
+  },
+  {
+    "text": "Add SANDBOX_ALLOWED_COMMANDS whitelist and validate_command function in executor.rs",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:02:33.436876694+00:00"
+  },
+  {
+    "text": "Add validate_command call in build_command before Command::new",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-17T22:02:39.736677520+00:00"
+  },
+  {
+    "text": "Add comments to internal helper functions (which/docker) in executor.rs and sandbox_legacy.rs",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-17T22:02:39.738539420+00:00"
+  },
+  {
+    "text": "Run cargo check and cargo test to verify compilation and tests pass",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-17T22:02:39.740859705+00:00"
+  },
+  {
+    "text": "Git commit the changes",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:02:39.742636696+00:00"
+  },
+  {
+    "text": "Update engine/permission_gate/mod.rs with re-exports and canonical documentation",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:08:47.009153164+00:00"
+  },
+  {
+    "text": "Update engine/permission_gate/gate.rs to rename PermissionGate → RuleBasedPermissionGate (engine-specific)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:08:47.011509179+00:00"
+  },
+  {
+    "text": "Update engine/permission_gate/types.rs to rename PermissionDecision → EnginePermissionDecision (avoid clash with canonical)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:08:47.024807278+00:00"
+  },
+  {
+    "text": "Update engine/permission_gate/cache.rs and interactive.rs for renamed types",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:08:47.026094863+00:00"
+  },
+  {
+    "text": "Update main.rs call sites to use renamed engine types",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:08:47.027292670+00:00"
+  },
+  {
+    "text": "cargo check + cargo test + git commit",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-17T22:08:47.028653399+00:00"
   }
 ]

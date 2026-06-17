@@ -1,4 +1,4 @@
-//! PermissionGate — the core permission evaluation engine.
+//! RuleBasedPermissionGate — the core permission evaluation engine.
 //!
 //! Maintains a list of permission rules and a permission cache.
 //! When a tool requests an action, the gate checks cache first,
@@ -6,21 +6,21 @@
 
 
 use super::cache::PermissionCache;
-use super::types::{DecisionType, PermissionDecision, PermissionRequest, PermissionRule};
+use super::types::{DecisionType, EnginePermissionDecision, PermissionRequest, PermissionRule};
 
 /// The core permission gate that evaluates tool access requests.
 ///
 /// Combines a rule-based policy engine with a session-aware cache.
 /// Default rules are loaded on construction for common safety patterns.
-pub struct PermissionGate {
+pub struct RuleBasedPermissionGate {
     /// Ordered list of permission rules (first match wins).
     rules: Vec<PermissionRule>,
     /// Thread-safe cache of user-granted permissions.
     cache: PermissionCache,
 }
 
-impl PermissionGate {
-    /// Create a new PermissionGate with sensible default rules.
+impl RuleBasedPermissionGate {
+    /// Create a new RuleBasedPermissionGate with sensible default rules.
     ///
     /// Default rules:
     /// - `FileRead` is always allowed (read-only is safe).
@@ -222,12 +222,12 @@ impl PermissionGate {
     /// 1. Check the cache for an existing grant (first priority).
     /// 2. Evaluate rules in order — first matching rule wins.
     /// 3. If no rule matches, default to asking the user.
-    pub fn check(&self, tool: &str, action: &str, target: &str) -> PermissionDecision {
+    pub fn check(&self, tool: &str, action: &str, target: &str) -> EnginePermissionDecision {
         let request_id = uuid::Uuid::new_v4().to_string();
 
         // 1. Check cache first
         if let Some(cached) = self.cache.check(tool, action, target) {
-            return PermissionDecision {
+            return EnginePermissionDecision {
                 request_id,
                 decision: cached,
                 rule_applied: Some("cache".to_string()),
@@ -245,15 +245,15 @@ impl PermissionGate {
             }
 
             // Rule matched — return the decision
-            return PermissionDecision::from_rule(&request_id, rule);
+            return EnginePermissionDecision::from_rule(&request_id, rule);
         }
 
         // 3. No rule matched — default to asking the user
-        PermissionDecision::ask_user(&request_id)
+        EnginePermissionDecision::ask_user(&request_id)
     }
 
     /// Check a permission request (takes a PermissionRequest struct).
-    pub fn check_request(&self, request: &PermissionRequest) -> PermissionDecision {
+    pub fn check_request(&self, request: &PermissionRequest) -> EnginePermissionDecision {
         let mut decision = self.check(&request.tool, &request.action, &request.target);
         decision.request_id = request.id.clone();
         decision
@@ -342,7 +342,7 @@ impl PermissionGate {
     }
 }
 
-impl Default for PermissionGate {
+impl Default for RuleBasedPermissionGate {
     fn default() -> Self {
         Self::new()
     }
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_fileread_always_allowed() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("FileRead", "read", "src/main.rs");
         assert_eq!(decision.decision, DecisionType::Allow);
         assert!(decision.rule_applied.is_some());
@@ -363,14 +363,14 @@ mod tests {
 
     #[test]
     fn test_filewrite_env_denied() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("FileWrite", "write", ".env");
         assert_eq!(decision.decision, DecisionType::Deny);
     }
 
     #[test]
     fn test_filewrite_md_allowed() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("FileWrite", "write", "README.md");
         // .md files are explicitly allowed by the default rule
         assert_eq!(decision.decision, DecisionType::Allow);
@@ -378,35 +378,35 @@ mod tests {
 
     #[test]
     fn test_bash_rmrf_denied() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("Bash", "rm -rf /", "/");
         assert_eq!(decision.decision, DecisionType::Deny);
     }
 
     #[test]
     fn test_bash_safe_command_allowed() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("Bash", "git status", ".");
         assert_eq!(decision.decision, DecisionType::Allow);
     }
 
     #[test]
     fn test_bash_unknown_requires_confirmation() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("Bash", "npm install some-package", ".");
         assert_eq!(decision.decision, DecisionType::AskUser);
     }
 
     #[test]
     fn test_filewrite_dot_git_denied() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("FileWrite", "write", ".git/config");
         assert_eq!(decision.decision, DecisionType::Deny);
     }
 
     #[test]
     fn test_add_and_remove_rule() {
-        let mut gate = PermissionGate::new();
+        let mut gate = RuleBasedPermissionGate::new();
         let initial_count = gate.rule_count();
 
         let rule = PermissionRule::new("test-rule", "Test rule", "MyTool", "do-thing");
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_grant_and_cache() {
-        let mut gate = PermissionGate::new();
+        let mut gate = RuleBasedPermissionGate::new();
 
         // Initially, this bash command requires confirmation
         let decision = gate.check("Bash", "npm run build", ".");
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_grant_permanent() {
-        let mut gate = PermissionGate::new();
+        let mut gate = RuleBasedPermissionGate::new();
 
         gate.grant(
             "FileWrite",
@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_revoke_cache() {
-        let mut gate = PermissionGate::new();
+        let mut gate = RuleBasedPermissionGate::new();
 
         gate.grant(
             "Bash",
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_reset() {
-        let mut gate = PermissionGate::new();
+        let mut gate = RuleBasedPermissionGate::new();
         let original_count = gate.rule_count();
 
         // Add a custom rule
@@ -516,28 +516,28 @@ mod tests {
 
     #[test]
     fn test_webfetch_localhost_denied() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("WebFetch", "fetch", "localhost:8080");
         assert_eq!(decision.decision, DecisionType::Deny);
     }
 
     #[test]
     fn test_webfetch_external_ask() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("WebFetch", "fetch", "https://example.com");
         assert_eq!(decision.decision, DecisionType::AskUser);
     }
 
     #[test]
     fn test_websearch_allowed() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         let decision = gate.check("WebSearch", "search", "rust lang");
         assert_eq!(decision.decision, DecisionType::Allow);
     }
 
     #[test]
     fn test_no_rule_defaults_to_ask() {
-        let gate = PermissionGate::new();
+        let gate = RuleBasedPermissionGate::new();
         // A tool with no rules at all
         let decision = gate.check("UnknownTool", "some-action", "some-target");
         assert_eq!(decision.decision, DecisionType::AskUser);

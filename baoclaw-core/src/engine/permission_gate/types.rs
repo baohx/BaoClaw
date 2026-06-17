@@ -130,7 +130,7 @@ impl PermissionRequest {
 
 /// The result of evaluating a permission request against rules and cache.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PermissionDecision {
+pub struct EnginePermissionDecision {
     /// The ID of the request this decision answers.
     pub request_id: String,
     /// What to do about the request.
@@ -141,7 +141,7 @@ pub struct PermissionDecision {
     pub expires_at: Option<u64>,
 }
 
-impl PermissionDecision {
+impl EnginePermissionDecision {
     /// Create an allow decision.
     pub fn allow(request_id: &str) -> Self {
         Self {
@@ -359,18 +359,18 @@ mod tests {
     #[test]
     fn test_decision_from_rule() {
         let allow_rule = PermissionRule::new("r-allow", "Allow rule", "FileRead", "*");
-        let decision = PermissionDecision::from_rule("req-1", &allow_rule);
+        let decision = EnginePermissionDecision::from_rule("req-1", &allow_rule);
         assert_eq!(decision.decision, DecisionType::Allow);
         assert_eq!(decision.rule_applied, Some("r-allow".to_string()));
 
         let deny_rule = PermissionRule::new("r-deny", "Deny rule", "Bash", "rm")
             .with_auto_deny();
-        let decision = PermissionDecision::from_rule("req-2", &deny_rule);
+        let decision = EnginePermissionDecision::from_rule("req-2", &deny_rule);
         assert_eq!(decision.decision, DecisionType::Deny);
 
         let ask_rule = PermissionRule::new("r-ask", "Ask rule", "FileWrite", "*.rs")
             .with_confirmation();
-        let decision = PermissionDecision::from_rule("req-3", &ask_rule);
+        let decision = EnginePermissionDecision::from_rule("req-3", &ask_rule);
         assert_eq!(decision.decision, DecisionType::AskUser);
     }
 
