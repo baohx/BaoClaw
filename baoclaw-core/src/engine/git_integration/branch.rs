@@ -3,102 +3,92 @@
 //! Provides create, switch, sync, cleanup, and list operations
 //! for git branches using the `git` command-line tool.
 
-use std::process::Command;
-
 use super::types::BranchInfo;
 use super::pr::GitIntegrationError;
+use crate::utils::command::run_command_async;
 
 /// Manages git branch operations.
 pub struct BranchManager;
 
 impl BranchManager {
     /// Ensure we are inside a git repository.
-    fn ensure_git_repo() -> Result<(), GitIntegrationError> {
-        let output = Command::new("git")
-            .args(["rev-parse", "--is-inside-work-tree"])
-            .output()
+    async fn ensure_git_repo() -> Result<(), GitIntegrationError> {
+        let output = run_command_async("git", &["rev-parse", "--is-inside-work-tree"], None)
+            .await
             .map_err(|_| GitIntegrationError::NotAGitRepo)?;
-        if !output.status.success() {
+        if !output.success() {
             return Err(GitIntegrationError::NotAGitRepo);
         }
         Ok(())
     }
 
     /// Run a git command and return its stdout as String.
-    fn run_git(args: &[&str]) -> Result<String, GitIntegrationError> {
-        let output = Command::new("git")
-            .args(args)
-            .output()
+    async fn run_git(args: &[&str]) -> Result<String, GitIntegrationError> {
+        let output = run_command_async("git", args, None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
-        Ok(String::from_utf8(output.stdout)?)
+        Ok(output.stdout)
     }
 
     /// Create a new branch and optionally switch to it.
     ///
     /// Uses `git checkout -b <name>` or `git branch <name> <from>`.
-    pub fn create_branch(name: &str, from: Option<&str>) -> Result<(), GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn create_branch(name: &str, from: Option<&str>) -> Result<(), GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
-        let mut cmd = Command::new("git");
-        cmd.args(["checkout", "-b", name]);
+        let mut args = vec!["checkout", "-b", name];
         if let Some(base) = from {
-            cmd.arg(base);
+            args.push(base);
         }
 
-        let output = cmd.output().map_err(GitIntegrationError::IoError)?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        let output = run_command_async("git", &args, None)
+            .await
+            .map_err(GitIntegrationError::IoError)?;
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
         Ok(())
     }
 
     /// Switch to an existing branch.
-    pub fn switch_branch(name: &str) -> Result<(), GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn switch_branch(name: &str) -> Result<(), GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
-        let output = Command::new("git")
-            .args(["checkout", name])
-            .output()
+        let output = run_command_async("git", &["checkout", name], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
         Ok(())
     }
 
     /// Sync current branch with remote: fetch and rebase.
-    pub fn sync_branch() -> Result<(), GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn sync_branch() -> Result<(), GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
         // git fetch
-        let fetch = Command::new("git")
-            .args(["fetch"])
-            .output()
+        let fetch = run_command_async("git", &["fetch"], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
-        if !fetch.status.success() {
-            let stderr = String::from_utf8_lossy(&fetch.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !fetch.success() {
+            return Err(GitIntegrationError::CommandFailed(fetch.stderr));
         }
 
         // git pull --rebase
-        let pull = Command::new("git")
-            .args(["pull", "--rebase"])
-            .output()
+        let pull = run_command_async("git", &["pull", "--rebase"], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
-        if !pull.status.success() {
-            let stderr = String::from_utf8_lossy(&pull.stderr);
-            let stderr_lower = stderr.to_lowercase();
+        if !pull.success() {
+            let stderr_lower = pull.stderr.to_lowercase();
             if stderr_lower.contains("conflict") {
                 return Err(GitIntegrationError::MergeConflict);
             }
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+            return Err(GitIntegrationError::CommandFailed(pull.stderr));
         }
 
         Ok(())
@@ -106,26 +96,24 @@ impl BranchManager {
 
     /// List merged branches and return their names.
     /// Does not actually delete them — just identifies candidates for cleanup.
-    pub fn cleanup_branches() -> Result<Vec<String>, GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn cleanup_branches() -> Result<Vec<String>, GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
         // Get current branch to avoid including it
-        let current = Self::run_git(&["branch", "--show-current"])?;
+        let current = Self::run_git(&["branch", "--show-current"]).await?;
         let current = current.trim();
 
         // List branches merged into HEAD (exclude current and main/master)
-        let output = Command::new("git")
-            .args(["branch", "--merged"])
-            .output()
+        let output = run_command_async("git", &["branch", "--merged"], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
-        let stdout = String::from_utf8(output.stdout)?;
-        let mut branches: Vec<String> = stdout
+        let mut branches: Vec<String> = output
+            .stdout
             .lines()
             .map(|l| l.trim_start_matches(" *").trim_start_matches(' ').trim().to_string())
             .filter(|name| {
@@ -216,21 +204,18 @@ impl BranchManager {
     }
 
     /// List all branches with tracking information.
-    pub fn list_branches() -> Result<Vec<BranchInfo>, GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn list_branches() -> Result<Vec<BranchInfo>, GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
-        let output = Command::new("git")
-            .args(["branch", "-vv"])
-            .output()
+        let output = run_command_async("git", &["branch", "-vv"], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
-        let stdout = String::from_utf8(output.stdout)?;
-        Ok(Self::parse_branch_vv(&stdout))
+        Ok(Self::parse_branch_vv(&output.stdout))
     }
 }
 
@@ -286,13 +271,13 @@ mod tests {
         assert!(branches.is_empty());
     }
 
-    #[test]
-    fn test_ensure_git_repo_in_non_repo() {
+    #[tokio::test]
+    async fn test_ensure_git_repo_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
-        let result = BranchManager::ensure_git_repo();
+        let result = BranchManager::ensure_git_repo().await;
         std::env::set_current_dir(&cwd).unwrap();
 
         match result {

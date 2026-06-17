@@ -308,7 +308,25 @@ impl SandboxConfig {
     }
 }
 
-/// Check if a command exists in PATH.
+/// Check if a command exists in PATH (async version for tokio runtime).
+///
+/// Uses spawn_blocking to avoid blocking the async runtime.
+pub async fn which_exists_async(cmd: &str) -> bool {
+    let cmd = cmd.to_string();
+    tokio::task::spawn_blocking(move || {
+        std::process::Command::new("which")
+            .arg(&cmd)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// Check if a command exists in PATH (synchronous, for non-async contexts).
 fn which_exists(cmd: &str) -> bool {
     std::process::Command::new("which")
         .arg(cmd)
@@ -319,7 +337,23 @@ fn which_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Check if a Docker image exists locally.
+/// Check if a Docker image exists locally (async version).
+pub async fn docker_image_exists_async(image: &str) -> bool {
+    let image = image.to_string();
+    tokio::task::spawn_blocking(move || {
+        std::process::Command::new("docker")
+            .args(["image", "inspect", &image])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// Check if a Docker image exists locally (synchronous, for non-async contexts).
 fn docker_image_exists(image: &str) -> bool {
     std::process::Command::new("docker")
         .args(["image", "inspect", image])

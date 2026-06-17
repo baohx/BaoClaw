@@ -3,37 +3,33 @@
 //! Provides squash, amend, undo, blame, and history operations
 //! for git commits using the `git` command-line tool.
 
-use std::process::Command;
-
 use super::pr::GitIntegrationError;
+use crate::utils::command::run_command_async;
 
 /// Manages git commit operations.
 pub struct CommitManager;
 
 impl CommitManager {
     /// Ensure we are inside a git repository.
-    fn ensure_git_repo() -> Result<(), GitIntegrationError> {
-        let output = Command::new("git")
-            .args(["rev-parse", "--is-inside-work-tree"])
-            .output()
+    async fn ensure_git_repo() -> Result<(), GitIntegrationError> {
+        let output = run_command_async("git", &["rev-parse", "--is-inside-work-tree"], None)
+            .await
             .map_err(|_| GitIntegrationError::NotAGitRepo)?;
-        if !output.status.success() {
+        if !output.success() {
             return Err(GitIntegrationError::NotAGitRepo);
         }
         Ok(())
     }
 
     /// Run a git command and return its stdout as String.
-    fn run_git(args: &[&str]) -> Result<String, GitIntegrationError> {
-        let output = Command::new("git")
-            .args(args)
-            .output()
+    async fn run_git(args: &[&str]) -> Result<String, GitIntegrationError> {
+        let output = run_command_async("git", args, None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
-        Ok(String::from_utf8(output.stdout)?)
+        Ok(output.stdout)
     }
 
     /// Squash the last `count` commits into one.
@@ -41,8 +37,8 @@ impl CommitManager {
     /// Uses `git reset --soft HEAD~<count>` followed by `git commit --no-edit`
     /// with the first commit's message. This is more reliable than interactive
     /// rebase in automated environments.
-    pub fn squash_commits(count: u32) -> Result<(), GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn squash_commits(count: u32) -> Result<(), GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
         if count < 2 {
             return Err(GitIntegrationError::CommandFailed(
@@ -51,62 +47,57 @@ impl CommitManager {
         }
 
         // Get the message of the commit we'll keep
-        let message = Self::run_git(&["log", "--format=%B", "-n", "1", &format!("HEAD~{}", count - 1)])?;
+        let head_arg = format!("HEAD~{}", count - 1);
+        let message = Self::run_git(&["log", "--format=%B", "-n", "1", &head_arg]).await?;
 
         // Soft reset to the parent of the oldest commit we're squashing
-        let output = Command::new("git")
-            .args(["reset", "--soft", &format!("HEAD~{}", count)])
-            .output()
+        let reset_target = format!("HEAD~{}", count);
+        let output = run_command_async("git", &["reset", "--soft", &reset_target], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
         // Re-commit with the collected message
-        let commit = Command::new("git")
-            .args(["commit", "-m", message.trim()])
-            .output()
+        let msg_trimmed = message.trim();
+        let output = run_command_async("git", &["commit", "-m", msg_trimmed], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !commit.status.success() {
-            let stderr = String::from_utf8_lossy(&commit.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
         Ok(())
     }
 
     /// Amend the most recent commit without changing its message.
-    pub fn amend_commit() -> Result<(), GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn amend_commit() -> Result<(), GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
-        let output = Command::new("git")
-            .args(["commit", "--amend", "--no-edit"])
-            .output()
+        let output = run_command_async("git", &["commit", "--amend", "--no-edit"], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
         Ok(())
     }
 
     /// Undo the most recent commit, keeping changes staged (--soft reset).
-    pub fn undo_commit() -> Result<(), GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn undo_commit() -> Result<(), GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
-        let output = Command::new("git")
-            .args(["reset", "--soft", "HEAD~1"])
-            .output()
+        let output = run_command_async("git", &["reset", "--soft", "HEAD~1"], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr_lower = stderr.to_lowercase();
+        if !output.success() {
+            let stderr_lower = output.stderr.to_lowercase();
             if stderr_lower.contains("unknown revision")
                 || stderr_lower.contains("fatal: ambiguous")
             {
@@ -114,7 +105,7 @@ impl CommitManager {
                     "No commits to undo — repository may have only one commit".into(),
                 ));
             }
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
         Ok(())
@@ -124,53 +115,51 @@ impl CommitManager {
     ///
     /// Returns line-by-line blame information showing the commit hash,
     /// author, timestamp, and line content.
-    pub fn smart_blame(file: &str) -> Result<String, GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn smart_blame(file: &str) -> Result<String, GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
         // Use --date=short for compact output: hash (author date line)
-        let output = Command::new("git")
-            .args(["blame", "--date=short", file])
-            .output()
+        let output = run_command_async("git", &["blame", "--date=short", file], None)
+            .await
             .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr_lower = stderr.to_lowercase();
+        if !output.success() {
+            let stderr_lower = output.stderr.to_lowercase();
             if stderr_lower.contains("no such path") || stderr_lower.contains("not in") {
                 return Err(GitIntegrationError::CommandFailed(format!(
                     "File not tracked by git: {}",
                     file
                 )));
             }
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
-        Ok(String::from_utf8(output.stdout)?)
+        Ok(output.stdout)
     }
 
     /// Run `git log` on a file with optional graph view.
     ///
     /// Returns one-line-per-commit history. When `graph` is true,
     /// includes ASCII commit graph.
-    pub fn history(file: &str, graph: bool) -> Result<String, GitIntegrationError> {
-        Self::ensure_git_repo()?;
+    pub async fn history(file: &str, graph: bool) -> Result<String, GitIntegrationError> {
+        Self::ensure_git_repo().await?;
 
-        let mut cmd = Command::new("git");
-        cmd.args(["log", "--oneline"]);
+        let mut args = vec!["log", "--oneline"];
         if graph {
-            cmd.arg("--graph");
+            args.push("--graph");
         }
-        cmd.arg("--");
-        cmd.arg(file);
+        args.push("--");
+        args.push(file);
 
-        let output = cmd.output().map_err(GitIntegrationError::IoError)?;
+        let output = run_command_async("git", &args, None)
+            .await
+            .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
-        Ok(String::from_utf8(output.stdout)?)
+        Ok(output.stdout)
     }
 }
 
@@ -178,13 +167,13 @@ impl CommitManager {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_ensure_git_repo_in_non_repo() {
+    #[tokio::test]
+    async fn test_ensure_git_repo_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
-        let result = CommitManager::ensure_git_repo();
+        let result = CommitManager::ensure_git_repo().await;
         std::env::set_current_dir(&cwd).unwrap();
 
         match result {
@@ -193,44 +182,45 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_squash_count_validation() {
-        let result = CommitManager::squash_commits(0);
+    #[tokio::test]
+    async fn test_squash_count_validation() {
+        let result = CommitManager::squash_commits(0).await;
         assert!(result.is_err());
-        let result = CommitManager::squash_commits(1);
+        let result = CommitManager::squash_commits(1).await;
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_history_in_non_repo() {
+    #[tokio::test]
+    async fn test_history_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
-        let result = CommitManager::history("somefile.rs", false);
+        let result = CommitManager::history("somefile.rs", false).await;
         std::env::set_current_dir(&cwd).unwrap();
 
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_blame_in_non_repo() {
+    #[tokio::test]
+    async fn test_blame_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
-        let result = CommitManager::smart_blame("nonexistent.rs");
+        let result = CommitManager::smart_blame("nonexistent.rs").await;
         std::env::set_current_dir(&cwd).unwrap();
 
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_squash_commits_in_real_repo() {
+    #[tokio::test]
+    async fn test_squash_commits_in_real_repo() {
+        // Test setup uses sync commands (in test context, not on async runtime)
         let tmp = tempfile::tempdir().unwrap();
 
         // Initialize a git repo
-        let init = Command::new("git")
+        let init = std::process::Command::new("git")
             .args(["init"])
             .current_dir(tmp.path())
             .output();
@@ -239,44 +229,44 @@ mod tests {
         }
 
         // Configure git
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["config", "user.email", "test@test.com"])
             .current_dir(tmp.path())
             .output();
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["config", "user.name", "Test"])
             .current_dir(tmp.path())
             .output();
 
         // Create initial commit
         std::fs::write(tmp.path().join("file.txt"), "v1").unwrap();
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["add", "."])
             .current_dir(tmp.path())
             .output();
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["commit", "-m", "first"])
             .current_dir(tmp.path())
             .output();
 
         // Create second commit
         std::fs::write(tmp.path().join("file.txt"), "v2").unwrap();
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["add", "."])
             .current_dir(tmp.path())
             .output();
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["commit", "-m", "second"])
             .current_dir(tmp.path())
             .output();
 
         // Create third commit
         std::fs::write(tmp.path().join("file.txt"), "v3").unwrap();
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["add", "."])
             .current_dir(tmp.path())
             .output();
-        let _ = Command::new("git")
+        let _ = std::process::Command::new("git")
             .args(["commit", "-m", "third"])
             .current_dir(tmp.path())
             .output();
@@ -285,13 +275,13 @@ mod tests {
         std::env::set_current_dir(tmp.path()).unwrap();
 
         // Squash last 3 commits
-        let result = CommitManager::squash_commits(3);
+        let result = CommitManager::squash_commits(3).await;
         std::env::set_current_dir(&cwd).unwrap();
 
         match result {
             Ok(()) => {
                 // Verify we now have 1 commit with the message "first"
-                let log = Command::new("git")
+                let log = std::process::Command::new("git")
                     .args(["log", "--oneline"])
                     .current_dir(tmp.path())
                     .output()

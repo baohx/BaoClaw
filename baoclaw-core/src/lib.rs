@@ -15,3 +15,4 @@ pub mod state;
 pub mod telemetry;
 pub mod tools;
 pub mod updater;
+pub mod utils;

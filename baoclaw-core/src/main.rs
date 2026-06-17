@@ -17,6 +17,7 @@ mod state;
 mod telemetry;
 mod tools;
 mod updater;
+mod utils;
 
 use api::client::ApiClientConfig;
 use api::unified::UnifiedClient;
@@ -1586,7 +1587,7 @@ async fn handle_shared_client(
 
                             // ── Git Integration handlers ──
                             ClientMethod::GitPrList => {
-                                let result = match engine::git_integration::pr::PrManager::list_prs(None) {
+                                let result = match engine::git_integration::pr::PrManager::list_prs(None).await {
                                     Ok(prs) => {
                                         let pr_list: Vec<serde_json::Value> = prs.iter().map(|p| {
                                             serde_json::json!({
@@ -1610,7 +1611,7 @@ async fn handle_shared_client(
                             ClientMethod::GitPrCreate { title, body, base, head } => {
                                 let body_opt = if body.is_empty() { None } else { Some(body.as_str()) };
                                 let base_opt = if base.is_empty() { None } else { Some(base.as_str()) };
-                                let result = match engine::git_integration::pr::PrManager::create_pr(&title, body_opt, base_opt) {
+                                let result = match engine::git_integration::pr::PrManager::create_pr(&title, body_opt, base_opt).await {
                                     Ok(pr) => serde_json::json!({
                                         "success": true,
                                         "number": pr.number,
@@ -1623,7 +1624,7 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, result).await;
                             }
                             ClientMethod::GitBranchList => {
-                                let result = match engine::git_integration::branch::BranchManager::list_branches() {
+                                let result = match engine::git_integration::branch::BranchManager::list_branches().await {
                                     Ok(branches) => {
                                         let branch_list: Vec<serde_json::Value> = branches.iter().map(|b| {
                                             serde_json::json!({
@@ -1643,7 +1644,7 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, result).await;
                             }
                             ClientMethod::GitBranchCreate { name } => {
-                                let result = match engine::git_integration::branch::BranchManager::create_branch(&name, None) {
+                                let result = match engine::git_integration::branch::BranchManager::create_branch(&name, None).await {
                                     Ok(()) => serde_json::json!({"success": true, "name": name}),
                                     Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
                                 };
@@ -1651,7 +1652,7 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, result).await;
                             }
                             ClientMethod::GitConflictCheck => {
-                                let result = match engine::git_integration::conflict::ConflictResolver::detect_conflicts() {
+                                let result = match engine::git_integration::conflict::ConflictResolver::detect_conflicts().await {
                                     Ok(conflicts) => {
                                         let conflict_list: Vec<serde_json::Value> = conflicts.iter().map(|c| {
                                             serde_json::json!({
@@ -1667,7 +1668,7 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, result).await;
                             }
                             ClientMethod::GitCommitAmend => {
-                                let result = match engine::git_integration::commit::CommitManager::amend_commit() {
+                                let result = match engine::git_integration::commit::CommitManager::amend_commit().await {
                                     Ok(()) => serde_json::json!({"success": true}),
                                     Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
                                 };
@@ -1675,7 +1676,7 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, result).await;
                             }
                             ClientMethod::GitUndo => {
-                                let result = match engine::git_integration::commit::CommitManager::undo_commit() {
+                                let result = match engine::git_integration::commit::CommitManager::undo_commit().await {
                                     Ok(()) => serde_json::json!({"success": true}),
                                     Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
                                 };

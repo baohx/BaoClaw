@@ -3,9 +3,8 @@
 //! Provides create/list/review/merge operations for pull requests
 //! using the `gh` command-line tool.
 
-use std::process::Command;
-
 use super::types::PrInfo;
+use crate::utils::command::run_command_async;
 
 /// Error type for git integration operations.
 #[derive(Debug, thiserror::Error)]
@@ -35,29 +34,27 @@ pub struct PrManager;
 
 impl PrManager {
     /// Check whether `gh` CLI is available.
-    pub fn is_gh_available() -> bool {
-        Command::new("gh")
-            .args(["--version"])
-            .output()
-            .map(|o| o.status.success())
+    pub async fn is_gh_available() -> bool {
+        run_command_async("gh", &["--version"], None)
+            .await
+            .map(|o| o.success())
             .unwrap_or(false)
     }
 
     /// Ensure the `gh` CLI is installed, returning a friendly error otherwise.
-    fn ensure_gh() -> Result<(), GitIntegrationError> {
-        if !Self::is_gh_available() {
+    async fn ensure_gh() -> Result<(), GitIntegrationError> {
+        if !Self::is_gh_available().await {
             return Err(GitIntegrationError::GhCliNotFound);
         }
         Ok(())
     }
 
     /// Check that the current directory is inside a git repository.
-    fn ensure_git_repo() -> Result<(), GitIntegrationError> {
-        let output = Command::new("git")
-            .args(["rev-parse", "--is-inside-work-tree"])
-            .output()
+    async fn ensure_git_repo() -> Result<(), GitIntegrationError> {
+        let output = run_command_async("git", &["rev-parse", "--is-inside-work-tree"], None)
+            .await
             .map_err(|_| GitIntegrationError::NotAGitRepo)?;
-        if !output.status.success() {
+        if !output.success() {
             return Err(GitIntegrationError::NotAGitRepo);
         }
         Ok(())
@@ -71,31 +68,39 @@ impl PrManager {
     /// * `base` - Target branch (optional, defaults to repo default)
     ///
     /// Returns the created PR info parsed from `gh pr create --json` output.
-    pub fn create_pr(
+    pub async fn create_pr(
         title: &str,
         body: Option<&str>,
         base: Option<&str>,
     ) -> Result<PrInfo, GitIntegrationError> {
-        Self::ensure_gh()?;
-        Self::ensure_git_repo()?;
+        Self::ensure_gh().await?;
+        Self::ensure_git_repo().await?;
 
-        let mut cmd = Command::new("gh");
-        cmd.args(["pr", "create", "--title", title, "--json", "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url"]);
+        let mut args = vec![
+            "pr", "create", "--title", title, "--json",
+            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
+        ];
 
+        let mut dynamic_args: Vec<String> = Vec::new();
         if let Some(b) = body {
-            cmd.arg("--body");
-            cmd.arg(b);
+            dynamic_args.push("--body".to_string());
+            dynamic_args.push(b.to_string());
         }
         if let Some(b) = base {
-            cmd.arg("--base");
-            cmd.arg(b);
+            dynamic_args.push("--base".to_string());
+            dynamic_args.push(b.to_string());
         }
 
-        let output = cmd.output().map_err(GitIntegrationError::IoError)?;
+        // Build the full args slice
+        let dynamic_refs: Vec<&str> = dynamic_args.iter().map(|s| s.as_str()).collect();
+        let all_args: Vec<&str> = args.iter().chain(dynamic_refs.iter()).copied().collect();
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr_lower = stderr.to_lowercase();
+        let output = run_command_async("gh", &all_args, None)
+            .await
+            .map_err(GitIntegrationError::IoError)?;
+
+        if !output.success() {
+            let stderr_lower = output.stderr.to_lowercase();
 
             if stderr_lower.contains("auth") || stderr_lower.contains("unauthorized") {
                 return Err(GitIntegrationError::AuthenticationFailed);
@@ -103,11 +108,10 @@ impl PrManager {
             if stderr_lower.contains("conflict") {
                 return Err(GitIntegrationError::MergeConflict);
             }
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
-        let stdout = String::from_utf8(output.stdout)?;
-        let pr: PrInfo = serde_json::from_str(stdout.trim())?;
+        let pr: PrInfo = serde_json::from_str(output.stdout.trim())?;
         Ok(pr)
     }
 
@@ -115,66 +119,65 @@ impl PrManager {
     ///
     /// # Arguments
     /// * `state` - Filter by state: "open", "closed", "merged", or None for all
-    pub fn list_prs(state: Option<&str>) -> Result<Vec<PrInfo>, GitIntegrationError> {
-        Self::ensure_gh()?;
-        Self::ensure_git_repo()?;
+    pub async fn list_prs(state: Option<&str>) -> Result<Vec<PrInfo>, GitIntegrationError> {
+        Self::ensure_gh().await?;
+        Self::ensure_git_repo().await?;
 
-        let mut cmd = Command::new("gh");
-        cmd.args([
-            "pr",
-            "list",
-            "--json",
+        let mut args = vec![
+            "pr", "list", "--json",
             "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
-        ]);
+        ];
 
+        let mut dynamic_args: Vec<String> = Vec::new();
         if let Some(s) = state {
-            cmd.args(["--state", s]);
+            dynamic_args.push("--state".to_string());
+            dynamic_args.push(s.to_string());
+        }
+        dynamic_args.push("--limit".to_string());
+        dynamic_args.push("100".to_string());
+
+        let dynamic_refs: Vec<&str> = dynamic_args.iter().map(|s| s.as_str()).collect();
+        let all_args: Vec<&str> = args.iter().chain(dynamic_refs.iter()).copied().collect();
+
+        let output = run_command_async("gh", &all_args, None)
+            .await
+            .map_err(GitIntegrationError::IoError)?;
+
+        if !output.success() {
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
-        // Use a generous limit for listing
-        cmd.args(["--limit", "100"]);
-
-        let output = cmd.output().map_err(GitIntegrationError::IoError)?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
-        }
-
-        let stdout = String::from_utf8(output.stdout)?;
-        let prs: Vec<PrInfo> = serde_json::from_str(stdout.trim())?;
+        let prs: Vec<PrInfo> = serde_json::from_str(output.stdout.trim())?;
         Ok(prs)
     }
 
     /// Review/view a specific pull request by number.
-    pub fn review_pr(number: u32) -> Result<PrInfo, GitIntegrationError> {
-        Self::ensure_gh()?;
-        Self::ensure_git_repo()?;
+    pub async fn review_pr(number: u32) -> Result<PrInfo, GitIntegrationError> {
+        Self::ensure_gh().await?;
+        Self::ensure_git_repo().await?;
 
         let number_str = number.to_string();
 
-        let output = Command::new("gh")
-            .args([
-                "pr",
-                "view",
-                &number_str,
-                "--json",
+        let output = run_command_async(
+            "gh",
+            &[
+                "pr", "view", &number_str, "--json",
                 "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
-            ])
-            .output()
-            .map_err(GitIntegrationError::IoError)?;
+            ],
+            None,
+        )
+        .await
+        .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr_lower = stderr.to_lowercase();
+        if !output.success() {
+            let stderr_lower = output.stderr.to_lowercase();
             if stderr_lower.contains("not found") || stderr_lower.contains("no pull request") {
                 return Err(GitIntegrationError::PrNotFound(number_str));
             }
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
-        let stdout = String::from_utf8(output.stdout)?;
-        let pr: PrInfo = serde_json::from_str(stdout.trim())?;
+        let pr: PrInfo = serde_json::from_str(output.stdout.trim())?;
         Ok(pr)
     }
 
@@ -183,23 +186,25 @@ impl PrManager {
     /// # Arguments
     /// * `number` - PR number to merge
     /// * `squash` - If true, squash all commits into one before merging
-    pub fn merge_pr(number: u32, squash: bool) -> Result<(), GitIntegrationError> {
-        Self::ensure_gh()?;
-        Self::ensure_git_repo()?;
+    pub async fn merge_pr(number: u32, squash: bool) -> Result<(), GitIntegrationError> {
+        Self::ensure_gh().await?;
+        Self::ensure_git_repo().await?;
 
         let number_str = number.to_string();
-        let mut cmd = Command::new("gh");
-        cmd.args(["pr", "merge", &number_str, "--delete-branch"]);
+        let mut args = vec!["pr", "merge", &number_str, "--delete-branch"];
 
+        let squash_arg;
         if squash {
-            cmd.arg("--squash");
+            squash_arg = "--squash";
+            args.push(squash_arg);
         }
 
-        let output = cmd.output().map_err(GitIntegrationError::IoError)?;
+        let output = run_command_async("gh", &args, None)
+            .await
+            .map_err(GitIntegrationError::IoError)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr_lower = stderr.to_lowercase();
+        if !output.success() {
+            let stderr_lower = output.stderr.to_lowercase();
 
             if stderr_lower.contains("auth") || stderr_lower.contains("unauthorized") {
                 return Err(GitIntegrationError::AuthenticationFailed);
@@ -210,7 +215,7 @@ impl PrManager {
             if stderr_lower.contains("not found") {
                 return Err(GitIntegrationError::PrNotFound(number_str));
             }
-            return Err(GitIntegrationError::CommandFailed(stderr.to_string()));
+            return Err(GitIntegrationError::CommandFailed(output.stderr));
         }
 
         Ok(())
@@ -221,23 +226,23 @@ impl PrManager {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_gh_availability_check() {
+    #[tokio::test]
+    async fn test_gh_availability_check() {
         // This test just ensures the check doesn't panic
-        let available = PrManager::is_gh_available();
+        let available = PrManager::is_gh_available().await;
         // gh may or may not be installed in test env — both outcomes are valid
         // We just verify it returns a boolean
         assert!(available == true || available == false);
     }
 
-    #[test]
-    fn test_ensure_git_repo_in_non_repo() {
+    #[tokio::test]
+    async fn test_ensure_git_repo_in_non_repo() {
         // Create a temp dir that is NOT a git repo
         let tmp = tempfile::tempdir().unwrap();
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
-        let result = PrManager::ensure_git_repo();
+        let result = PrManager::ensure_git_repo().await;
 
         std::env::set_current_dir(&cwd).unwrap();
 
@@ -248,11 +253,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_list_prs_without_gh_cli() {
+    #[tokio::test]
+    async fn test_list_prs_without_gh_cli() {
         // When gh is not available, list_prs should return GhCliNotFound
-        if !PrManager::is_gh_available() {
-            let result = PrManager::list_prs(None);
+        if !PrManager::is_gh_available().await {
+            let result = PrManager::list_prs(None).await;
             assert!(result.is_err());
             match result {
                 Err(GitIntegrationError::GhCliNotFound) => {} // expected
