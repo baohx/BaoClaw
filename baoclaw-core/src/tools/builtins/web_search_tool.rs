@@ -291,6 +291,8 @@ mod tests {
             abort_signal: std::sync::Arc::new(rx),
             file_cache: None,
             tool_result_store: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         }
     }
 }

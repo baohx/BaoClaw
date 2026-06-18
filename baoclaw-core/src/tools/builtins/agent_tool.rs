@@ -127,8 +127,8 @@ impl Tool for AgentTool {
             session_id: None, // Sub-agent does not persist
             fallback_models: vec![],
             max_retries_per_model: 2,
-            context_window: 200_000,
-            auto_compact_threshold_ratio: 0.7,
+            context_window: context.context_window,
+            auto_compact_threshold_ratio: context.auto_compact_threshold_ratio,
             // Propagate parent turn id so CLI can render nested boxes
             parent_turn_id: input.get("_parent_turn_id").and_then(|v| v.as_u64()).map(|v| v as u32),
             // Short label from the prompt for CLI display
@@ -262,6 +262,8 @@ mod tests {
             abort_signal: Arc::new(rx),
             file_cache: None,
             tool_result_store: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let result = tool.validate_input(&json!({}), &ctx).await;
         assert!(matches!(result, ValidationResult::Invalid { .. }));
@@ -277,6 +279,8 @@ mod tests {
             abort_signal: Arc::new(rx),
             file_cache: None,
             tool_result_store: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let result = tool.validate_input(&json!({"prompt": ""}), &ctx).await;
         assert!(matches!(result, ValidationResult::Invalid { .. }));
@@ -292,6 +296,8 @@ mod tests {
             abort_signal: Arc::new(rx),
             file_cache: None,
             tool_result_store: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let result = tool
             .validate_input(&json!({"prompt": "do something"}), &ctx)

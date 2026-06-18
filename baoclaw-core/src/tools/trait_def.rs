@@ -153,6 +153,10 @@ pub struct ToolContext {
     pub file_cache: Option<Arc<Mutex<FileCache>>>,
     /// Tool result store for persisting large outputs to disk.
     pub tool_result_store: Option<Arc<ToolResultStore>>,
+    /// Model context window (tokens) — propagated from engine config.
+    pub context_window: u64,
+    /// Auto-compact threshold ratio — propagated from engine config.
+    pub auto_compact_threshold_ratio: f64,
 }
 
 /// Tool execution errors

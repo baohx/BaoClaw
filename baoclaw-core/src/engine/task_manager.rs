@@ -33,6 +33,10 @@ pub struct TaskManager {
     abort_handles: Arc<RwLock<HashMap<String, watch::Sender<bool>>>>,
     api_client: Arc<UnifiedClient>,
     tools: Vec<Arc<dyn Tool>>,
+    /// Model context window (tokens) — propagated from engine config.
+    context_window: u64,
+    /// Auto-compact threshold ratio — propagated from engine config.
+    auto_compact_threshold_ratio: f64,
 }
 
 impl TaskManager {
@@ -43,6 +47,25 @@ impl TaskManager {
             abort_handles: Arc::new(RwLock::new(HashMap::new())),
             api_client,
             tools,
+            context_window: 1_000_000, // TODO: propagate from engine config
+            auto_compact_threshold_ratio: 0.7, // TODO: propagate from engine config
+        }
+    }
+
+    /// Create a new TaskManager with engine config values propagated.
+    pub fn new_with_config(
+        api_client: Arc<UnifiedClient>,
+        tools: Vec<Arc<dyn Tool>>,
+        context_window: u64,
+        auto_compact_threshold_ratio: f64,
+    ) -> Self {
+        Self {
+            tasks: Arc::new(RwLock::new(HashMap::new())),
+            abort_handles: Arc::new(RwLock::new(HashMap::new())),
+            api_client,
+            tools,
+            context_window,
+            auto_compact_threshold_ratio,
         }
     }
 
@@ -79,6 +102,8 @@ impl TaskManager {
         let api_client = Arc::clone(&self.api_client);
         let tools = self.tools.clone();
         let tid = task_id.clone();
+        let ctx_window = self.context_window;
+        let compact_ratio = self.auto_compact_threshold_ratio;
 
         tokio::spawn(async move {
             let config = QueryEngineConfig {
@@ -97,8 +122,8 @@ impl TaskManager {
                 session_id: None,
                 fallback_models: vec![],
                 max_retries_per_model: 2,
-                context_window: 200_000,
-                auto_compact_threshold_ratio: 0.7,
+                context_window: ctx_window,
+                auto_compact_threshold_ratio: compact_ratio,
                 parent_turn_id: None,
                 agent_label: None,
                 session_memory: None,

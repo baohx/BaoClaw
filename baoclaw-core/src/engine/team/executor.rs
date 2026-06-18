@@ -127,6 +127,10 @@ pub struct TeamExecutor {
     default_model: String,
     /// Default policy for team execution.
     default_policy: crate::engine::team::policy::TeamPolicy,
+    /// Model context window (tokens) — propagated from engine config.
+    context_window: u64,
+    /// Auto-compact threshold ratio — propagated from engine config.
+    auto_compact_threshold_ratio: f64,
 }
 
 impl TeamExecutor {
@@ -145,6 +149,8 @@ impl TeamExecutor {
             default_cwd,
             default_model,
             default_policy: crate::engine::team::policy::TeamPolicy::default(),
+            context_window: 1_000_000, // TODO: propagate from engine config
+            auto_compact_threshold_ratio: 0.7, // TODO: propagate from engine config
         }
     }
 
@@ -164,6 +170,8 @@ impl TeamExecutor {
             default_cwd,
             default_model,
             default_policy,
+            context_window: 1_000_000, // TODO: propagate from engine config
+            auto_compact_threshold_ratio: 0.7, // TODO: propagate from engine config
         }
     }
 
@@ -374,6 +382,8 @@ impl TeamExecutor {
             let agent_id_clone = agent_id.clone();
             let agent_policy =
                 crate::engine::team::policy::AgentPolicy::from_team_policy(&team_policy, 1);
+            let ctx_window = self.context_window;
+            let compact_ratio = self.auto_compact_threshold_ratio;
 
             join_set.spawn(async move {
                 let result = Self::execute_single_agent(
@@ -385,6 +395,8 @@ impl TeamExecutor {
                     abort_rx_clone,
                     Some(agent_policy),
                     agent_id_clone.clone(),
+                    ctx_window,
+                    compact_ratio,
                 )
                 .await;
 
@@ -514,6 +526,8 @@ impl TeamExecutor {
                 abort_rx.clone(),
                 Some(agent_policy),
                 agent.id.clone(),
+                self.context_window,
+                self.auto_compact_threshold_ratio,
             )
             .await;
 
@@ -689,6 +703,8 @@ impl TeamExecutor {
                     1,
                 );
                 let agent_id_for_result = agent_id.clone();
+                let ctx_window = self.context_window;
+                let compact_ratio = self.auto_compact_threshold_ratio;
 
                 join_set.spawn(async move {
                     let result = Self::execute_single_agent(
@@ -700,6 +716,8 @@ impl TeamExecutor {
                         watch::channel(false).1, // No abort for individual agent
                         Some(agent_policy),
                         agent_id_for_result.clone(),
+                        ctx_window,
+                        compact_ratio,
                     )
                     .await;
 
@@ -848,6 +866,8 @@ impl TeamExecutor {
         mut abort_rx: watch::Receiver<bool>,
         agent_policy: Option<crate::engine::team::policy::AgentPolicy>,
         agent_id: String,
+        context_window: u64,
+        auto_compact_threshold_ratio: f64,
     ) -> Result<crate::engine::team::policy::AgentResult, TeamError> {
         use crate::engine::team::policy::{AgentResult, AgentUsage};
 
@@ -895,8 +915,8 @@ impl TeamExecutor {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
-            context_window: 200_000,
-            auto_compact_threshold_ratio: 0.7,
+            context_window,
+            auto_compact_threshold_ratio,
             parent_turn_id: None,
             agent_label: Some("sub-agent".to_string()),
             session_memory: None,

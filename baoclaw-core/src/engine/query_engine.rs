@@ -978,6 +978,8 @@ impl QueryEngine {
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: self.hook_manager.clone(),
+            context_window: self.config.context_window,
+            auto_compact_threshold_ratio: self.config.auto_compact_threshold_ratio,
         };
 
         let messages_shared = Arc::new(tokio::sync::Mutex::new(self.messages.clone()));
@@ -1050,6 +1052,10 @@ pub struct QueryLoopConfig {
     pub tool_health: crate::engine::tool_health::ToolHealthTracker,
     /// Hook manager for triggering actions on events.
     pub hook_manager: Option<Arc<HookManager>>,
+    /// Model context window (tokens) — propagated to ToolContext for sub-agents.
+    pub context_window: u64,
+    /// Auto-compact threshold ratio — propagated to ToolContext for sub-agents.
+    pub auto_compact_threshold_ratio: f64,
 }
 
 impl QueryLoopConfig {
@@ -1122,8 +1128,8 @@ async fn run_query_loop(
         max_retries_per_model: config.max_retries_per_model,
         api_type: "anthropic".to_string(),
         openai_base_url: None,
-        context_window: 200_000,
-        auto_compact_threshold_ratio: 0.7,
+        context_window: config.context_window,
+        auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
         extra: std::collections::HashMap::new(),
     };
     let mut fallback_controller = FallbackController::new(&fallback_config);
@@ -1347,6 +1353,8 @@ async fn run_query_loop(
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: config.hook_manager.clone(),
+            context_window: config.context_window,
+            auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
         };
         let request = build_api_request(&messages, &current_config);
 
@@ -2023,6 +2031,8 @@ async fn run_query_loop(
             abort_signal: Arc::new(config.abort_rx.clone()),
             file_cache: config.file_cache.as_ref().map(Arc::clone),
             tool_result_store: config.tool_result_store.as_ref().map(Arc::clone),
+            context_window: config.context_window,
+            auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
         };
         let progress = NoopProgressSender;
         let tool_results = execute_tools(&config.tools, &tool_uses, &tool_context, &progress).await;
@@ -3955,6 +3965,8 @@ mod tests {
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -4002,6 +4014,8 @@ mod tests {
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -4049,6 +4063,8 @@ mod tests {
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let messages = vec![
             Message {
@@ -4189,6 +4205,8 @@ mod tests {
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -4236,6 +4254,8 @@ mod tests {
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         };
         let system = build_system_prompt(&config);
         assert!(system.is_some());
@@ -4439,6 +4459,8 @@ mod tests {
             adaptive_compact: AdaptiveCompactTracker::new(),
             tool_health: crate::engine::tool_health::ToolHealthTracker::new(),
             hook_manager: None,
+            context_window: 200_000,
+            auto_compact_threshold_ratio: 0.7,
         }
     }
 

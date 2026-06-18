@@ -1486,5 +1486,53 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-17T22:19:26.672113379+00:00"
+  },
+  {
+    "text": "Step 1: Extend ToolContext struct with context_window and auto_compact_threshold_ratio fields",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.599474537+00:00"
+  },
+  {
+    "text": "Step 2: Update all ToolContext construction sites (production + test make_context functions)",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.601646810+00:00"
+  },
+  {
+    "text": "Step 3a: Fix agent_tool.rs to read from context",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.603768843+00:00"
+  },
+  {
+    "text": "Step 3b: Fix task_manager.rs - add fields to TaskManager struct + propagate",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.605660221+00:00"
+  },
+  {
+    "text": "Step 3c: Fix executor.rs - add fields to TeamExecutor struct + propagate",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.607873154+00:00"
+  },
+  {
+    "text": "Step 3d: Fix agent.rs - add fields to SubAgentExecutor struct + propagate",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.610033463+00:00"
+  },
+  {
+    "text": "Step 4: Verify query_engine.rs:3483 is test code (keep as-is)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.611845303+00:00"
+  },
+  {
+    "text": "Step 5: cargo check + cargo test + git commit",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-18T00:12:00.613678486+00:00"
   }
 ]
