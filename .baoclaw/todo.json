@@ -1543,13 +1543,13 @@
   },
   {
     "text": "P0-2: memory 错误显式化（D3-A）— store.rs 的 write/read 改为 Result 返回，失败时 log + 推 SystemWarning 事件给用户",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-06-19T15:04:51.833490724+00:00"
   },
   {
     "text": "P1-1: config.json 引入 model_profiles 表（D2）— 新增 ModelProfile 结构，支持主/退坡模型各自 api_type+api_key+base_url+context_window，含迁移脚本",
-    "completed": false,
+    "completed": true,
     "priority": "medium",
     "created_at": "2026-06-19T15:04:51.835127758+00:00"
   },

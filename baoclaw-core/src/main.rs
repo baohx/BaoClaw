@@ -72,10 +72,20 @@ fn socket_dir() -> PathBuf {
     dir
 }
 
-/// Generate a socket path with session info embedded in the filename
-fn make_socket_path(_cwd: &str) -> PathBuf {
-    let pid = std::process::id();
-    socket_dir().join(format!("baoclaw-{}.sock", pid))
+/// Compute a stable hash of the working directory path.
+/// Uses SipHash-1-3 (via DefaultHasher), 64-bit output truncated to 16 hex chars
+/// for a short, collision-resistant ID.
+fn cwd_hash(cwd: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    cwd.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn make_socket_path(cwd: &str) -> PathBuf {
+    let hash = cwd_hash(cwd);
+    socket_dir().join(format!("baoclaw-cwd-{}.sock", hash))
 }
 
 /// Write a metadata JSON file next to the socket for discovery
