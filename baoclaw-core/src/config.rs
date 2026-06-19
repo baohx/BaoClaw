@@ -27,6 +27,33 @@ fn default_compact_threshold() -> f64 {
     0.7
 }
 
+// ─── ModelProfile ───────────────────────────────────────────────────────────
+
+/// A model configuration profile with its own API credentials and window.
+/// Each profile can independently specify api_type, api_key, base_url, etc.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ModelProfile {
+    /// Model name (e.g., "glm-5.2", "deepseek-chat").
+    pub model: String,
+    /// API protocol: "anthropic" or "openai".
+    pub api_type: String,
+    /// API key (plaintext; will migrate to keychain later).
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Base URL (e.g., "https://open.bigmodel.cn/api/anthropic").
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Context window in tokens.
+    #[serde(default = "default_context_window")]
+    pub context_window: u64,
+    /// Auto-compact threshold ratio (0.0-1.0).
+    #[serde(default = "default_compact_threshold")]
+    pub auto_compact_threshold_ratio: f64,
+    /// Max retries before falling back to next profile.
+    #[serde(default = "default_max_retries")]
+    pub max_retries_per_model: u32,
+}
+
 /// BaoClaw configuration loaded from ~/.baoclaw/config.json.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BaoclawConfig {
@@ -51,6 +78,19 @@ pub struct BaoclawConfig {
     /// Maximum chars before tool output is persisted to disk (default 200_000).
     #[serde(default = "default_tool_output_threshold_chars")]
     pub tool_output_threshold_chars: usize,
+
+    // === New: Named model profiles (P1-1) ===
+    /// Named model profiles (new format). Each profile has its own api_type,
+    /// api_key, base_url, context_window, etc.
+    #[serde(default)]
+    pub model_profiles: HashMap<String, ModelProfile>,
+    /// Primary profile name (if using profiles format).
+    #[serde(default)]
+    pub primary_profile: Option<String>,
+    /// Fallback profile names (if using profiles format).
+    #[serde(default)]
+    pub fallback_profiles: Vec<String>,
+
     /// Preserve unknown fields for forward compatibility.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -70,6 +110,9 @@ impl Default for BaoclawConfig {
             context_window: default_context_window(),
             auto_compact_threshold_ratio: default_compact_threshold(),
             tool_output_threshold_chars: default_tool_output_threshold_chars(),
+            model_profiles: HashMap::new(),
+            primary_profile: None,
+            fallback_profiles: Vec::new(),
             extra: HashMap::new(),
         }
     }
@@ -93,7 +136,7 @@ pub fn load_config() -> BaoclawConfig {
 
 /// Load configuration from a specific path (for testing).
 pub fn load_config_from(path: &std::path::Path) -> BaoclawConfig {
-    match std::fs::read_to_string(path) {
+    let mut config = match std::fs::read_to_string(path) {
         Ok(content) => match serde_json::from_str::<BaoclawConfig>(&content) {
             Ok(config) => config,
             Err(e) => {
@@ -112,6 +155,50 @@ pub fn load_config_from(path: &std::path::Path) -> BaoclawConfig {
             eprintln!("Warning: could not read config at {}: {}, using defaults", path.display(), e);
             BaoclawConfig::default()
         }
+    };
+
+    // Normalize: auto-migrate old format to profiles if needed
+    normalize_profiles(&mut config);
+    config
+}
+
+/// Normalize config: if old format (model + fallback_models strings),
+/// auto-convert to new format (model_profiles + primary_profile).
+/// This is called automatically by `load_config_from`.
+pub fn normalize_profiles(config: &mut BaoclawConfig) {
+    if !config.model_profiles.is_empty() {
+        return; // Already using new format
+    }
+    if config.model.is_empty() {
+        return; // Nothing to migrate
+    }
+
+    // Auto-migrate old format → profiles
+    let primary = ModelProfile {
+        model: config.model.clone(),
+        api_type: config.api_type.clone(),
+        api_key: None, // API keys come from env vars or profile.api_key
+        base_url: config.openai_base_url.clone(),
+        context_window: config.context_window,
+        auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
+        max_retries_per_model: config.max_retries_per_model,
+    };
+    config.model_profiles.insert("primary".to_string(), primary);
+    config.primary_profile = Some("primary".to_string());
+
+    for (i, m) in config.fallback_models.iter().enumerate() {
+        let name = format!("fallback_{}", i);
+        let p = ModelProfile {
+            model: m.clone(),
+            api_type: config.api_type.clone(), // inherit primary api_type
+            api_key: None,
+            base_url: config.openai_base_url.clone(),
+            context_window: config.context_window,
+            auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
+            max_retries_per_model: config.max_retries_per_model,
+        };
+        config.model_profiles.insert(name.clone(), p);
+        config.fallback_profiles.push(name);
     }
 }
 
@@ -242,7 +329,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = config_in(dir.path());
 
-        let original = BaoclawConfig {
+        let mut original = BaoclawConfig {
             model: "claude-opus-4-20250514".to_string(),
             fallback_models: vec!["claude-sonnet-4-20250514".to_string(), "claude-3-5-haiku-20241022".to_string()],
             max_retries_per_model: 3,
@@ -251,6 +338,9 @@ mod tests {
             context_window: 200_000,
             auto_compact_threshold_ratio: 0.7,
             tool_output_threshold_chars: 200_000,
+            model_profiles: HashMap::new(),
+            primary_profile: None,
+            fallback_profiles: Vec::new(),
             extra: {
                 let mut m = HashMap::new();
                 m.insert("custom_key".to_string(), Value::String("custom_value".to_string()));
@@ -260,6 +350,51 @@ mod tests {
 
         save_config_to(&original, &path).unwrap();
         let loaded = load_config_from(&path);
+        // normalize_profiles runs during load_config_from, so normalize original too
+        normalize_profiles(&mut original);
         assert_eq!(original, loaded);
+    }
+
+    #[test]
+    fn test_auto_migrate_old_format() {
+        let dir = TempDir::new().unwrap();
+        let path = config_in(dir.path());
+
+        // Old-format config: only model + fallback_models (no model_profiles)
+        std::fs::write(&path, r#"{
+            "model": "claude-sonnet-4-20250514",
+            "fallback_models": ["claude-3-5-haiku-20241022", "claude-opus-4-20250514"],
+            "api_type": "anthropic",
+            "context_window": 200000
+        }"#).unwrap();
+
+        let config = load_config_from(&path);
+
+        // primary_profile should be set
+        assert_eq!(config.primary_profile.as_deref(), Some("primary"));
+
+        // model_profiles should contain "primary" + 2 fallbacks
+        assert_eq!(config.model_profiles.len(), 3);
+        assert!(config.model_profiles.contains_key("primary"));
+        assert!(config.model_profiles.contains_key("fallback_0"));
+        assert!(config.model_profiles.contains_key("fallback_1"));
+
+        // fallback_profiles should list the fallback names
+        assert_eq!(config.fallback_profiles, vec!["fallback_0", "fallback_1"]);
+
+        // Primary profile should carry the model name
+        let primary = config.model_profiles.get("primary").unwrap();
+        assert_eq!(primary.model, "claude-sonnet-4-20250514");
+        assert_eq!(primary.api_type, "anthropic");
+        assert_eq!(primary.context_window, 200_000);
+
+        // Fallback profiles should inherit api_type from primary
+        let fb0 = config.model_profiles.get("fallback_0").unwrap();
+        assert_eq!(fb0.model, "claude-3-5-haiku-20241022");
+        assert_eq!(fb0.api_type, "anthropic");
+
+        let fb1 = config.model_profiles.get("fallback_1").unwrap();
+        assert_eq!(fb1.model, "claude-opus-4-20250514");
+        assert_eq!(fb1.api_type, "anthropic");
     }
 }

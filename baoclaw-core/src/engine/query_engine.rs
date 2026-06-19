@@ -1136,6 +1136,9 @@ async fn run_query_loop(
         context_window: config.context_window,
         auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
         tool_output_threshold_chars: crate::config::default_tool_output_threshold_chars(),
+        model_profiles: std::collections::HashMap::new(),
+        primary_profile: None,
+        fallback_profiles: Vec::new(),
         extra: std::collections::HashMap::new(),
     };
     let mut fallback_controller = FallbackController::new(&fallback_config);

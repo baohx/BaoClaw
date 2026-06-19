@@ -145,6 +145,9 @@ mod tests {
             context_window: 200_000,
             auto_compact_threshold_ratio: 0.7,
             tool_output_threshold_chars: 200_000,
+            model_profiles: HashMap::new(),
+            primary_profile: None,
+            fallback_profiles: Vec::new(),
             extra: HashMap::new(),
         }
     }

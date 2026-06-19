@@ -1624,5 +1624,47 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-19T15:07:12.639345130+00:00"
+  },
+  {
+    "text": "Add ModelProfile struct + BaoclawConfig new fields in config.rs",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:30:23.878599232+00:00"
+  },
+  {
+    "text": "Add normalize_profiles function + call in load_config_from",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:30:23.881389586+00:00"
+  },
+  {
+    "text": "Update all BaoclawConfig{} constructions (config tests, fallback tests, query_engine)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:30:23.883222087+00:00"
+  },
+  {
+    "text": "Add resolve_api_key/resolve_base_url in main.rs + use profiles",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:30:23.885086151+00:00"
+  },
+  {
+    "text": "Add test_auto_migrate_old_format test",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:30:23.886897811+00:00"
+  },
+  {
+    "text": "cargo check + cargo test --lib config",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:30:23.888823597+00:00"
+  },
+  {
+    "text": "Add resolve_api_key/resolve_base_url in main.rs + use profiles",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:34:42.789664564+00:00"
   }
 ]

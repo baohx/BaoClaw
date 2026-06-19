@@ -2363,17 +2363,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut baoclaw_config = config::load_config();
     config::apply_env_override(&mut baoclaw_config);
 
-    // Get API key and config from environment
-    // api_type in config.json determines which env vars to use:
-    //   "openai"    → OPENAI_API_KEY, OPENAI_BASE_URL
-    //   "anthropic" → ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL
+    // === P1-1: Model profiles support ===
+    // Resolve the primary profile (auto-migrated from old format by normalize_profiles).
+    // If model_profiles is populated, use the primary profile's api_type/key/base_url.
+    // Otherwise, fall back to the old env-var-based logic for backward compatibility.
+    //
+    // resolve_api_key priority: profile.api_key → env var based on api_type
+    // resolve_base_url priority: profile.base_url → env var based on api_type
+    fn resolve_api_key(profile: &config::ModelProfile) -> String {
+        // 1. Prefer profile.api_key (new format)
+        if let Some(key) = &profile.api_key {
+            if !key.is_empty() {
+                return key.clone();
+            }
+        }
+        // 2. Fall back to environment variable (backward compat)
+        match profile.api_type.as_str() {
+            "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+            _ => std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        }
+    }
+    fn resolve_base_url(profile: &config::ModelProfile) -> Option<String> {
+        if let Some(url) = &profile.base_url {
+            if !url.is_empty() {
+                return Some(url.clone());
+            }
+        }
+        match profile.api_type.as_str() {
+            "openai" => std::env::var("OPENAI_BASE_URL").ok(),
+            _ => std::env::var("ANTHROPIC_BASE_URL").ok(),
+        }
+    }
+
+    // Determine the effective primary profile for API client construction.
+    // After normalize_profiles, primary_profile is always Some if model is set.
+    let primary_profile: config::ModelProfile = {
+        let name = baoclaw_config.primary_profile.as_deref().unwrap_or("primary");
+        baoclaw_config.model_profiles.get(name)
+            .cloned()
+            .unwrap_or_else(|| {
+                // Fallback: construct from legacy fields
+                config::ModelProfile {
+                    model: baoclaw_config.model.clone(),
+                    api_type: baoclaw_config.api_type.clone(),
+                    api_key: None,
+                    base_url: baoclaw_config.openai_base_url.clone(),
+                    context_window: baoclaw_config.context_window,
+                    auto_compact_threshold_ratio: baoclaw_config.auto_compact_threshold_ratio,
+                    max_retries_per_model: baoclaw_config.max_retries_per_model,
+                }
+            })
+    };
+
+    // Get API key and config: use profile's api_type to pick env vars / credentials
     let api_client: Arc<UnifiedClient> = {
-        match baoclaw_config.api_type.as_str() {
+        let api_key = resolve_api_key(&primary_profile);
+        let base_url = resolve_base_url(&primary_profile);
+        match primary_profile.api_type.as_str() {
             "openai" => {
-                let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
-                let base_url = std::env::var("OPENAI_BASE_URL").ok();
                 eprintln!("Using OpenAI-compatible API (model: {}, base_url: {})",
-                    baoclaw_config.model,
+                    primary_profile.model,
                     base_url.as_deref().unwrap_or("https://api.openai.com"));
                 let config = ApiClientConfig {
                     api_key,
@@ -2384,11 +2433,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::new(UnifiedClient::new_openai(config))
             }
             _ => {
-                let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-                let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
                 let api_path = std::env::var("ANTHROPIC_API_PATH").ok();
                 eprintln!("Using Anthropic API (model: {}, base_url: {})",
-                    baoclaw_config.model,
+                    primary_profile.model,
                     base_url.as_deref().unwrap_or("https://api.anthropic.com"));
                 let config = ApiClientConfig {
                     api_key,
