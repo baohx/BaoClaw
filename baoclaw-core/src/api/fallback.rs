@@ -40,9 +40,47 @@ pub struct FallbackController {
 impl FallbackController {
     /// Create a new FallbackController from config.
     /// The chain is [primary_model, fallback1, fallback2, ...].
+    /// 
+    /// Supports both old format (model + fallback_models strings) and new format
+    /// (model_profiles + primary_profile + fallback_profiles). The new format
+    /// is preferred; if model_profiles is populated, it takes precedence.
     pub fn new(config: &BaoclawConfig) -> Self {
-        let mut chain = vec![config.model.clone()];
-        chain.extend(config.fallback_models.iter().cloned());
+        // Prefer new format: model_profiles + primary_profile + fallback_profiles
+        let chain = if !config.model_profiles.is_empty() {
+            // New format (P1-1): read from model_profiles
+            let mut chain = Vec::new();
+            
+            // Add primary profile's model
+            if let Some(ref primary_name) = config.primary_profile {
+                if let Some(primary_profile) = config.model_profiles.get(primary_name.as_str()) {
+                    chain.push(primary_profile.model.clone());
+                } else {
+                    // primary_profile name not found in model_profiles, fall back to old model
+                    chain.push(config.model.clone());
+                }
+            } else {
+                // No primary_profile set, use old model field
+                chain.push(config.model.clone());
+            }
+            
+            // Add fallback profiles' models (in order)
+            for fallback_name in config.fallback_profiles.iter() {
+                if let Some(fallback_profile) = config.model_profiles.get(fallback_name.as_str()) {
+                    chain.push(fallback_profile.model.clone());
+                } else {
+                    // Fallback profile name not found, skip
+                    eprintln!("Warning: fallback profile '{}' not found in model_profiles, skipping", fallback_name);
+                }
+            }
+            
+            chain
+        } else {
+            // Old format: model + fallback_models (backward compatibility)
+            let mut chain = vec![config.model.clone()];
+            chain.extend(config.fallback_models.iter().cloned());
+            chain
+        };
+        
         Self {
             chain,
             current_index: 0,
