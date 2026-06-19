@@ -77,6 +77,59 @@ export function reducer(state: TuiState, action: Action): TuiState {
       };
     }
 
+    case 'ADD_TOOL_USE': {
+      const { toolName, toolId, input } = action.payload as {
+        toolName: string; toolId: string; input: unknown;
+      };
+      const block: ContentBlock = {
+        type: 'tool_use',
+        content: JSON.stringify(input, null, 2),
+        toolName,
+        toolId,
+        input,
+      };
+      // Append to last assistant message's content
+      const messages = [...state.messages];
+      if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+        const last = messages[messages.length - 1];
+        messages[messages.length - 1] = {
+          ...last,
+          content: [...last.content, block],
+        };
+      } else {
+        // No ongoing assistant message, create one
+        messages.push({
+          id: generateId(),
+          role: 'assistant',
+          content: [block],
+          timestamp: new Date(),
+        });
+      }
+      return { ...state, messages };
+    }
+
+    case 'ADD_TOOL_RESULT': {
+      const { toolId, output, isError } = action.payload as {
+        toolId: string; output: string; isError: boolean;
+      };
+      const block: ContentBlock = {
+        type: 'tool_result',
+        content: output,
+        toolId,
+        isError,
+      };
+      const messages = [...state.messages];
+      // Append to last assistant message
+      if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+        const last = messages[messages.length - 1];
+        messages[messages.length - 1] = {
+          ...last,
+          content: [...last.content, block],
+        };
+      }
+      return { ...state, messages };
+    }
+
     case 'SET_INPUT': {
       return {
         ...state,

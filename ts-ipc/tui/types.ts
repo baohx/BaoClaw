@@ -8,6 +8,8 @@ export interface ContentBlock {
   language?: string;
   toolName?: string;
   toolId?: string;
+  input?: unknown;           // tool_use input parameters
+  isError?: boolean;         // tool_result error flag
 }
 
 export interface Message {
@@ -37,6 +39,8 @@ export type ActionType =
   | 'APPEND_THINKING'
   | 'SET_TOOLS'
   | 'UPDATE_TOOL'
+  | 'ADD_TOOL_USE'
+  | 'ADD_TOOL_RESULT'
   | 'SET_SESSION'
   | 'SET_INPUT'
   | 'SET_ERROR'

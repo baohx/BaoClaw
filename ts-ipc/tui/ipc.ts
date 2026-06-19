@@ -66,13 +66,27 @@ export function subscribeToEvents(
       
       case 'tool_use': {
         // { type: "tool_use", tool_name: string, input: object, tool_use_id: string }
-        // Could dispatch to add tool to list
+        const toolName = (p.tool_name as string) || 'tool';
+        const toolId = (p.tool_use_id as string) || '';
+        const input = p.input ?? {};
+        dispatch({
+          type: 'ADD_TOOL_USE',
+          payload: { toolName, toolId, input },
+        });
         break;
       }
       
       case 'tool_result': {
         // { type: "tool_result", tool_use_id: string, output: object, is_error: bool }
-        // Could dispatch to update tool status
+        const toolId = (p.tool_use_id as string) || '';
+        const output = typeof p.output === 'string'
+          ? p.output
+          : JSON.stringify(p.output, null, 2);
+        const isError = p.is_error === true;
+        dispatch({
+          type: 'ADD_TOOL_RESULT',
+          payload: { toolId, output, isError },
+        });
         break;
       }
       

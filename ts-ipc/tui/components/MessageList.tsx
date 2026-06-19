@@ -28,24 +28,65 @@ const ContentBlockView: React.FC<{ block: ContentBlock }> = ({ block }) => {
         </Box>
       );
 
-    case 'tool_use':
+    case 'tool_use': {
+      const toolName = block.toolName || 'tool';
+      const inputStr = block.content || '{}';
+      const inputPreview = inputStr.length > 200
+        ? inputStr.slice(0, 200) + '...'
+        : inputStr;
       return (
-        <Box paddingX={1}>
-          <Text color={colors.tool}>
-            {zen.arrow} [{block.toolName || 'tool'}]
-          </Text>
+        <Box flexDirection="column" marginY={0} paddingX={1}>
+          <Box>
+            <Text color={colors.tool} bold>
+              {zen.arrow}{' '}
+            </Text>
+            <Text color={colors.tool} bold>
+              {toolName}
+            </Text>
+            <Text color={colors.text.muted}> (running)</Text>
+          </Box>
+          {inputPreview && inputPreview !== '{}' && (
+            <Box paddingX={2}>
+              <Text color={colors.text.dim}>
+                {inputPreview.split('\n').slice(0, 5).join('\n')}
+                {inputPreview.split('\n').length > 5 ? '\n  ...' : ''}
+              </Text>
+            </Box>
+          )}
         </Box>
       );
+    }
 
-    case 'tool_result':
+    case 'tool_result': {
+      const isError = block.isError === true;
+      const output = block.content || '';
+      const outputPreview = output.length > 300
+        ? output.slice(0, 300) + '...'
+        : output;
+      const lines = outputPreview.split('\n');
+      const preview = lines.slice(0, 8).join('\n') + (lines.length > 8 ? '\n  ...' : '');
+      
       return (
-        <Box paddingX={2}>
-          <Text color={colors.text.dim}>
-            {zen.check} {block.content.slice(0, 100)}
-            {block.content.length > 100 ? '...' : ''}
-          </Text>
+        <Box flexDirection="column" paddingX={2} marginY={0}>
+          <Box>
+            <Text color={isError ? colors.status.error : colors.status.success}>
+              {isError ? zen.cross : zen.check}{' '}
+            </Text>
+            <Text color={isError ? colors.status.error : colors.text.dim}>
+              {isError ? 'Error' : 'Result'}
+              {block.toolName ? ` (${block.toolName})` : ''}
+            </Text>
+          </Box>
+          {preview && (
+            <Box paddingX={2}>
+              <Text color={isError ? colors.status.error : colors.text.dim}>
+                {preview}
+              </Text>
+            </Box>
+          )}
         </Box>
       );
+    }
 
     case 'code':
       return (
