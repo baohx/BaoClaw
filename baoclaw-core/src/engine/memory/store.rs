@@ -12,6 +12,52 @@ use crate::engine::memory::archive::{MemoryArchive, ArchiveResult};
 
 const MEMORY_FILE: &str = "memory.jsonl";
 
+/// Errors that can occur during memory store operations.
+#[derive(Debug)]
+pub enum MemoryError {
+    /// IO error (file read/write failure, permission denied, etc.)
+    Io(std::io::Error),
+    /// Serialization or deserialization error
+    Serde(serde_json::Error),
+    /// A corrupted entry was encountered during read.
+    /// The entry is skipped but the error is surfaced for logging.
+    Corrupted { line: usize, reason: String },
+}
+
+impl std::fmt::Display for MemoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "IO error: {}", e),
+            Self::Serde(e) => write!(f, "Serialization error: {}", e),
+            Self::Corrupted { line, reason } => {
+                write!(f, "Corrupted entry at line {}: {}", line, reason)
+            }
+        }
+    }
+}
+
+impl std::error::Error for MemoryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Serde(e) => Some(e),
+            Self::Corrupted { .. } => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for MemoryError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<serde_json::Error> for MemoryError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Serde(e)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum MemoryCategory {
     #[serde(rename = "fact")]
@@ -120,23 +166,49 @@ impl MemoryStore {
     fn read_file(path: &PathBuf) -> Vec<MemoryEntry> {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
-            Err(_) => return Vec::new(),
+            Err(_) => return Vec::new(), // File doesn't exist yet → empty Vec (not an error)
         };
-        content.lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str(l).ok())
-            .collect()
+        let mut entries = Vec::new();
+        for (line_no, line) in content.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<MemoryEntry>(line) {
+                Ok(e) => entries.push(e),
+                Err(e) => {
+                    // Log corrupted line but don't abort reading (degraded mode: skip + warn)
+                    eprintln!(
+                        "WARNING: corrupted memory entry at line {} in {}: {}",
+                        line_no,
+                        path.display(),
+                        e
+                    );
+                }
+            }
+        }
+        entries
     }
 
-    fn write_all_sync(path: &PathBuf, entries: &[MemoryEntry]) {
-        let lines: Vec<String> = entries.iter()
-            .filter_map(|e| serde_json::to_string(e).ok())
-            .collect();
-        let _ = std::fs::write(path, lines.join("\n") + "\n");
+    fn write_all_sync(path: &PathBuf, entries: &[MemoryEntry]) -> Result<(), MemoryError> {
+        let lines: Vec<String> = entries
+            .iter()
+            .map(|e| serde_json::to_string(e))
+            .collect::<Result<Vec<_>, _>>()?;
+        std::fs::write(path, lines.join("\n") + "\n")?;
+        Ok(())
     }
 
     /// Add a new memory entry.
-    pub async fn add(&self, content: String, category: MemoryCategory, source: String) -> MemoryEntry {
+    ///
+    /// Returns the created entry on success, or `MemoryError` on write failure.
+    /// The entry is always added to in-memory state; the error reflects a
+    /// filesystem persistence failure.
+    pub async fn add(
+        &self,
+        content: String,
+        category: MemoryCategory,
+        source: String,
+    ) -> Result<MemoryEntry, MemoryError> {
         let entry = MemoryEntry {
             id: uuid::Uuid::new_v4().to_string()[..8].to_string(),
             content,
@@ -150,7 +222,7 @@ impl MemoryStore {
         };
 
         // Serialize before acquiring any locks
-        let serialized_line = serde_json::to_string(&entry);
+        let serialized_line = serde_json::to_string(&entry)?;
 
         // Phase 1: acquire entries lock, push, release
         {
@@ -166,23 +238,34 @@ impl MemoryStore {
         };
 
         // Phase 3: offload filesystem I/O to blocking thread pool
-        if let Ok(line) = serialized_line {
-            let _ = tokio::task::spawn_blocking(move || {
-                let mut f = match std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&fp)
-                {
-                    Ok(f) => f,
-                    Err(_) => return,
-                };
-                use std::io::Write;
-                let _ = writeln!(f, "{}", line);
-            })
-            .await;
-        }
+        let join_result = tokio::task::spawn_blocking(move || {
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&fp)?;
+            use std::io::Write;
+            writeln!(f, "{}", serialized_line)?;
+            Ok::<(), MemoryError>(())
+        })
+        .await;
 
-        entry
+        match join_result {
+            Ok(Ok(())) => Ok(entry),
+            Ok(Err(e)) => {
+                eprintln!("ERROR: memory write failed for entry {}: {}", entry.id, e);
+                Err(e)
+            }
+            Err(e) => {
+                eprintln!(
+                    "ERROR: memory write task panicked for entry {}: {}",
+                    entry.id, e
+                );
+                Err(MemoryError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("spawn_blocking failed: {}", e),
+                )))
+            }
+        }
     }
 
     /// List all memories.
@@ -191,7 +274,10 @@ impl MemoryStore {
     }
 
     /// Delete a memory by ID prefix.
-    pub async fn delete(&self, id_prefix: &str) -> bool {
+    ///
+    /// Returns `Ok(true)` if a memory was deleted, `Ok(false)` if no match found.
+    /// Returns `Err(MemoryError)` if the file rewrite fails.
+    pub async fn delete(&self, id_prefix: &str) -> Result<bool, MemoryError> {
         let entries_snapshot;
         let mut entries = self.entries.lock().await;
         let before = entries.len();
@@ -201,19 +287,31 @@ impl MemoryStore {
             drop(entries);
             let fp = self.file_path.lock().await.clone();
             // Offload filesystem I/O — lock already released
-            tokio::task::spawn_blocking(move || {
-                Self::write_all_sync(&fp, &entries_snapshot);
+            let join_result = tokio::task::spawn_blocking(move || {
+                Self::write_all_sync(&fp, &entries_snapshot)
             })
-            .await
-            .ok();
-            true
+            .await;
+            match join_result {
+                Ok(Ok(())) => Ok(true),
+                Ok(Err(e)) => {
+                    eprintln!("ERROR: memory delete write failed: {}", e);
+                    Err(e)
+                }
+                Err(e) => Err(MemoryError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("spawn_blocking failed: {}", e),
+                ))),
+            }
         } else {
-            false
+            Ok(false)
         }
     }
 
     /// Clear all memories.
-    pub async fn clear(&self) -> usize {
+    ///
+    /// Returns the number of cleared memories on success.
+    /// Returns `Err(MemoryError)` if the file truncation fails.
+    pub async fn clear(&self) -> Result<usize, MemoryError> {
         let count = {
             let mut entries = self.entries.lock().await;
             let count = entries.len();
@@ -222,12 +320,22 @@ impl MemoryStore {
         };
         // Drop entries lock, then do file I/O
         let fp = self.file_path.lock().await.clone();
-        tokio::task::spawn_blocking(move || {
-            let _ = std::fs::write(&fp, "");
+        let join_result = tokio::task::spawn_blocking(move || {
+            std::fs::write(&fp, "")?;
+            Ok::<(), MemoryError>(())
         })
-        .await
-        .ok();
-        count
+        .await;
+        match join_result {
+            Ok(Ok(())) => Ok(count),
+            Ok(Err(e)) => {
+                eprintln!("ERROR: memory clear write failed: {}", e);
+                Err(e)
+            }
+            Err(e) => Err(MemoryError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("spawn_blocking failed: {}", e),
+            ))),
+        }
     }
 
     /// Build a system prompt fragment from all memories.
@@ -277,7 +385,8 @@ impl MemoryStore {
     /// * `config` - Decay configuration parameters
     ///
     /// # Returns
-    /// ArchiveResult with IDs of archived memories and cleanup count
+    /// ArchiveResult with IDs of archived memories and cleanup count.
+    /// If the file rewrite fails, logs the error but still archives in-memory.
     pub async fn archive_low_importance(
         &self,
         archive: &MemoryArchive,
@@ -307,7 +416,9 @@ impl MemoryStore {
 
         // Write updated memory file
         let fp = self.file_path.lock().await;
-        Self::write_all_sync(&fp, &entries);
+        if let Err(e) = Self::write_all_sync(&fp, &entries) {
+            eprintln!("ERROR: memory file rewrite during archive_low_importance failed: {}", e);
+        }
 
         // Add to archive
         let result = archive.archive_memories(to_archive).await;
@@ -323,6 +434,7 @@ impl MemoryStore {
     /// Archive a specific memory by ID.
     ///
     /// Moves the memory to the archive regardless of its importance score.
+    /// If the file rewrite fails, logs the error but still returns the archived entry.
     ///
     /// # Arguments
     /// * `id_prefix` - ID prefix of the memory to archive
@@ -343,7 +455,9 @@ impl MemoryStore {
 
         // Write updated memory file
         let fp = self.file_path.lock().await;
-        Self::write_all_sync(&fp, &entries);
+        if let Err(e) = Self::write_all_sync(&fp, &entries) {
+            eprintln!("ERROR: memory file rewrite during archive_by_id failed: {}", e);
+        }
 
         // Add to archive
         let archived = archive.archive_memory(memory).await;
@@ -356,13 +470,14 @@ impl MemoryStore {
     ///
     /// Removes the memory from the archive and adds it back to active memory.
     /// Resets the importance to default (0.5) to prevent immediate re-archival.
+    /// If the file write fails, logs the error but still returns the restored entry.
     ///
     /// # Arguments
     /// * `id_prefix` - ID prefix of the memory to restore
     /// * `archive` - The MemoryArchive instance to use
     ///
     /// # Returns
-    /// The restored memory entry, or None if not found
+    /// The restored memory entry, or None if not found in archive
     pub async fn restore_from_archive(
         &self,
         id_prefix: &str,
@@ -380,15 +495,33 @@ impl MemoryStore {
         entries.push(memory.clone());
 
         // Write to memory file
-        if let Ok(line) = serde_json::to_string(&memory) {
-            use std::io::Write;
-            let fp = self.file_path.lock().await;
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&*fp)
-            {
-                let _ = writeln!(f, "{}", line);
+        match serde_json::to_string(&memory) {
+            Ok(line) => {
+                use std::io::Write;
+                let fp = self.file_path.lock().await;
+                match std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&*fp)
+                {
+                    Ok(mut f) => {
+                        if let Err(e) = writeln!(f, "{}", line) {
+                            eprintln!("ERROR: memory restore write failed: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "ERROR: failed to open memory file for restore of {}: {}",
+                            id_prefix, e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "ERROR: failed to serialize restored memory {}: {}",
+                    id_prefix, e
+                );
             }
         }
 

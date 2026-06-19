@@ -54,7 +54,7 @@ impl Tool for FileReadTool {
     }
 
     fn max_result_size_chars(&self) -> usize {
-        30_000 // Limit file content to ~7.5k tokens to avoid bloating context
+        200_000
     }
 
     fn is_concurrency_safe(&self, _input: &Value) -> bool {

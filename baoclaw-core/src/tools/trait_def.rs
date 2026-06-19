@@ -85,7 +85,7 @@ pub trait Tool: Send + Sync {
 
     /// Maximum result size in characters before persisting to disk
     fn max_result_size_chars(&self) -> usize {
-        100_000
+        200_000
     }
 
     /// Execute the tool with the given input

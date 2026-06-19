@@ -67,7 +67,7 @@ impl Tool for WebFetchTool {
     }
 
     fn max_result_size_chars(&self) -> usize {
-        30_000 // Limit fetched content to ~7.5k tokens
+        200_000
     }
 
     fn prompt(&self) -> String {

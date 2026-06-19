@@ -1534,5 +1534,95 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-18T00:12:00.613678486+00:00"
+  },
+  {
+    "text": "P0-1: more lines 阈值抬到 200K + 配置化（D1）— 改 trait_def.rs/file_read_tool.rs/web_fetch_tool.rs/tool_result_store.rs/query_engine.rs 的硬编码截断阈值",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:04:16.537438358+00:00"
+  },
+  {
+    "text": "P0-2: memory 错误显式化（D3-A）— store.rs 的 write/read 改为 Result 返回，失败时 log + 推 SystemWarning 事件给用户",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:04:51.833490724+00:00"
+  },
+  {
+    "text": "P1-1: config.json 引入 model_profiles 表（D2）— 新增 ModelProfile 结构，支持主/退坡模型各自 api_type+api_key+base_url+context_window，含迁移脚本",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T15:04:51.835127758+00:00"
+  },
+  {
+    "text": "P1-2: socket 路径改 cwd-hash（D4 Phase 1）— make_socket_path 用 cwd 的 sha256 而非 PID，同 cwd 客户端自动连同一 daemon",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T15:04:51.836742349+00:00"
+  },
+  {
+    "text": "P2-1: session 持久化到 SQLite（D3-C + D4 Phase 2）— SessionRegistry 加 SQLite backing store，崩溃恢复",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T15:04:51.838226783+00:00"
+  },
+  {
+    "text": "P2-2: 新增斜杠命令 /tokens /cost /memory /model /config /session（D7）— CLI 侧实现 + daemon 侧 IPC 接口",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T15:04:51.840031669+00:00"
+  },
+  {
+    "text": "P3-1: systemd/launchd 服务化（D4 终局）— 固定 socket /run/baoclaw.sock，写 service unit",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-06-19T15:04:51.841875373+00:00"
+  },
+  {
+    "text": "P3-2: 客户端功能对齐审计（D6）— 确保所有工具在 daemon 侧，客户端只渲染",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-06-19T15:04:51.843752722+00:00"
+  },
+  {
+    "text": "Define MemoryError enum in store.rs",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:07:12.627978708+00:00"
+  },
+  {
+    "text": "Refactor read_file and write_all_sync to return Result",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:07:12.629558109+00:00"
+  },
+  {
+    "text": "Refactor public API methods (add/delete/clear/switch_project/archive/restore) to return Result",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:07:12.631558602+00:00"
+  },
+  {
+    "text": "Add SystemWarning variant to EngineEvent",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:07:12.633202872+00:00"
+  },
+  {
+    "text": "Update all call sites in main.rs, cleanup.rs to handle errors",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:07:12.635154047+00:00"
+  },
+  {
+    "text": "Export MemoryError from memory module",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:07:12.637336460+00:00"
+  },
+  {
+    "text": "cargo check + cargo test --lib memory",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:07:12.639345130+00:00"
   }
 ]

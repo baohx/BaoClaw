@@ -602,19 +602,43 @@ async fn handle_shared_client(
                             }
                             ClientMethod::MemoryAdd { content, category } => {
                                 let cat = engine::memory::parse_category(&category);
-                                let entry = shared.memory_store.add(content, cat, "user".to_string()).await;
+                                let result = shared.memory_store.add(content, cat, "user".to_string()).await;
                                 let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"memory": entry})).await;
+                                match result {
+                                    Ok(entry) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"memory": entry})).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("ERROR: memory add failed: {}", e);
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory write failed: {}", e)).await;
+                                    }
+                                }
                             }
                             ClientMethod::MemoryDelete { id: mem_id } => {
-                                let deleted = shared.memory_store.delete(&mem_id).await;
+                                let result = shared.memory_store.delete(&mem_id).await;
                                 let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"deleted": deleted})).await;
+                                match result {
+                                    Ok(deleted) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"deleted": deleted})).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("ERROR: memory delete failed: {}", e);
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory delete failed: {}", e)).await;
+                                    }
+                                }
                             }
                             ClientMethod::MemoryClear => {
-                                let count = shared.memory_store.clear().await;
+                                let result = shared.memory_store.clear().await;
                                 let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"cleared": count})).await;
+                                match result {
+                                    Ok(count) => {
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"cleared": count})).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("ERROR: memory clear failed: {}", e);
+                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory clear failed: {}", e)).await;
+                                    }
+                                }
                             }
                             ClientMethod::MemoryStats => {
                                 let stats = shared.memory_store.stats().await;

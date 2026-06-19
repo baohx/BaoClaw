@@ -20,6 +20,7 @@ fn make_config(n_fallbacks: usize, max_retries: u32) -> BaoclawConfig {
         openai_base_url: None,
         context_window: 200_000,
         auto_compact_threshold_ratio: 0.7,
+        tool_output_threshold_chars: 200_000,
         extra: HashMap::new(),
     }
 }

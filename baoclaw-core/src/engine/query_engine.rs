@@ -136,6 +136,11 @@ pub enum EngineEvent {
     Result(QueryResult),
     #[serde(rename = "error")]
     Error(EngineError),
+    /// System warning (non-fatal error worth surfacing to user, e.g. memory write failure).
+    #[serde(rename = "system_warning")]
+    SystemWarning {
+        message: String,
+    },
 }
 
 /// Result of a completed query.
@@ -1130,6 +1135,7 @@ async fn run_query_loop(
         openai_base_url: None,
         context_window: config.context_window,
         auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
+        tool_output_threshold_chars: crate::config::default_tool_output_threshold_chars(),
         extra: std::collections::HashMap::new(),
     };
     let mut fallback_controller = FallbackController::new(&fallback_config);
@@ -3180,7 +3186,7 @@ fn extract_text(content_blocks: &[ContentBlock]) -> Option<String> {
 /// Build a user message containing tool results.
 fn build_tool_result_message(results: &[ToolExecutionResult]) -> Message {
     // Max chars per tool result to avoid exceeding API limits (especially for OpenAI-compatible APIs)
-    const MAX_TOOL_RESULT_CHARS: usize = 30_000;
+    const MAX_TOOL_RESULT_CHARS: usize = 200_000;
 
     let content_blocks: Vec<Value> = results.iter().map(|r| {
         // Strip large base64 image data from tool output to avoid bloating context

@@ -264,7 +264,7 @@ mod tests {
         let config = create_test_config();
 
         // Clear for test
-        store.clear().await;
+        store.clear().await.unwrap();
         archive.clear().await;
 
         let scheduler = MemoryCleanupScheduler::new(
@@ -287,7 +287,7 @@ mod tests {
         let archive = Arc::new(MemoryArchive::load());
         let config = create_test_config();
 
-        store.clear().await;
+        store.clear().await.unwrap();
         archive.clear().await;
 
         let scheduler = MemoryCleanupScheduler::new(
@@ -319,7 +319,7 @@ mod tests {
         let archive = Arc::new(MemoryArchive::load());
         let config = create_test_config();
 
-        store.clear().await;
+        store.clear().await.unwrap();
         archive.clear().await;
 
         let scheduler = MemoryCleanupScheduler::new(

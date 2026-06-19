@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 
 /// Default threshold in bytes: 30 KB.
-pub const DEFAULT_PERSIST_THRESHOLD: usize = 30_000;
+pub const DEFAULT_PERSIST_THRESHOLD: usize = 200_000;
 /// Preview size in characters: 2 KB.
 pub const PREVIEW_CHARS: usize = 2_000;
 

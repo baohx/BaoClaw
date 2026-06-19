@@ -48,12 +48,16 @@ pub struct BaoclawConfig {
     /// Auto-compact threshold as fraction of context_window (e.g. 0.7 = 70%).
     #[serde(default = "default_compact_threshold")]
     pub auto_compact_threshold_ratio: f64,
+    /// Maximum chars before tool output is persisted to disk (default 200_000).
+    #[serde(default = "default_tool_output_threshold_chars")]
+    pub tool_output_threshold_chars: usize,
     /// Preserve unknown fields for forward compatibility.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
 
 fn default_api_type() -> String { "anthropic".to_string() }
+pub fn default_tool_output_threshold_chars() -> usize { 200_000 }
 
 impl Default for BaoclawConfig {
     fn default() -> Self {
@@ -65,6 +69,7 @@ impl Default for BaoclawConfig {
             openai_base_url: None,
             context_window: default_context_window(),
             auto_compact_threshold_ratio: default_compact_threshold(),
+            tool_output_threshold_chars: default_tool_output_threshold_chars(),
             extra: HashMap::new(),
         }
     }
@@ -245,6 +250,7 @@ mod tests {
             openai_base_url: None,
             context_window: 200_000,
             auto_compact_threshold_ratio: 0.7,
+            tool_output_threshold_chars: 200_000,
             extra: {
                 let mut m = HashMap::new();
                 m.insert("custom_key".to_string(), Value::String("custom_value".to_string()));
