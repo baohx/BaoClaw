@@ -159,7 +159,7 @@ async fn handle_shared_client(
     client_id: ClientId,
     broadcast_rx: tokio::sync::broadcast::Receiver<EngineEvent>,
     mut work_cwd: PathBuf,
-    _session_id: String,
+    session_id: String,
 ) {
     // Wrap conn in Arc<TokioMutex> so the broadcast receiver task can also send
     let conn = Arc::new(TokioMutex::new(conn));
@@ -300,6 +300,15 @@ async fn handle_shared_client(
                                     if matches!(event, EngineEvent::Result(_) | EngineEvent::Error(_)) {
                                         let mut engine = session.engine_write().await;
                                         engine.sync_messages().await;
+                                        drop(engine);
+                                        // Persist session state to disk after turn completes
+                                        let reg = Arc::clone(&shared.session_registry);
+                                        let sid = session_id.clone();
+                                        tokio::spawn(async move {
+                                            if let Err(e) = reg.persist_session(&sid).await {
+                                                eprintln!("[daemon] session persist warning: {}", e);
+                                            }
+                                        });
                                         break;
                                     }
                                 }
@@ -1900,6 +1909,232 @@ async fn handle_shared_client(
                                 let removed = gate.revoke(&tool, &action, &target);
                                 let mut conn_guard = conn.lock().await;
                                 let _ = conn_guard.send_response(id, serde_json::json!({"success": removed > 0, "removed": removed})).await;
+                            }
+
+                            // ── Session Info / Token / Cost handlers (P2-2) ──
+                            ClientMethod::SessionTokens => {
+                                let engine = session.engine_read().await;
+                                let messages = engine.get_messages();
+                                let usage = engine.get_usage();
+                                let context_window = shared.baoclaw_config.context_window;
+                                let threshold_ratio = shared.baoclaw_config.auto_compact_threshold_ratio;
+                                let compact_threshold = (context_window as f64 * threshold_ratio) as u64;
+
+                                // Current estimated input tokens from TokenCounter
+                                let est_tokens = {
+                                    let counter = engine.token_counter_arc();
+                                    let counter_guard = counter.lock().await;
+                                    counter_guard.estimate(messages)
+                                };
+
+                                let result = serde_json::json!({
+                                    "session_id": session_id,
+                                    "current_tokens": est_tokens,
+                                    "context_window": context_window,
+                                    "usage_percent": if context_window > 0 {
+                                        est_tokens as f64 / context_window as f64 * 100.0
+                                    } else { 0.0 },
+                                    "compact_threshold": compact_threshold,
+                                    "threshold_ratio": threshold_ratio,
+                                    "tokens_until_compact": compact_threshold.saturating_sub(est_tokens),
+                                    "total_input_tokens": usage.input_tokens,
+                                    "total_output_tokens": usage.output_tokens,
+                                    "cache_creation_tokens": usage.cache_creation_input_tokens.unwrap_or(0),
+                                    "cache_read_tokens": usage.cache_read_input_tokens.unwrap_or(0),
+                                    "message_count": messages.len(),
+                                    "model": shared.baoclaw_config.model,
+                                });
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::SessionCost => {
+                                let engine = session.engine_read().await;
+                                let usage = engine.get_usage();
+                                let model = &shared.baoclaw_config.model;
+
+                                // Build a CostTracker to calculate costs
+                                let cost_tracker = engine::cost_tracker::CostTracker::new();
+                                let session_cost = cost_tracker.calculate_cost(usage, model);
+
+                                // Pricing info for display
+                                let (input_price, output_price) = {
+                                    let pricing = engine::cost_tracker::CostTracker::new();
+                                    // We can't directly access the private pricing map, so
+                                    // calculate per-million by calling with 1M tokens
+                                    let test_input = crate::models::message::Usage {
+                                        input_tokens: 1_000_000,
+                                        output_tokens: 0,
+                                        cache_creation_input_tokens: None,
+                                        cache_read_input_tokens: None,
+                                    };
+                                    let test_output = crate::models::message::Usage {
+                                        input_tokens: 0,
+                                        output_tokens: 1_000_000,
+                                        cache_creation_input_tokens: None,
+                                        cache_read_input_tokens: None,
+                                    };
+                                    let ip = pricing.calculate_cost(&test_input, model);
+                                    let op = pricing.calculate_cost(&test_output, model);
+                                    (ip, op)
+                                };
+
+                                let result = serde_json::json!({
+                                    "session_cost_usd": session_cost,
+                                    "total_input_tokens": usage.input_tokens,
+                                    "total_output_tokens": usage.output_tokens,
+                                    "input_cost": (usage.input_tokens as f64 / 1_000_000.0) * input_price,
+                                    "output_cost": (usage.output_tokens as f64 / 1_000_000.0) * output_price,
+                                    "input_price_per_mtok": input_price,
+                                    "output_price_per_mtok": output_price,
+                                    "model": model,
+                                    "pricing_configured": true,
+                                });
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::SessionInfo => {
+                                let engine = session.engine_read().await;
+                                let msg_count = engine.get_messages().len();
+                                let client_count = session.client_count().await;
+
+                                let result = serde_json::json!({
+                                    "session_id": session_id,
+                                    "cwd": work_cwd.to_string_lossy(),
+                                    "message_count": msg_count,
+                                    "client_count": client_count,
+                                    "model": shared.baoclaw_config.model,
+                                });
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::ConfigModel => {
+                                // Mask API key: show first 4 + last 4
+                                let mask_key = |key: &Option<String>| -> String {
+                                    match key {
+                                        Some(k) if k.len() > 8 => {
+                                            let prefix = &k[..4];
+                                            let suffix = &k[k.len()-4..];
+                                            format!("{}****{}", prefix, suffix)
+                                        }
+                                        Some(k) => "****".to_string(),
+                                        None => "(未配置)".to_string(),
+                                    }
+                                };
+
+                                // Check if using model_profiles format
+                                let cfg = &shared.baoclaw_config;
+                                let primary_model = if let Some(ref pname) = cfg.primary_profile {
+                                    cfg.model_profiles.get(pname)
+                                        .map(|p| p.model.clone())
+                                        .unwrap_or_else(|| cfg.model.clone())
+                                } else {
+                                    cfg.model.clone()
+                                };
+
+                                let primary_api_type = if let Some(ref pname) = cfg.primary_profile {
+                                    cfg.model_profiles.get(pname)
+                                        .map(|p| p.api_type.clone())
+                                        .unwrap_or_else(|| cfg.api_type.clone())
+                                } else {
+                                    cfg.api_type.clone()
+                                };
+
+                                let primary_key = if let Some(ref pname) = cfg.primary_profile {
+                                    cfg.model_profiles.get(pname)
+                                        .and_then(|p| p.api_key.clone())
+                                } else {
+                                    // Check env for legacy key
+                                    std::env::var("ANTHROPIC_API_KEY").ok()
+                                };
+
+                                let primary_base_url = if let Some(ref pname) = cfg.primary_profile {
+                                    cfg.model_profiles.get(pname)
+                                        .and_then(|p| p.base_url.clone())
+                                        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                                } else {
+                                    cfg.openai_base_url.clone()
+                                        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                                };
+
+                                let primary_window = if let Some(ref pname) = cfg.primary_profile {
+                                    cfg.model_profiles.get(pname)
+                                        .map(|p| p.context_window)
+                                        .unwrap_or(cfg.context_window)
+                                } else {
+                                    cfg.context_window
+                                };
+
+                                let primary_threshold = if let Some(ref pname) = cfg.primary_profile {
+                                    cfg.model_profiles.get(pname)
+                                        .map(|p| p.auto_compact_threshold_ratio)
+                                        .unwrap_or(cfg.auto_compact_threshold_ratio)
+                                } else {
+                                    cfg.auto_compact_threshold_ratio
+                                };
+
+                                // Build fallback chain
+                                let fallback_chain: Vec<serde_json::Value> = if !cfg.fallback_profiles.is_empty() {
+                                    cfg.fallback_profiles.iter().filter_map(|name| {
+                                        cfg.model_profiles.get(name).map(|p| {
+                                            serde_json::json!({
+                                                "name": name,
+                                                "model": p.model,
+                                                "api_type": p.api_type,
+                                                "context_window": p.context_window,
+                                                "api_key_masked": mask_key(&p.api_key),
+                                            })
+                                        })
+                                    }).collect()
+                                } else {
+                                    cfg.fallback_models.iter().map(|m| {
+                                        serde_json::json!({
+                                            "name": m,
+                                            "model": m,
+                                        })
+                                    }).collect()
+                                };
+
+                                let result = serde_json::json!({
+                                    "primary_model": primary_model,
+                                    "primary_api_type": primary_api_type,
+                                    "primary_api_key_masked": mask_key(&primary_key),
+                                    "primary_base_url": primary_base_url,
+                                    "primary_context_window": primary_window,
+                                    "primary_threshold_ratio": primary_threshold,
+                                    "fallback_chain": fallback_chain,
+                                    "max_retries_per_model": cfg.max_retries_per_model,
+                                });
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, result).await;
+                            }
+                            ClientMethod::ConfigShow => {
+                                // Serialize config with api_key masked
+                                let mask_key_in_value = |v: &mut serde_json::Value| {
+                                    if let serde_json::Value::String(s) = v {
+                                        if s.len() > 8 && !s.contains("****") {
+                                            let prefix = &s[..4];
+                                            let suffix = &s[s.len()-4..];
+                                            *v = serde_json::Value::String(format!("{}****{}", prefix, suffix));
+                                        }
+                                    }
+                                };
+
+                                let mut config_json = serde_json::to_value(&shared.baoclaw_config)
+                                    .unwrap_or(serde_json::json!({}));
+
+                                // Mask all api_key fields in model_profiles
+                                if let Some(profiles) = config_json.get_mut("model_profiles").and_then(|v| v.as_object_mut()) {
+                                    for (_, profile) in profiles.iter_mut() {
+                                        if let Some(obj) = profile.as_object_mut() {
+                                            if let Some(key) = obj.get_mut("api_key") {
+                                                mask_key_in_value(key);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"config": config_json})).await;
                             }
                         }
                     }

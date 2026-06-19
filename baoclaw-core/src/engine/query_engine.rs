@@ -469,6 +469,16 @@ impl QueryEngine {
         &self.config.model
     }
 
+    /// Get the session ID (if configured).
+    pub fn get_session_id(&self) -> Option<&str> {
+        self.config.session_id.as_deref()
+    }
+
+    /// Get the working directory.
+    pub fn get_cwd(&self) -> &Path {
+        &self.config.cwd
+    }
+
     /// Sync messages back from the spawned query loop task.
     /// Must be called after the query loop completes (after draining the event rx).
     pub async fn sync_messages(&mut self) {

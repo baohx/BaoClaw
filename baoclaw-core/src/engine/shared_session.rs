@@ -1,9 +1,15 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use chrono::Utc;
+
 use super::query_engine::{EngineEvent, QueryEngine};
+use super::session_persistence::{
+    self, PersistedSession,
+};
 
 /// Unique identifier for a client connection within a shared session.
 pub type ClientId = u64;
@@ -119,14 +125,35 @@ impl SharedSession {
 /// Global registry of shared sessions, keyed by session ID.
 pub struct SessionRegistry {
     sessions: Mutex<HashMap<String, Arc<SharedSession>>>,
+    /// Directory for session persistence files (~/.baoclaw/sessions/).
+    persistence_dir: PathBuf,
 }
 
 impl SessionRegistry {
-    /// Create an empty registry.
+    /// Create an empty registry with default persistence directory.
     pub fn new() -> Self {
+        Self::with_persistence_dir(session_persistence::default_sessions_dir())
+    }
+
+    /// Create an empty registry with a custom persistence directory.
+    /// Ensures the directory exists.
+    pub fn with_persistence_dir(persistence_dir: PathBuf) -> Self {
+        // Create directory if it doesn't exist (backward compatible: no error on first run)
+        if let Err(e) = std::fs::create_dir_all(&persistence_dir) {
+            eprintln!(
+                "[session-registry] WARNING: failed to create persistence dir {:?}: {}",
+                persistence_dir, e
+            );
+        }
         Self {
             sessions: Mutex::new(HashMap::new()),
+            persistence_dir,
         }
+    }
+
+    /// Get the persistence directory.
+    pub fn persistence_dir(&self) -> &PathBuf {
+        &self.persistence_dir
     }
 
     /// Look up or create a shared session.
@@ -157,5 +184,172 @@ impl SessionRegistry {
     /// Check whether a session exists in the registry.
     pub async fn contains(&self, session_id: &str) -> bool {
         self.sessions.lock().await.contains_key(session_id)
+    }
+
+    // ── Persistence Methods ──
+
+    /// Persist a session's conversation state to disk (called after each turn).
+    ///
+    /// Serializes messages + metadata to `<session_id>.json` using atomic write.
+    /// Also updates the registry index's `last_active` timestamp.
+    ///
+    /// Errors are logged but do not crash the daemon. Returns `Ok(())` on success.
+    pub async fn persist_session(&self, session_id: &str) -> Result<(), String> {
+        let sessions = self.sessions.lock().await;
+        let session = match sessions.get(session_id) {
+            Some(s) => Arc::clone(s),
+            None => return Err(format!("session {} not found in registry", session_id)),
+        };
+        drop(sessions); // release lock before acquiring engine read lock
+
+        let engine = session.engine_read().await;
+        let messages = engine.get_messages().to_vec();
+        let cwd = engine.get_cwd().to_string_lossy().to_string();
+        let model = engine.get_model().to_string();
+        let memory_summary = engine.get_session_memory().as_ref().map(|sm| sm.get());
+        drop(engine);
+
+        let now = Utc::now().to_rfc3339();
+        // Use created_at from existing registry entry, or now for new sessions
+        let registry = session_persistence::load_registry(&self.persistence_dir);
+        let created_at = registry
+            .sessions
+            .iter()
+            .find(|e| e.session_id == session_id)
+            .map(|e| e.created_at.clone())
+            .unwrap_or_else(|| now.clone());
+
+        let state = PersistedSession {
+            session_id: session_id.to_string(),
+            cwd,
+            model,
+            created_at: created_at.clone(),
+            last_active: now,
+            messages,
+            memory_summary,
+        };
+
+        session_persistence::persist_session_state(&self.persistence_dir, &state)
+            .map_err(|e| {
+                let msg = format!("failed to persist session {}: {}", session_id, e);
+                eprintln!("[session-registry] WARNING: {}", msg);
+                msg
+            })
+    }
+
+    /// Load persisted session data for a given session ID from disk.
+    ///
+    /// Returns `None` if the session has no persisted state or if the file is corrupted.
+    /// This is used by the daemon to restore conversation history when a session is
+    /// re-created after a crash or restart.
+    pub fn load_persisted_session(&self, session_id: &str) -> Option<PersistedSession> {
+        session_persistence::load_session_state(&self.persistence_dir, session_id)
+    }
+
+    /// Restore messages into a session from persisted state (if available).
+    ///
+    /// Should be called right after `get_or_create` when `is_new` is true.
+    /// Returns `true` if messages were restored, `false` otherwise.
+    pub async fn restore_session_messages(&self, session_id: &str) -> bool {
+        let persisted = match self.load_persisted_session(session_id) {
+            Some(p) => p,
+            None => return false,
+        };
+
+        if persisted.messages.is_empty() {
+            return false;
+        }
+
+        let sessions = self.sessions.lock().await;
+        if let Some(session) = sessions.get(session_id) {
+            let mut engine = session.engine_write().await;
+            engine.set_messages(persisted.messages);
+
+            // Restore memory summary
+            if let Some(summary) = persisted.memory_summary {
+                if !summary.is_empty() {
+                    engine.seed_session_memory(&summary);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Archive sessions that have been inactive for more than `max_age_days`.
+    ///
+    /// Moves their JSON files to `archive/` subdirectory and removes them
+    /// from the registry index. In-memory sessions are not evicted (use `remove()`
+    /// for that).
+    ///
+    /// Returns the list of archived session IDs.
+    pub fn archive_stale(&self, max_age_days: u64) -> Vec<String> {
+        match session_persistence::archive_stale_sessions(&self.persistence_dir, max_age_days) {
+            Ok(archived) => {
+                if !archived.is_empty() {
+                    eprintln!(
+                        "[session-registry] Archived {} stale sessions (>{} days inactive)",
+                        archived.len(),
+                        max_age_days
+                    );
+                }
+                archived
+            }
+            Err(e) => {
+                eprintln!(
+                    "[session-registry] WARNING: archive_stale failed: {}",
+                    e
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    /// Archive sessions with the default 7-day threshold.
+    pub fn archive_stale_default(&self) -> Vec<String> {
+        self.archive_stale(7)
+    }
+
+    /// Get all session IDs from the registry index (on disk).
+    pub fn list_persisted_sessions(&self) -> Vec<(String, String)> {
+        let index = session_persistence::load_registry(&self.persistence_dir);
+        index
+            .sessions
+            .iter()
+            .map(|e| (e.session_id.clone(), e.cwd.clone()))
+            .collect()
+    }
+
+    /// Delete a session's persisted state from disk.
+    pub fn delete_persisted_session(&self, session_id: &str) {
+        if let Err(e) = session_persistence::delete_session(&self.persistence_dir, session_id) {
+            eprintln!(
+                "[session-registry] WARNING: failed to delete persisted session {}: {}",
+                session_id, e
+            );
+        }
+    }
+
+    /// Persist all currently in-memory sessions to disk.
+    /// Useful for graceful shutdown (SIGTERM/SIGINT handlers).
+    pub async fn persist_all(&self) {
+        let session_ids: Vec<String> = {
+            let sessions = self.sessions.lock().await;
+            sessions.keys().cloned().collect()
+        };
+
+        for sid in &session_ids {
+            if let Err(e) = self.persist_session(sid).await {
+                eprintln!(
+                    "[session-registry] WARNING: persist_all failed for {}: {}",
+                    sid, e
+                );
+            }
+        }
+        eprintln!(
+            "[session-registry] Persisted {} sessions to disk",
+            session_ids.len()
+        );
     }
 }

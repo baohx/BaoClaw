@@ -1555,13 +1555,13 @@
   },
   {
     "text": "P1-2: socket 路径改 cwd-hash（D4 Phase 1）— make_socket_path 用 cwd 的 sha256 而非 PID，同 cwd 客户端自动连同一 daemon",
-    "completed": false,
+    "completed": true,
     "priority": "medium",
     "created_at": "2026-06-19T15:04:51.836742349+00:00"
   },
   {
     "text": "P2-1: session 持久化到 SQLite（D3-C + D4 Phase 2）— SessionRegistry 加 SQLite backing store，崩溃恢复",
-    "completed": false,
+    "completed": true,
     "priority": "medium",
     "created_at": "2026-06-19T15:04:51.838226783+00:00"
   },
@@ -1645,26 +1645,92 @@
   },
   {
     "text": "Add resolve_api_key/resolve_base_url in main.rs + use profiles",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-06-19T15:30:23.885086151+00:00"
   },
   {
     "text": "Add test_auto_migrate_old_format test",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-06-19T15:30:23.886897811+00:00"
   },
   {
     "text": "cargo check + cargo test --lib config",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-06-19T15:30:23.888823597+00:00"
   },
   {
     "text": "Add resolve_api_key/resolve_base_url in main.rs + use profiles",
-    "completed": false,
+    "completed": true,
     "priority": "high",
     "created_at": "2026-06-19T15:34:42.789664564+00:00"
+  },
+  {
+    "text": "Add session_id and cwd accessor methods to QueryEngine",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:58.850896632+00:00"
+  },
+  {
+    "text": "Create session_persistence.rs module with atomic_write, persist, load logic",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:58.853212889+00:00"
+  },
+  {
+    "text": "Extend SessionRegistry with persistence_dir + persist_session + load_from_disk + archive_stale",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:58.855285946+00:00"
+  },
+  {
+    "text": "Wire persist_session into main.rs after sync_messages (turn end)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:58.862097306+00:00"
+  },
+  {
+    "text": "Wire load_from_disk into main.rs daemon startup",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:58.863635205+00:00"
+  },
+  {
+    "text": "cargo check + cargo test --lib query_engine",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:58.865757719+00:00"
+  },
+  {
+    "text": "Add 6 new IPC methods to baoclaw-core/src/ipc/router.rs (SessionTokens, SessionCost, SessionInfo, ConfigModel, ConfigShow, MemoryList already exists)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:59.257066734+00:00"
+  },
+  {
+    "text": "Add IPC method handlers in baoclaw-core/src/main.rs for the 5 new methods",
+    "completed": true,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:59.258719099+00:00"
+  },
+  {
+    "text": "Add 6 slash command handlers in ts-ipc/cli.ts (/tokens, /cost, /memory info, /model config, /config, /session)",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:59.259894723+00:00"
+  },
+  {
+    "text": "Update autocomplete COMMANDS list and /help in cli.ts",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:59.261096738+00:00"
+  },
+  {
+    "text": "Verify compilation: cargo check + npx tsc --noEmit",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T15:47:59.262348652+00:00"
   }
 ]

@@ -332,6 +332,18 @@ pub enum ClientMethod {
         action: String,
         target: String,
     },
+
+    // ── Session Info / Token / Cost RPC (P2-2) ──
+    #[serde(rename = "session.tokens")]
+    SessionTokens,
+    #[serde(rename = "session.cost")]
+    SessionCost,
+    #[serde(rename = "session.info")]
+    SessionInfo,
+    #[serde(rename = "config.model")]
+    ConfigModel,
+    #[serde(rename = "config.show")]
+    ConfigShow,
 }
 
 fn default_tail_count() -> usize { 10 }
