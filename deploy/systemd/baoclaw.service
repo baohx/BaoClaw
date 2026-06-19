@@ -5,9 +5,10 @@ After=network.target
 
 [Service]
 Type=simple
-# daemon 二进制路径（用户自行修改）
-ExecStart=%h/.cargo/bin/baoclaw-core --daemon
+# daemon 二进制路径（install.sh 安装到 ~/.baoclaw/bin/）
+ExecStart=%h/.baoclaw/bin/baoclaw-core --daemon
 # 或从源码编译：ExecStart=%h/BaoClaw/target/release/baoclaw-core --daemon
+# 或 cargo 安装：ExecStart=%h/.cargo/bin/baoclaw-core --daemon
 WorkingDirectory=%h
 Environment=RUST_LOG=info
 Environment=BAOCLAW_DAEMON_MODE=1
