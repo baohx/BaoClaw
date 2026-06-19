@@ -780,6 +780,7 @@ const COMMANDS = [
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory', '/debug',
   '/projects', '/cron', '/history', '/doc', '/team',
   '/template', '/permission',
+  '/tokens', '/cost', '/session', '/config',
 ];
 
 /**
@@ -1743,6 +1744,28 @@ async function main() {
           console.log(`\n  ${DIM}No fallback models. Edit ~/.baoclaw/config.json${RESET}`);
         }
 
+        // P2-2: Also fetch richer model config from daemon IPC (key masked)
+        try {
+          const mc = await client.request<any>('config.model', {});
+          const maskKey = (k: any) => {
+            if (!k || typeof k !== 'string') return '(未配置)';
+            return k.length > 8 ? `${k.slice(0, 4)}****${k.slice(-4)}` : '****';
+          };
+          const p = mc.primary ?? {};
+          console.log(`  ${FG_GRAY}── 模型详情 (config.model) ──${RESET}`);
+          console.log(`  ${FG_WHITE}主模型:${RESET}       ${FG_GREEN}${p.model ?? '?'}${RESET} ${DIM}(${p.api_type ?? '?'})${RESET}`);
+          console.log(`  ${FG_WHITE}  窗口:${RESET}       ${((p.context_window ?? 0) as number).toLocaleString()} tokens`);
+          console.log(`  ${FG_WHITE}  压缩阈值:${RESET}   ${(((p.auto_compact_threshold_ratio ?? 0) as number) * 100).toFixed(0)}%`);
+          console.log(`  ${FG_WHITE}  Base URL:${RESET}   ${p.base_url ?? '(default)'}`);
+          console.log(`  ${FG_WHITE}  Key:${RESET}          ${maskKey(p.api_key)}`);
+          if (mc.fallbacks && Array.isArray(mc.fallbacks) && mc.fallbacks.length > 0) {
+            console.log(`  ${FG_GRAY}── 退坡链 ──${RESET}`);
+            mc.fallbacks.forEach((f: any, i: number) => {
+              console.log(`  ${FG_CYAN}${i + 1}.${RESET} ${f.model ?? '?'} ${DIM}(${f.api_type ?? '?'})${RESET} — 窗口 ${((f.context_window ?? 0) as number).toLocaleString()}`);
+            });
+          }
+        } catch { /* daemon may not support config.model yet — silent fallback */ }
+
         console.log(`\n  ${DIM}Switch: /model <name>${RESET}\n`);
       } else {
         // Switch model
@@ -2106,7 +2129,40 @@ async function main() {
           console.log(`\n${FG_GREEN}✓ Cleanup complete${RESET} ${DIM}archived=${result.archived_count ?? 0} deleted=${result.deleted_count ?? 0} (${result.duration_ms ?? 0}ms)${RESET}\n`);
         } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
       } else {
-        console.log(`\n${FG_ORANGE}${BOLD}Memory Commands${RESET}\n`);
+        // P2-2: Static memory system description
+        console.log(`\n${FG_ORANGE}${BOLD}📖 BaoClaw 记忆系统${RESET}`);
+        console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+        console.log(`  ${FG_WHITE}【工作记忆】${RESET}${DIM}(Context Window)${RESET}`);
+        console.log(`  ${DIM}  存储位置: 内存（daemon 进程）${RESET}`);
+        console.log(`  ${DIM}  压缩策略: 超过 85% 阈值时自动摘要${RESET}`);
+        console.log(`  ${DIM}  压缩保留: 最近 4 条消息原文，其余摘要${RESET}`);
+        console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+        console.log(`  ${FG_WHITE}【长期记忆】${RESET}${DIM}(Long-term Memory)${RESET}`);
+        console.log(`  ${DIM}  存储位置: ~/.baoclaw/memories/${RESET}`);
+        console.log(`  ${DIM}  格式: JSONL（每行一条记忆）${RESET}`);
+        console.log(`  ${DIM}  分类: fact / preference / decision${RESET}`);
+        console.log(`  ${DIM}  衰减: 90 天未访问自动归档${RESET}`);
+        console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+        console.log(`  ${FG_WHITE}【会话记忆】${RESET}${DIM}(Session Memory)${RESET}`);
+        console.log(`  ${DIM}  存储位置: ~/.baoclaw/sessions/<id>.json${RESET}`);
+        console.log(`  ${DIM}  触发时机: 每轮对话结束自动持久化${RESET}`);
+        console.log(`  ${DIM}  崩溃恢复: daemon 重启后自动加载${RESET}`);
+        console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+        // Also try to call memory.list for current entries
+        try {
+          const memResult = await client.request<{ memories: any[]; count: number }>('memoryList');
+          if (memResult.count > 0) {
+            console.log(`\n${FG_CYAN}记忆条目${RESET} ${DIM}(${memResult.count} 条)${RESET}`);
+            for (const m of memResult.memories) {
+              const content = m.content.length > 60 ? m.content.slice(0, 60) + '…' : m.content;
+              console.log(`  ${FG_WHITE}[${m.category}]${RESET} ${content}`);
+            }
+          } else {
+            console.log(`\n${DIM}（暂无长期记忆条目）${RESET}`);
+          }
+        } catch { /* daemon may not support memoryList yet */ }
+
+        console.log(`\n  ${FG_ORANGE}${BOLD}Memory Commands${RESET}\n`);
         console.log(`  ${FG_WHITE}/memory list${RESET}                    ${DIM}List all memories${RESET}`);
         console.log(`  ${FG_WHITE}/memory add [category] <text>${RESET}  ${DIM}Add a memory (fact/preference/decision)${RESET}`);
         console.log(`  ${FG_WHITE}/memory delete <id>${RESET}            ${DIM}Delete a memory${RESET}`);
@@ -3242,6 +3298,106 @@ async function main() {
       return;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // P2-2: Session & Config Info Commands
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── /tokens — token 用量统计 ──
+    if (input === '/tokens' || input === '/token') {
+      try {
+        const result = await client.request<any>('session.tokens', {});
+        if (result && result.current_tokens !== undefined) {
+          const ctxWin = result.context_window ?? 0;
+          const pct = ctxWin > 0 ? (result.current_tokens / ctxWin * 100).toFixed(1) : '?';
+          const remaining = Math.max(0, ctxWin - result.current_tokens);
+          const thrRatio = result.threshold_ratio ?? 0;
+          console.log(`\n${FG_ORANGE}${BOLD}📊 Token Usage${RESET} ${DIM}(session: ${String(result.session_id ?? '').slice(0, 8) || '?'})${RESET}`);
+          console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+          console.log(`  ${FG_WHITE}当前使用:${RESET}     ${FG_CYAN}${(result.current_tokens ?? 0).toLocaleString()}${RESET} / ${ctxWin.toLocaleString()} tokens ${DIM}(${pct}%)${RESET}`);
+          console.log(`  ${FG_WHITE}距离压缩:${RESET}     ${FG_YELLOW}${remaining.toLocaleString()}${RESET} tokens ${DIM}(${(thrRatio * 100).toFixed(0)}% 阈值)${RESET}`);
+          console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+          console.log(`  ${FG_WHITE}累计输入:${RESET}     ${result.total_input_tokens != null ? (result.total_input_tokens as number).toLocaleString() : 'N/A'}`);
+          console.log(`  ${FG_WHITE}累计输出:${RESET}     ${result.total_output_tokens != null ? (result.total_output_tokens as number).toLocaleString() : 'N/A'}`);
+          console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+          console.log(`  ${DIM}模型: ${result.model ?? 'unknown'} | 窗口: ${ctxWin > 0 ? (ctxWin / 1_000_000).toFixed(1) + 'M' : '?'}${RESET}\n`);
+        } else {
+          console.log(`\n${FG_YELLOW}⚠ Token 数据不可用${RESET}\n`);
+        }
+      } catch (err) {
+        console.error(`${FG_RED}Failed to get token usage: ${err}${RESET}\n`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    // ── /cost — 花费估算 ──
+    if (input === '/cost') {
+      try {
+        const result = await client.request<any>('session.cost', {});
+        const fmtCost = (v: any) => typeof v === 'number' ? v.toFixed(4) : 'N/A';
+        const fmtTokens = (v: any) => typeof v === 'number' ? v.toLocaleString() : '0';
+        console.log(`\n${FG_ORANGE}${BOLD}💰 Cost Estimate${RESET}`);
+        console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+        console.log(`  ${FG_WHITE}本 session:${RESET}   ${FG_GREEN}$${fmtCost(result.session_cost)}${RESET}`);
+        console.log(`  ${FG_WHITE}  输入:${RESET}     $${fmtCost(result.input_cost)} ${DIM}(${fmtTokens(result.input_tokens)} tokens)${RESET}`);
+        console.log(`  ${FG_WHITE}  输出:${RESET}     $${fmtCost(result.output_cost)} ${DIM}(${fmtTokens(result.output_tokens)} tokens)${RESET}`);
+        console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+        console.log(`  ${DIM}模型: ${result.model ?? 'unknown'} | 输入 $${result.input_price_per_million ?? '?'}/M | 输出 $${result.output_price_per_million ?? '?'}/M${RESET}\n`);
+      } catch (err) {
+        console.error(`${FG_RED}Failed to get cost estimate: ${err}${RESET}\n`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    // ── /session — session 元数据 ──
+    if (input === '/session') {
+      try {
+        const result = await client.request<any>('session.info', {});
+        console.log(`\n${FG_ORANGE}${BOLD}🔧 Session Info${RESET}`);
+        console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
+        console.log(`  ${FG_WHITE}ID:${RESET}           ${FG_CYAN}${result.session_id ?? '?'}${RESET}`);
+        console.log(`  ${FG_WHITE}工作目录:${RESET}     ${result.cwd ?? '?'}`);
+        console.log(`  ${FG_WHITE}客户端数:${RESET}     ${result.client_count ?? 0}`);
+        console.log(`  ${FG_WHITE}对话轮次:${RESET}     ${result.message_count ?? 0}`);
+        console.log(`  ${FG_WHITE}创建时间:${RESET}     ${result.created_at ?? '?'}`);
+        console.log(`  ${FG_WHITE}最后活跃:${RESET}     ${result.last_active ?? '?'}\n`);
+      } catch (err) {
+        console.error(`${FG_RED}Failed to get session info: ${err}${RESET}\n`);
+      }
+      rl.prompt();
+      return;
+    }
+
+    // ── /config — 完整配置 JSON（key 打码）──
+    if (input === '/config') {
+      try {
+        const result = await client.request<any>('config.show', {});
+        // Deep-clone and mask api keys
+        const maskKeys = (obj: any): any => {
+          if (obj === null || typeof obj !== 'object') return obj;
+          if (Array.isArray(obj)) return obj.map(maskKeys);
+          const masked: Record<string, any> = {};
+          for (const [k, v] of Object.entries(obj)) {
+            if (typeof k === 'string' && /api[_-]?key/i.test(k) && typeof v === 'string' && v.length > 8) {
+              masked[k] = `${v.slice(0, 4)}****${v.slice(-4)}`;
+            } else {
+              masked[k] = maskKeys(v);
+            }
+          }
+          return masked;
+        };
+        const masked = maskKeys(result);
+        console.log(`\n${FG_ORANGE}${BOLD}⚙ Configuration${RESET} ${DIM}(keys masked)${RESET}\n`);
+        console.log(JSON.stringify(masked, null, 2));
+        console.log();
+      } catch (err) {
+        console.error(`${FG_RED}Failed to get config: ${err}${RESET}\n`);
+      }
+      rl.prompt();
+      return;
+    }
+
     if (input === '/help') {
       console.log(`\n${FG_ORANGE}${BOLD}Commands${RESET}\n`);
 
@@ -3291,7 +3447,13 @@ async function main() {
       console.log(`  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway${RESET}`);
       console.log();
 
-      console.log(`  ${FG_GRAY}── Session ──${RESET}`);
+      console.log(`  ${FG_GRAY}── Session & Info ──${RESET}`);
+      console.log(`  ${FG_WHITE}/tokens${RESET}    ${DIM}显示 token 用量统计${RESET}`);
+      console.log(`  ${FG_WHITE}/cost${RESET}      ${DIM}显示花费估算${RESET}`);
+      console.log(`  ${FG_WHITE}/session${RESET}   ${DIM}显示当前 session 信息${RESET}`);
+      console.log(`  ${FG_WHITE}/model${RESET}     ${DIM}显示模型配置 (key 已打码)${RESET}`);
+      console.log(`  ${FG_WHITE}/config${RESET}    ${DIM}显示完整配置 JSON (key 已打码)${RESET}`);
+      console.log(`  ${FG_WHITE}/memory${RESET}    ${DIM}显示记忆系统说明 (/memory list 查看条目)${RESET}`);
       console.log(`  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`);
       console.log(`  ${FG_WHITE}/help${RESET}       ${DIM}Show this help${RESET}`);
       console.log(`  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`);
