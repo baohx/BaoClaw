@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.baoclaw.daemon</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOUR_USERNAME/BaoClaw/target/release/baoclaw-core</string>
+        <string>--daemon</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USERNAME</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_LOG</key>
+        <string>info</string>
+        <key>BAOCLAW_DAEMON_MODE</key>
+        <string>1</string>
+    </dict>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    
+    <key>StandardOutPath</key>
+    <string>/tmp/baoclaw-daemon.stdout.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/tmp/baoclaw-daemon.stderr.log</string>
+</dict>
+</plist>

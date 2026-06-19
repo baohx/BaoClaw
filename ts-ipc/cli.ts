@@ -6,6 +6,7 @@
 import * as net from 'net';
 import * as readline from 'readline';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { spawn, ChildProcess } from 'child_process';
 import { renderMarkdown } from './markdownRenderer.js';
 import * as fs from 'fs';
@@ -574,6 +575,46 @@ function getSocketDir(): string {
   return path.join(os.tmpdir(), 'baoclaw-sockets');
 }
 
+/**
+ * Preferred fixed socket path for machine-level single daemon (P3-1c).
+ * Linux: $XDG_RUNTIME_DIR/baoclaw.sock (/run/user/<UID>/)
+ * macOS: /tmp/baoclaw-sockets/baoclaw.sock
+ * Windows: %TEMP%/baoclaw-sockets/baoclaw.sock
+ */
+function fixedSocketPath(): string | null {
+  const platform = process.platform;
+  if (platform === 'linux') {
+    const xdg = process.env.XDG_RUNTIME_DIR;
+    if (xdg && fs.existsSync(xdg)) {
+      return path.join(xdg, 'baoclaw.sock');
+    }
+    return null;
+  }
+  // macOS and others
+  const dir = path.join(os.tmpdir(), 'baoclaw-sockets');
+  return path.join(dir, 'baoclaw.sock');
+}
+
+/**
+ * Cwd-hash socket path (P1-2 backward compat fallback).
+ */
+function cwdHashSocketPath(cwd: string): string {
+  const hash = crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+  return path.join(getSocketDir(), `baoclaw-cwd-${hash}.sock`);
+}
+
+/**
+ * Resolve daemon socket: fixed socket first, cwd-hash fallback (P3-1e).
+ */
+function resolveDaemonSocket(cwd: string): string {
+  const fixed = fixedSocketPath();
+  if (fixed && fs.existsSync(fixed)) {
+    return fixed;
+  }
+  // Fallback to cwd-hash (P1-2 backward compat)
+  return cwdHashSocketPath(cwd);
+}
+
 /** Scan for running BaoClaw daemon instances */
 function discoverDaemons(): DaemonInfo[] {
   const dir = getSocketDir();
@@ -903,19 +944,27 @@ async function main() {
   // ── Discover existing daemons ──
   // Global daemon model: reuse any existing daemon, start new only if none exists.
   // Each CLI sends its own cwd; the daemon manages per-project sessions internally.
+  // P3-1e: Fixed socket path takes priority; cwd-hash fallback for backward compat.
+  const fixed = fixedSocketPath();
   const daemons = discoverDaemons();
   let socketPath: string;
   let child: ChildProcess | null = null;
   let isReconnect = false;
   const effectiveCwd = process.cwd(); // always use the terminal's current directory
 
-  if (daemons.length > 0) {
-    // Connect to the first available daemon (global singleton)
+  // 1. Try fixed socket first (P3-1c machine-level single daemon)
+  if (fixed && fs.existsSync(fixed)) {
+    socketPath = fixed;
+    isReconnect = true;
+    console.log(`${DIM}Connecting to daemon via fixed socket...${RESET}`);
+  } else if (daemons.length > 0) {
+    // 2. Fallback: connect to the first discovered daemon (global singleton)
     const daemon = daemons[0];
     socketPath = daemon.socket;
     isReconnect = true;
     console.log(`${DIM}Connecting to daemon pid=${daemon.pid}...${RESET}`);
   } else {
+    // 3. No existing daemon found — start a new one
     socketPath = await startNewDaemon(binaryPath, sandboxMode);
   }
 

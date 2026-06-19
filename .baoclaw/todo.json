@@ -1567,13 +1567,13 @@
   },
   {
     "text": "P2-2: 新增斜杠命令 /tokens /cost /memory /model /config /session（D7）— CLI 侧实现 + daemon 侧 IPC 接口",
-    "completed": false,
+    "completed": true,
     "priority": "medium",
     "created_at": "2026-06-19T15:04:51.840031669+00:00"
   },
   {
     "text": "P3-1: systemd/launchd 服务化（D4 终局）— 固定 socket /run/baoclaw.sock，写 service unit",
-    "completed": false,
+    "completed": true,
     "priority": "low",
     "created_at": "2026-06-19T15:04:51.841875373+00:00"
   },
@@ -1732,5 +1732,83 @@
     "completed": false,
     "priority": "high",
     "created_at": "2026-06-19T15:47:59.262348652+00:00"
+  },
+  {
+    "text": "Add /tokens /cost /session /config to COMMANDS array",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T16:07:01.515985856+00:00"
+  },
+  {
+    "text": "Add /tokens /cost /session /config /model-enhance /memory-enhance command handlers",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T16:07:11.499359497+00:00"
+  },
+  {
+    "text": "Update /help output with new commands",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T16:07:11.501741144+00:00"
+  },
+  {
+    "text": "Verify TS compiles and commit",
+    "completed": false,
+    "priority": "high",
+    "created_at": "2026-06-19T16:07:11.503572362+00:00"
+  },
+  {
+    "text": "P3-1a: systemd unit (Linux) — 写 ~/.config/systemd/user/baoclaw.service + 安装脚本 + 固定 socket 路径 /run/user/UID/baoclaw.sock",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.286695657+00:00"
+  },
+  {
+    "text": "P3-1b: launchd plist (macOS) — 写 ~/Library/LaunchAgents/com.baoclaw.plist + KeepAlive + RunAtLoad",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.289183714+00:00"
+  },
+  {
+    "text": "P3-1c: daemon 侧支持固定 socket 路径 + 优雅关闭（SIGTERM 时 persist_all）",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.291606662+00:00"
+  },
+  {
+    "text": "P3-1d: Windows Service 支持（piper icon 暂不做，仅占位文档）",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.293041577+00:00"
+  },
+  {
+    "text": "P3-1e: 客户端连接逻辑改为优先用固定 socket（/run/user/UID/baoclaw.sock），cwd-hash 作为 fallback",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.294361085+00:00"
+  },
+  {
+    "text": "P3-2a: 审计 baoclaw-cli 的工具清单，确认所有工具都通过 daemon IPC 调用",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.296336629+00:00"
+  },
+  {
+    "text": "P3-2b: 审计 baoclaw-telegram/baoclaw-feishu/baoclaw-web/baoclaw-tui 的工具覆盖度",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.297944446+00:00"
+  },
+  {
+    "text": "P3-2c: 生成对齐差距报告 + 补齐缺失工具的 UI/调用支持",
+    "completed": false,
+    "priority": "medium",
+    "created_at": "2026-06-19T16:26:52.299706849+00:00"
+  },
+  {
+    "text": "P3-3: 客户端迁移文档 docs/DAEMON_MIGRATION.md（如何从 PID socket 切换到固定 socket + systemd）",
+    "completed": false,
+    "priority": "low",
+    "created_at": "2026-06-19T16:26:52.301223185+00:00"
   }
 ]
