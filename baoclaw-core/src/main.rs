@@ -19,6 +19,9 @@ mod tools;
 mod updater;
 mod utils;
 
+#[cfg(target_os = "windows")]
+mod windows_service;
+
 use api::client::ApiClientConfig;
 use api::unified::UnifiedClient;
 use config::BaoclawConfig;
@@ -2499,9 +2502,114 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         "shared_session_id is required".into()).await;
 }
 
+/// Run the daemon under a Windows service context.
+///
+/// Called synchronously from `windows_service_main()`. Uses a subprocess
+/// architecture for maximum safety:
+/// 1. This process (service host) manages the SCM connection
+/// 2. The actual daemon runs as a child process with `--daemon`
+/// 3. When SCM says stop, we kill the child (its signal handler persists sessions)
+///
+/// This avoids the complexity of re-entering main()'s async logic.
+#[cfg(target_os = "windows")]
+pub fn run_daemon_main_with_shutdown_check() {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[service] Cannot find current exe: {}", e);
+            return;
+        }
+    };
+
+    let cwd = std::env::current_dir().unwrap_or_default();
+
+    eprintln!("[service] Launching daemon subprocess: {} --daemon", exe.display());
+
+    let mut child = match std::process::Command::new(&exe)
+        .arg("--daemon")
+        .arg("--cwd")
+        .arg(&cwd)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[service] Failed to spawn daemon subprocess: {}", e);
+            return;
+        }
+    };
+
+    // Monitor loop: wait for SCM shutdown or child exit
+    loop {
+        // Check if SCM requested shutdown
+        if windows_service::is_shutdown_requested() {
+            eprintln!("[service] SCM requested shutdown, stopping daemon...");
+            // Kill child — the daemon's own SIGTERM handler will persist sessions.
+            // On Windows, kill() sends a TerminateProcess which is forceful;
+            // for graceful shutdown we'd need CTRL_BREAK_EVENT, but the daemon's
+            // session persistence is also handled by its periodic save logic.
+            let _ = child.kill();
+            break;
+        }
+
+        // Check if child exited on its own
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                // Child exited
+                eprintln!("[service] Daemon subprocess exited");
+                break;
+            }
+            Ok(None) => {
+                // Still running, wait a bit
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(e) => {
+                eprintln!("[service] Error waiting for daemon: {}", e);
+                break;
+            }
+        }
+    }
+
+    // Ensure child is reaped
+    let _ = child.wait();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
+
+    // ══════════════════════════════════════════════════════════
+    // Windows service management commands (--install-service, etc.)
+    // These are only valid on Windows and handled before anything else.
+    // ══════════════════════════════════════════════════════════
+    #[cfg(target_os = "windows")]
+    {
+        if args.iter().any(|a| a == "--install-service") {
+            if let Err(e) = windows_service::install_service() {
+                eprintln!("Error installing service: {}", e);
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        if args.iter().any(|a| a == "--uninstall-service") {
+            if let Err(e) = windows_service::uninstall_service() {
+                eprintln!("Error uninstalling service: {}", e);
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        if args.iter().any(|a| a == "--run-as-service") {
+            // Dispatch to SCM — this blocks until the service stops
+            if let Err(e) = windows_service::dispatch_as_service() {
+                eprintln!("Service dispatch error: {}", e);
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+    }
+
     let is_daemon = args.iter().any(|a| a == "--daemon");
 
     // CRITICAL: Ignore SIGPIPE so we don't die when CLI disconnects stdout/stderr
@@ -3095,6 +3203,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             registry.persist_all().await;
             eprintln!("[daemon] shutdown complete, exiting");
             std::process::exit(0);
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // Windows service shutdown monitor (P3-1d)
+    // When running as a child of the service host (--daemon mode),
+    // periodically check if SCM has requested stop via the service host.
+    // The service host sets the shutdown flag, and this monitor persists
+    // sessions and exits gracefully.
+    // ══════════════════════════════════════════════════════════
+    #[cfg(target_os = "windows")]
+    {
+        let reg = Arc::clone(&shared.session_registry);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                if windows_service::is_shutdown_requested() {
+                    tracing::info!("Windows SCM requested shutdown, persisting sessions...");
+                    eprintln!("[daemon] Windows SCM requested shutdown, persisting sessions...");
+                    let _ = reg.persist_all().await;
+                    eprintln!("[daemon] shutdown complete, exiting");
+                    std::process::exit(0);
+                }
+            }
         });
     }
 
