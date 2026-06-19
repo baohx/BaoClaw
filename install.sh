@@ -7,7 +7,7 @@ INSTALL_DIR="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 BIN_DIR="${BAOCLAW_BIN_DIR:-$HOME/.local/bin}"
 
 echo "╔═══════════════════════════════════════╗"
-echo "║       BaoClaw Installer v1.0.0        ║"
+echo "║       BaoClaw Installer v2.1.0        ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
 
@@ -18,172 +18,143 @@ cargo build --release 2>&1 | tail -3
 cd "$SCRIPT_DIR"
 echo "✓ Rust core built"
 
-# 2. Install TS dependencies
-echo "📦 Installing TypeScript dependencies..."
-cd "$SCRIPT_DIR/ts-ipc"
-npm install --silent 2>&1
-cd "$SCRIPT_DIR"
-echo "✓ Dependencies installed"
+# 2. Install all TS gateway dependencies
+for dir in ts-ipc baoclaw-telegram baoclaw-web baoclaw-feishu baoclaw-whatsapp; do
+  if [ -d "$SCRIPT_DIR/$dir" ]; then
+    echo "📦 Installing $dir dependencies..."
+    cd "$SCRIPT_DIR/$dir"
+    npm install --silent 2>&1
+    cd "$SCRIPT_DIR"
+    echo "✓ $dir ready"
+  fi
+done
 
-# 2b. Install Telegram gateway dependencies
-echo "📦 Installing Telegram gateway dependencies..."
-cd "$SCRIPT_DIR/baoclaw-telegram"
-npm install --silent 2>&1
-cd "$SCRIPT_DIR"
-echo "✓ Telegram gateway dependencies installed"
-
-# 3. Create install directory
-mkdir -p "$INSTALL_DIR/bin"
-mkdir -p "$BIN_DIR"
+# 3. Create install dirs
+mkdir -p "$INSTALL_DIR/bin" "$BIN_DIR"
 
 # 4. Copy Rust binary
 cp "$SCRIPT_DIR/baoclaw-core/target/release/baoclaw-core" "$INSTALL_DIR/bin/baoclaw-core"
-echo "✓ Rust binary installed to $INSTALL_DIR/bin/"
+echo "✓ Rust binary → $INSTALL_DIR/bin/"
 
-# 5. Copy TS-IPC files
-mkdir -p "$INSTALL_DIR/ts-ipc"
-# Copy all TypeScript source files
-for f in "$SCRIPT_DIR"/ts-ipc/*.ts; do
-  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/ts-ipc/"
-done
-cp "$SCRIPT_DIR/ts-ipc/package.json" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/package-lock.json" "$INSTALL_DIR/ts-ipc/"
-cp "$SCRIPT_DIR/ts-ipc/tsconfig.json" "$INSTALL_DIR/ts-ipc/"
+# 5. Copy each gateway source
+copy_gateway() {
+  local name="$1"
+  local src="$SCRIPT_DIR/$name"
+  local dst="$INSTALL_DIR/$name"
+  [ ! -d "$src" ] && return 0
+  mkdir -p "$dst/src" "$dst/public" "$dst/tui" 2>/dev/null
+  # 复制 TS/TSX 源码
+  for f in "$src"/src/*.ts "$src"/src/*.tsx; do
+    [ -f "$f" ] && cp "$f" "$dst/src/"
+  done
+  # TUI 子目录（仅 ts-ipc）
+  if [ "$name" = "ts-ipc" ] && [ -d "$src/tui" ]; then
+    mkdir -p "$dst/tui/components"
+    for f in "$src"/tui/*.ts "$src"/tui/*.tsx; do
+      [ -f "$f" ] && cp "$f" "$dst/tui/"
+    done
+    for f in "$src"/tui/components/*.tsx; do
+      [ -f "$f" ] && cp "$f" "$dst/tui/components/"
+    done
+  fi
+  # public 静态资源（web）
+  [ -d "$src/public" ] && cp -r "$src/public/." "$dst/public/" 2>/dev/null
+  # 元信息
+  cp "$src/package.json" "$dst/" 2>/dev/null
+  cp "$src/package-lock.json" "$dst/" 2>/dev/null
+  cp "$src/tsconfig.json" "$dst/" 2>/dev/null
+  cd "$dst" && npm install --silent 2>&1 && cd "$SCRIPT_DIR"
+  echo "✓ $name → $dst"
+}
+copy_gateway ts-ipc
+copy_gateway baoclaw-telegram
+copy_gateway baoclaw-web
+copy_gateway baoclaw-feishu
+copy_gateway baoclaw-whatsapp
 
-# Install TS deps in install dir
-cd "$INSTALL_DIR/ts-ipc"
-npm install --silent 2>&1
-cd "$SCRIPT_DIR"
-echo "✓ TypeScript files installed to $INSTALL_DIR/ts-ipc/"
+# 6. Launcher 函数（统一生成非 CLI 客户端）
+make_launcher() {
+  local name="$1" target_subpath="$2" help="$3"
+  cat > "$BIN_DIR/$name" << EOF
+#!/bin/bash
+# BaoClaw $name — $help
+BAOCLAW_HOME="\${BAOCLAW_HOME:-\$HOME/.baoclaw}"
+export BAOCLAW_CORE_BIN="\$BAOCLAW_HOME/bin/baoclaw-core"
+exec npx --prefix "\$BAOCLAW_HOME/$(dirname "$target_subpath")" tsx "\$BAOCLAW_HOME/$target_subpath" "\$@"
+EOF
+  chmod +x "$BIN_DIR/$name"
+  echo "✓ $name → $BIN_DIR/$name"
+}
 
-# 5b. Copy Telegram gateway files
-mkdir -p "$INSTALL_DIR/baoclaw-telegram/src"
-for f in "$SCRIPT_DIR"/baoclaw-telegram/src/*.ts; do
-  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/baoclaw-telegram/src/"
-done
-cp "$SCRIPT_DIR/baoclaw-telegram/package.json" "$INSTALL_DIR/baoclaw-telegram/"
-cp "$SCRIPT_DIR/baoclaw-telegram/package-lock.json" "$INSTALL_DIR/baoclaw-telegram/" 2>/dev/null || true
-cp "$SCRIPT_DIR/baoclaw-telegram/tsconfig.json" "$INSTALL_DIR/baoclaw-telegram/"
-
-# Install Telegram gateway deps in install dir
-cd "$INSTALL_DIR/baoclaw-telegram"
-npm install --silent 2>&1
-cd "$SCRIPT_DIR"
-echo "✓ Telegram gateway installed to $INSTALL_DIR/baoclaw-telegram/"
-
-# 5c. Copy Web gateway files
-echo "📦 Installing Web gateway..."
-mkdir -p "$INSTALL_DIR/baoclaw-web/src"
-mkdir -p "$INSTALL_DIR/baoclaw-web/public"
-for f in "$SCRIPT_DIR"/baoclaw-web/src/*.ts; do
-  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/baoclaw-web/src/"
-done
-for f in "$SCRIPT_DIR"/baoclaw-web/public/*; do
-  [ -f "$f" ] && cp "$f" "$INSTALL_DIR/baoclaw-web/public/"
-done
-cp "$SCRIPT_DIR/baoclaw-web/package.json" "$INSTALL_DIR/baoclaw-web/"
-cp "$SCRIPT_DIR/baoclaw-web/package-lock.json" "$INSTALL_DIR/baoclaw-web/" 2>/dev/null || true
-cp "$SCRIPT_DIR/baoclaw-web/tsconfig.json" "$INSTALL_DIR/baoclaw-web/"
-
-# Install Web gateway deps in install dir
-cd "$INSTALL_DIR/baoclaw-web"
-npm install --silent 2>&1
-cd "$SCRIPT_DIR"
-echo "✓ Web gateway installed to $INSTALL_DIR/baoclaw-web/"
-
-# 6. Create the launcher script
+# CLI launcher（特殊：带 --help / --version）
 cat > "$BIN_DIR/baoclaw" << 'LAUNCHER'
 #!/bin/bash
-# BaoClaw — AI coding assistant
-# Usage: baoclaw [options]
-#   Options:
-#     --help    Show this help
-#     --version Show version
-
 BAOCLAW_HOME="${BAOCLAW_HOME:-$HOME/.baoclaw}"
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-  echo "BaoClaw v1.0.0 — AI coding assistant"
+  echo "BaoClaw v2.1.0 — AI coding assistant"
   echo ""
   echo "Usage: baoclaw [options]"
   echo ""
   echo "Options:"
-  echo "  --sandbox <mode>  Sandbox mode for bash execution"
-  echo "                    docker   Docker container isolation"
-  echo "                    bwrap    Bubblewrap (Linux namespace)"
-  echo "                    none     No sandbox (default)"
-  echo "  --think [budget]  Enable extended thinking"
+  echo "  --sandbox <mode>  docker|bwrap|none"
+  echo "  --think [budget]  Extended thinking"
   echo "  --vim             Vim mode"
   echo "  --debug           Debug mode"
-  echo "  --help            Show this help"
   echo "  --version         Show version"
+  echo "  --help            This help"
   echo ""
-  echo "Environment variables:"
-  echo "  Anthropic mode: ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL"
-  echo "  OpenAI mode:    OPENAI_API_KEY, OPENAI_BASE_URL"
-  echo "  Set api_type in ~/.baoclaw/config.json"
-  echo "  BAOCLAW_HOME    Install directory (default: ~/.baoclaw)"
+  echo "Config:  ~/.baoclaw/config.json (model_profiles, api keys)"
+  echo "Clients: baoclaw, baoclaw-tui, baoclaw-web,"
+  echo "          baoclaw-telegram, baoclaw-feishu, baoclaw-whatsapp"
+  echo "Docs:    ~/.baoclaw/docs/USAGE.md"
   exit 0
 fi
 
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-  echo "baoclaw 1.0.0"
+  echo "baoclaw 2.1.0"
   exit 0
-fi
-
-# Check API key based on config api_type
-BAOCLAW_CONFIG="$BAOCLAW_HOME/config.json"
-API_TYPE="anthropic"
-if [ -f "$BAOCLAW_CONFIG" ]; then
-  API_TYPE=$(sed -n 's/.*"api_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$BAOCLAW_CONFIG" | head -1)
-  [ -z "$API_TYPE" ] && API_TYPE="anthropic"
-fi
-
-if [ "$API_TYPE" = "openai" ]; then
-  if [ -z "$OPENAI_API_KEY" ]; then
-    echo "Error: OPENAI_API_KEY is not set (api_type=openai in config.json)"
-    echo "  export OPENAI_API_KEY=sk-..."
-    exit 1
-  fi
-else
-  if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo "Error: ANTHROPIC_API_KEY is not set."
-    echo "  export ANTHROPIC_API_KEY=sk-ant-..."
-    exit 1
-  fi
 fi
 
 export BAOCLAW_CORE_BIN="$BAOCLAW_HOME/bin/baoclaw-core"
 exec npx --prefix "$BAOCLAW_HOME/ts-ipc" tsx "$BAOCLAW_HOME/ts-ipc/cli.ts" "$@"
 LAUNCHER
-
 chmod +x "$BIN_DIR/baoclaw"
-echo "✓ Launcher installed to $BIN_DIR/baoclaw"
+echo "✓ baoclaw → $BIN_DIR/baoclaw"
 
-# 6b. Create the web launcher script
-cat > "$BIN_DIR/baoclaw-web" << 'WEBLAUNCHER'
-#!/bin/bash
-# BaoClaw Web — browser-based chat interface
-# Usage: baoclaw-web [--port 8080]
-BAOCLAW_HOME="${BAOCLAW_HOME:-$HOME/.baoclaw}"
-exec npx --prefix "$BAOCLAW_HOME/baoclaw-web" tsx "$BAOCLAW_HOME/baoclaw-web/src/server.ts" "$@"
-WEBLAUNCHER
+# 其他客户端启动器
+make_launcher "baoclaw-tui"       "ts-ipc/tui/index.tsx"           "Rich terminal UI (ink)"
+make_launcher "baoclaw-web"       "baoclaw-web/src/server.ts"      "Web browser chat"
+make_launcher "baoclaw-telegram"  "baoclaw-telegram/src/gateway.ts" "Telegram bot gateway"
+make_launcher "baoclaw-feishu"    "baoclaw-feishu/src/gateway.ts"  "Feishu bot gateway"
+make_launcher "baoclaw-whatsapp"  "baoclaw-whatsapp/src/session.ts" "WhatsApp gateway"
 
-chmod +x "$BIN_DIR/baoclaw-web"
-echo "✓ Web launcher installed to $BIN_DIR/baoclaw-web"
+# 7. 复制文档到安装目录
+mkdir -p "$INSTALL_DIR/docs"
+[ -f "$SCRIPT_DIR/docs/USAGE.md" ] && cp "$SCRIPT_DIR/docs/USAGE.md" "$INSTALL_DIR/docs/" && echo "✓ docs/USAGE.md → $INSTALL_DIR/docs/"
+[ -f "$SCRIPT_DIR/docs/DAEMON_MIGRATION.md" ] && cp "$SCRIPT_DIR/docs/DAEMON_MIGRATION.md" "$INSTALL_DIR/docs/" && echo "✓ docs/DAEMON_MIGRATION.md → $INSTALL_DIR/docs/"
 
 echo ""
 echo "═══════════════════════════════════════"
 echo "  Installation complete!"
 echo ""
-echo "  Usage:"
-echo "    export ANTHROPIC_API_KEY=sk-ant-..."
-echo "    export ANTHROPIC_BASE_URL=https://your-proxy.com  # optional"
-echo "    cd /path/to/your/project"
-echo "    baoclaw              # terminal chat"
+echo "  Quick start:"
+echo "    baoclaw              # terminal chat (auto-starts daemon)"
+echo "    baoclaw-tui          # rich terminal UI"
 echo "    baoclaw-web          # browser chat (http://localhost:8080)"
-echo "    baoclaw-web --port 9090"
 echo ""
-echo "  Add to ~/.bashrc for convenience:"
-echo "    export ANTHROPIC_API_KEY=sk-ant-..."
+echo "  Config: ~/.baoclaw/config.json"
+echo "    { \"model_profiles\": { \"glm52\": { \"model\": \"glm-5.2\","
+echo "        \"api_type\": \"anthropic\", \"api_key\": \"...\","
+echo "        \"base_url\": \"...\", \"context_window\": 1000000 } },"
+echo "      \"primary_profile\": \"glm52\" }"
+echo ""
+echo "  Optional: register daemon as system service"
+echo "    Linux:   cp deploy/systemd/baoclaw.service ~/.config/systemd/user/"
+echo "             systemctl --user enable --now baoclaw"
+echo "    macOS:   cp deploy/launchd/com.baoclaw.daemon.plist ~/Library/LaunchAgents/"
+echo "             launchctl load ~/Library/LaunchAgents/com.baoclaw.daemon.plist"
+echo "    Windows: PowerShell -File deploy/windows/install.ps1"
+echo ""
+echo "  Docs: ~/.baoclaw/docs/USAGE.md"
 echo "═══════════════════════════════════════"
