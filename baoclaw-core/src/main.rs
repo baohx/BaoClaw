@@ -88,6 +88,64 @@ fn make_socket_path(cwd: &str) -> PathBuf {
     socket_dir().join(format!("baoclaw-cwd-{}.sock", hash))
 }
 
+/// Preferred fixed socket path for the machine-level single daemon (P3-1c).
+///
+/// Linux: $XDG_RUNTIME_DIR/baoclaw.sock (typically /run/user/<UID>/baoclaw.sock)
+/// macOS: /tmp/baoclaw-sockets/baoclaw.sock
+/// Windows: %TEMP%/baoclaw-sockets/baoclaw.sock
+///
+/// Falls back to None if no suitable directory exists (then use cwd-hash path).
+fn fixed_socket_path() -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+            if !xdg.is_empty() && std::path::Path::new(&xdg).exists() {
+                return Some(PathBuf::from(xdg).join("baoclaw.sock"));
+            }
+        }
+        None
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let dir = std::env::temp_dir().join("baoclaw-sockets");
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir.join("baoclaw.sock"))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let dir = std::env::temp_dir().join("baoclaw-sockets");
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir.join("baoclaw.sock"))
+    }
+}
+
+/// Try fixed socket first, fall back to cwd-hash for backward compat (P3-1c).
+fn resolve_daemon_socket(cwd: &str) -> PathBuf {
+    if let Some(p) = fixed_socket_path() {
+        p
+    } else {
+        make_socket_path(cwd)
+    }
+}
+
+/// Connect to a running daemon, trying the fixed socket first, then
+/// falling back to the cwd-hash socket for backward compatibility (P3-1c).
+///
+/// Returns the connected UnixStream or an error if neither socket works.
+async fn connect_to_daemon(cwd: &str) -> std::io::Result<tokio::net::UnixStream> {
+    // 1. Try fixed socket (P3-1c, machine-level single daemon)
+    if let Some(ref p) = fixed_socket_path() {
+        if p.exists() {
+            if let Ok(s) = tokio::net::UnixStream::connect(p).await {
+                return Ok(s);
+            }
+        }
+    }
+    // 2. Fallback to cwd-hash socket (P1-2, backward compat)
+    let cwd_path = make_socket_path(cwd);
+    tokio::net::UnixStream::connect(&cwd_path).await
+}
+
 /// Write a metadata JSON file next to the socket for discovery
 fn write_meta(socket_path: &std::path::Path, cwd: &str, session_id: &str) {
     let meta_path = socket_path.with_extension("json");
@@ -2554,8 +2612,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Create socket in the shared socket directory
-    let socket_path = make_socket_path(&cwd_str);
+    // Create socket: prefer fixed machine-level path (P3-1c), fall back to cwd-hash
+    let socket_path = resolve_daemon_socket(&cwd_str);
+
+    // Clean up stale fixed socket if it exists but no daemon is listening
+    if socket_path.exists() {
+        if tokio::net::UnixStream::connect(&socket_path).await.is_err() {
+            // No daemon listening — remove stale socket file
+            let _ = std::fs::remove_file(&socket_path);
+        }
+    }
 
     // Bind IPC server
     let server = IpcServer::bind(&socket_path).await?;
@@ -2994,6 +3060,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let memory_cleanup = Arc::clone(&shared.memory_cleanup);
         tokio::spawn(async move {
             memory_cleanup.start().await;
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // P3-1c: Graceful shutdown handler (SIGTERM/SIGINT)
+    // On shutdown signal, persist all sessions to disk before exiting.
+    // ══════════════════════════════════════════════════════════
+    {
+        let registry = Arc::clone(&shared.session_registry);
+        tokio::spawn(async move {
+            use tokio::signal;
+
+            let ctrl_c = async {
+                let _ = signal::ctrl_c().await;
+            };
+
+            #[cfg(unix)]
+            let terminate = async {
+                let mut sig = signal::unix::signal(signal::unix::SignalKind::terminate())
+                    .expect("failed to install SIGTERM handler");
+                sig.recv().await;
+            };
+
+            #[cfg(not(unix))]
+            let terminate = std::future::pending::<()>();
+
+            tokio::select! {
+                _ = ctrl_c => {}
+                _ = terminate => {}
+            }
+
+            eprintln!("[daemon] received shutdown signal, persisting sessions...");
+            registry.persist_all().await;
+            eprintln!("[daemon] shutdown complete, exiting");
+            std::process::exit(0);
         });
     }
 
