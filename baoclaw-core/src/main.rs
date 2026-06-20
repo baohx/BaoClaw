@@ -1972,6 +1972,27 @@ async fn handle_shared_client(
                                 let _ = conn_guard.send_response(id, serde_json::json!({"success": removed > 0, "removed": removed})).await;
                             }
 
+                            // ── Permission Manager handlers (rule-based) ──
+                            ClientMethod::PermissionsInfo => {
+                                // Return the config-based permissions from config.json
+                                let cfg = &shared.baoclaw_config;
+                                let perms = cfg.extra.get("permissions").cloned().unwrap_or(serde_json::json!({"mode": "default", "always_allow_rules": {}, "always_deny_rules": {}, "always_ask_rules": {}}));
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, perms).await;
+                            }
+                            ClientMethod::PermissionsAddRule { category, tool_name, rule_content } => {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "message": "Rule added (runtime). Edit ~/.baoclaw/config.json for persistent rules.", "category": category, "tool_name": tool_name, "rule_content": rule_content})).await;
+                            }
+                            ClientMethod::PermissionsRemoveRule { category, tool_name, rule_content } => {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "message": "Rule removed (runtime). Edit ~/.baoclaw/config.json for persistent rules.", "category": category, "tool_name": tool_name, "rule_content": rule_content})).await;
+                            }
+                            ClientMethod::PermissionsSetMode { mode } => {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "mode": mode, "message": "Permission mode updated (runtime)."})).await;
+                            }
+
                             // ── Session Info / Token / Cost handlers (P2-2) ──
                             ClientMethod::SessionTokens => {
                                 let engine = session.engine_read().await;

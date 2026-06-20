@@ -333,6 +333,28 @@ pub enum ClientMethod {
         target: String,
     },
 
+    // ── Permission Manager RPC (rule-based) ──
+    #[serde(rename = "permissions.info")]
+    PermissionsInfo,
+    #[serde(rename = "permissions.addRule")]
+    PermissionsAddRule {
+        category: String,
+        tool_name: String,
+        #[serde(default)]
+        rule_content: Option<String>,
+    },
+    #[serde(rename = "permissions.removeRule")]
+    PermissionsRemoveRule {
+        category: String,
+        tool_name: String,
+        #[serde(default)]
+        rule_content: Option<String>,
+    },
+    #[serde(rename = "permissions.setMode")]
+    PermissionsSetMode {
+        mode: String,
+    },
+
     // ── Session Info / Token / Cost RPC (P2-2) ──
     #[serde(rename = "session.tokens")]
     SessionTokens,

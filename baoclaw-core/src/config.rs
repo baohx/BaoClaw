@@ -159,6 +159,8 @@ pub fn load_config_from(path: &std::path::Path) -> BaoclawConfig {
 
     // Normalize: auto-migrate old format to profiles if needed
     normalize_profiles(&mut config);
+      // Sync new format back to old format for backward compatibility
+      sync_profiles_to_legacy(&mut config);
     config
 }
 
@@ -199,6 +201,33 @@ pub fn normalize_profiles(config: &mut BaoclawConfig) {
         };
         config.model_profiles.insert(name.clone(), p);
         config.fallback_profiles.push(name);
+    }
+}
+
+/// Sync new format back to old format fields for backward compatibility.
+/// This ensures that code using config.model and config.fallback_models
+/// still works when the config uses model_profiles.
+pub fn sync_profiles_to_legacy(config: &mut BaoclawConfig) {
+    if config.model_profiles.is_empty() {
+        return; // Nothing to sync
+    }
+    
+    // Sync primary model
+    if let Some(ref primary_name) = config.primary_profile {
+        if let Some(primary_profile) = config.model_profiles.get(primary_name.as_str()) {
+            config.model = primary_profile.model.clone();
+            config.api_type = primary_profile.api_type.clone();
+            config.context_window = primary_profile.context_window;
+            config.auto_compact_threshold_ratio = primary_profile.auto_compact_threshold_ratio;
+        }
+    }
+    
+    // Sync fallback_models from fallback_profiles
+    config.fallback_models.clear();
+    for fallback_name in config.fallback_profiles.iter() {
+        if let Some(fallback_profile) = config.model_profiles.get(fallback_name.as_str()) {
+            config.fallback_models.push(fallback_profile.model.clone());
+        }
     }
 }
 
