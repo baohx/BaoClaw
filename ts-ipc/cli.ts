@@ -820,7 +820,7 @@ const COMMANDS = [
   '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
   '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory', '/debug',
   '/projects', '/cron', '/history', '/doc', '/team',
-  '/template', '/permission',
+  '/template', '/permission', '/permissions',
   '/tokens', '/cost', '/session', '/config',
 ];
 
@@ -3347,6 +3347,126 @@ async function main() {
       return;
     }
 
+    // ── /permissions (plural) — 基于规则的安全权限管理（model_profiles 格式）──
+    if (input.startsWith('/permissions')) {
+      const args = input.slice('/permissions'.length).trim();
+
+      // /permissions（无参数）— 显示当前权限配置概览
+      if (!args) {
+        try {
+          const info = await client.request<any>('permissions.info', {});
+          console.log(`\n${FG_ORANGE}${BOLD}🔒 Permission Rules${RESET} ${DIM}(mode: ${info.mode ?? 'default'})${RESET}\n`);
+
+          const allowRules = (info.always_allow_rules ?? []);
+          const denyRules = (info.always_deny_rules ?? []);
+          const askRules = (info.always_ask_rules ?? []);
+
+          console.log(`  ${FG_GREEN}${BOLD}✓ Allow (${allowRules.length})${RESET} ${DIM}— auto-approve${RESET}`);
+          allowRules.forEach((r: any) => {
+            const t = r.tool_name ?? '?';
+            const p = r.rule_content ? ` "${r.rule_content}"` : '';
+            console.log(`    ${FG_GREEN}✓${RESET} ${t}${p}`);
+          });
+
+          console.log(`\n  ${FG_RED}${BOLD}✗ Deny (${denyRules.length})${RESET} ${DIM}— always reject${RESET}`);
+          denyRules.forEach((r: any) => {
+            const t = r.tool_name ?? '?';
+            const p = r.rule_content ? ` "${r.rule_content}"` : '';
+            console.log(`    ${FG_RED}✗${RESET} ${t}${p}`);
+          });
+
+          console.log(`\n  ${FG_YELLOW}${BOLD}? Ask (${askRules.length})${RESET} ${DIM}— prompt user${RESET}`);
+          askRules.forEach((r: any) => {
+            const t = r.tool_name ?? '?';
+            const p = r.rule_content ? ` "${r.rule_content}"` : '';
+            console.log(`    ${FG_YELLOW}?${RESET} ${t}${p}`);
+          });
+
+          console.log(`\n  ${DIM}Usage:${RESET}`);
+          console.log(`  ${FG_WHITE}/permissions allow <tool> [glob]${RESET}  ${DIM}Add allow rule${RESET}`);
+          console.log(`  ${FG_WHITE}/permissions deny <tool> [glob]${RESET}   ${DIM}Add deny rule${RESET}`);
+          console.log(`  ${FG_WHITE}/permissions ask <tool> [glob]${RESET}    ${DIM}Add ask rule${RESET}`);
+          console.log(`  ${FG_WHITE}/permissions mode <m>${RESET}             ${DIM}Set mode (default|plan|bypass|auto)${RESET}`);
+          console.log(`  ${FG_WHITE}/permissions remove <cat> <tool> [glob]${RESET} ${DIM}Remove rule${RESET}\n`);
+        } catch (err) {
+          console.error(`\n${FG_RED}Failed to get permissions: ${err}${RESET}\n`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      const parts = args.split(/\s+/);
+      const sub = parts[0];
+
+      // /permissions mode <mode>
+      if (sub === 'mode' && parts[1]) {
+        const mode = parts[1];
+        try {
+          await client.request('permissions.setMode', { mode });
+          console.log(`\n${FG_GREEN}${BOLD}✓ Permission mode set to: ${mode}${RESET}\n`);
+        } catch (err) {
+          console.error(`\n${FG_RED}Failed to set mode: ${err}${RESET}\n`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      // /permissions allow|deny|ask <tool> [glob]
+      if (sub === 'allow' || sub === 'deny' || sub === 'ask') {
+        if (!parts[1]) {
+          console.log(`\n${FG_YELLOW}Usage: /permissions ${sub} <tool> [glob]${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        const toolName = parts[1];
+        const ruleContent = parts[2] || null;
+        try {
+          await client.request('permissions.addRule', {
+            category: sub,
+            tool_name: toolName,
+            rule_content: ruleContent,
+          });
+          const glob = ruleContent ? ` "${ruleContent}"` : '';
+          console.log(`\n${FG_GREEN}${BOLD}✓ Added ${sub} rule: ${toolName}${glob}${RESET}\n`);
+        } catch (err) {
+          console.error(`\n${FG_RED}Failed to add rule: ${err}${RESET}\n`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      // /permissions remove <category> <tool> [glob]
+      if (sub === 'remove' || sub === 'rm') {
+        if (!parts[1] || !parts[2]) {
+          console.log(`\n${FG_YELLOW}Usage: /permissions remove <allow|deny|ask> <tool> [glob]${RESET}\n`);
+          rl.prompt();
+          return;
+        }
+        const category = parts[1];
+        const toolName = parts[2];
+        const ruleContent = parts[3] || null;
+        try {
+          await client.request('permissions.removeRule', {
+            category,
+            tool_name: toolName,
+            rule_content: ruleContent,
+          });
+          const glob = ruleContent ? ` "${ruleContent}"` : '';
+          console.log(`\n${FG_GREEN}${BOLD}✓ Removed ${category} rule: ${toolName}${glob}${RESET}\n`);
+        } catch (err) {
+          console.error(`\n${FG_RED}Failed to remove rule: ${err}${RESET}\n`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      // Unknown subcommand
+      console.log(`\n${FG_YELLOW}Unknown subcommand: ${sub}${RESET}`);
+      console.log(`  ${DIM}Try: /permissions, /permissions allow <tool> [glob]${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // P2-2: Session & Config Info Commands
     // ═══════════════════════════════════════════════════════════════
@@ -3487,6 +3607,7 @@ async function main() {
       console.log(`  ${FG_GRAY}── Telemetry & Permissions ──${RESET}`);
       console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Telemetry: stats, trends, export, on|off${RESET}`);
       console.log(`  ${FG_WHITE}/permission${RESET} ${DIM}Permission gate: status, grant, revoke${RESET}`);
+      console.log(`  ${FG_WHITE}/permissions${RESET} ${DIM}Permission rules: allow/deny/ask/mode${RESET}`);
       console.log();
 
       console.log(`  ${FG_GRAY}── Input & Integrations ──${RESET}`);
