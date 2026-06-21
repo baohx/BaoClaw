@@ -129,10 +129,33 @@ make_launcher "baoclaw-telegram"  "baoclaw-telegram/src/gateway.ts" "Telegram bo
 make_launcher "baoclaw-feishu"    "baoclaw-feishu/src/gateway.ts"  "Feishu bot gateway"
 make_launcher "baoclaw-whatsapp"  "baoclaw-whatsapp/src/session.ts" "WhatsApp gateway"
 
-# 7. 复制文档到安装目录
+# 7. 创建 MCP 服务器启动脚本
+mkdir -p "$INSTALL_DIR/bin"
+if [ -f "$SCRIPT_DIR/scripts/mcp-servers.sh" ]; then
+    cp "$SCRIPT_DIR/scripts/mcp-servers.sh" "$INSTALL_DIR/bin/mcp-servers"
+    chmod +x "$INSTALL_DIR/bin/mcp-servers"
+    echo "✓ mcp-servers → $INSTALL_DIR/bin/mcp-servers"
+    echo "  Usage: $INSTALL_DIR/bin/mcp-servers {start|stop|restart|status|debug}"
+fi
+
+# 8. 复制文档到安装目录
 mkdir -p "$INSTALL_DIR/docs"
 [ -f "$SCRIPT_DIR/docs/USAGE.md" ] && cp "$SCRIPT_DIR/docs/USAGE.md" "$INSTALL_DIR/docs/" && echo "✓ docs/USAGE.md → $INSTALL_DIR/docs/"
 [ -f "$SCRIPT_DIR/docs/DAEMON_MIGRATION.md" ] && cp "$SCRIPT_DIR/docs/DAEMON_MIGRATION.md" "$INSTALL_DIR/docs/" && echo "✓ docs/DAEMON_MIGRATION.md → $INSTALL_DIR/docs/"
+
+# 9. 更新 systemd service（如果存在）
+SYSTEMD_DIR="$HOME/.config/systemd/user"
+if [ -d "$SYSTEMD_DIR" ] && [ -f "$SYSTEMD_DIR/baoclaw.service" ]; then
+    # 检查是否需要添加 MCP 启动
+    if ! grep -q "ExecStartPre.*mcp-servers" "$SYSTEMD_DIR/baoclaw.service" 2>/dev/null; then
+        echo ""
+        echo "⚠️  Updating systemd service to start MCP servers..."
+        # 添加 ExecStartPre 启动 MCP 服务器
+        sed -i 's|ExecStart=/home/baohx@spdbfl/.baoclaw/bin/baoclaw-core --daemon|ExecStartPre=/home/baohx@spdbfl/.baoclaw/bin/mcp-servers start\nExecStart=/home/baohx@spdbfl/.baoclaw/bin/baoclaw-core --daemon|' "$SYSTEMD_DIR/baoclaw.service"
+        echo "✓ systemd service updated"
+        echo "  Run: systemctl --user daemon-reload && systemctl --user restart baoclaw"
+    fi
+fi
 
 echo ""
 echo "═══════════════════════════════════════"

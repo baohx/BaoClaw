@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+static MCP_INITIALIZED: AtomicBool = AtomicBool::new(false);
 use std::path::PathBuf;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -2928,55 +2929,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine_tools: Vec<Arc<dyn tools::Tool>> = {
         let mut all = engine_tools;
 
-        // MCP integration: discover and connect to MCP servers (with timeout)
-        let mcp_servers = discovery::mcp_config::discover_mcp_servers(std::path::Path::new(&cwd_str)).await;
-        for server_info in &mcp_servers {
-            if server_info.disabled {
-                continue;
-            }
-            if let Some(ref command) = server_info.command {
-                let config = mcp::McpServerConfig {
-                    name: server_info.name.clone(),
-                    command: command.clone(),
-                    args: server_info.args.clone(),
-                    env: std::collections::HashMap::new(),
-                    transport: mcp::McpTransportType::Stdio,
-                };
-                let mut client = mcp::McpClient::new(config);
-                let connect_result = tokio::time::timeout(
-                    std::time::Duration::from_secs(30),
-                    client.connect_stdio(),
-                ).await;
-                match connect_result {
-                    Ok(Ok(())) => {
-                        let client = Arc::new(client);
-                        if let Ok(tools) = client.list_tools().await {
-                            eprintln!("MCP server '{}': {} tools discovered", server_info.name, tools.len());
-                            for tool_def in &tools {
-                                eprintln!("  MCP tool: {}", tool_def.name);
-                            }
-                            for tool_def in tools {
-                                let wrapper = McpToolWrapper::new(
-                                    Arc::clone(&client),
-                                    tool_def,
-                                    server_info.name.clone(),
-                                );
-                                all.push(Arc::new(wrapper));
-                            }
-                        } else {
-                            eprintln!("MCP server '{}': list_tools failed", server_info.name);
-                        }
-                        eprintln!("MCP server '{}' connected", server_info.name);
-                    }
-                    Ok(Err(e)) => {
-                        eprintln!("Warning: MCP server '{}' failed to connect: {}", server_info.name, e);
-                    }
-                    Err(_) => {
-                        eprintln!("Warning: MCP server '{}' connection timed out (30s)", server_info.name);
-                    }
-                }
-            }
-        }
+//         // MCP integration: discover and connect to MCP servers (with timeout)
+//         // Singleton check: ensure MCP is only initialized once
+//         if MCP_INITIALIZED.load(Ordering::SeqCst) {
+//             eprintln!("MCP already initialized, skipping...");
+//         } else {
+//             MCP_INITIALIZED.store(true, Ordering::SeqCst);
+//         let mcp_servers = discovery::mcp_config::discover_mcp_servers(std::path::Path::new(&cwd_str)).await;
+//         for server_info in &mcp_servers {
+//             if server_info.disabled {
+//                 continue;
+//             }
+//             if let Some(ref command) = server_info.command {
+//                 let config = mcp::McpServerConfig {
+//                     name: server_info.name.clone(),
+//                     command: command.clone(),
+//                     args: server_info.args.clone(),
+//                     env: std::collections::HashMap::new(),
+//                     transport: mcp::McpTransportType::Stdio,
+//                 };
+//                 let mut client = mcp::McpClient::new(config);
+//                 let connect_result = tokio::time::timeout(
+//                     std::time::Duration::from_secs(30),
+//                     client.connect_stdio(),
+//                 ).await;
+//                 match connect_result {
+//                     Ok(Ok(())) => {
+//                         let client = Arc::new(client);
+//                         if let Ok(tools) = client.list_tools().await {
+//                             eprintln!("MCP server '{}': {} tools discovered", server_info.name, tools.len());
+//                             for tool_def in &tools {
+//                                 eprintln!("  MCP tool: {}", tool_def.name);
+//                             }
+//                             for tool_def in tools {
+//                                 let wrapper = McpToolWrapper::new(
+//                                     Arc::clone(&client),
+//                                     tool_def,
+//                                     server_info.name.clone(),
+//                                 );
+//                                 all.push(Arc::new(wrapper));
+//                             }
+//                         } else {
+//                             eprintln!("MCP server '{}': list_tools failed", server_info.name);
+//                         }
+//                         eprintln!("MCP server '{}' connected", server_info.name);
+//                     }
+//                     Ok(Err(e)) => {
+//                         eprintln!("Warning: MCP server '{}' failed to connect: {}", server_info.name, e);
+//                     }
+//                     Err(_) => {
+//                         eprintln!("Warning: MCP server '{}' connection timed out (30s)", server_info.name);
+//                     }
+//                 }
+//             }
+//         }
+// 
 
         all.push(Arc::new(ToolSearchTool::new(all.clone())));
         eprintln!("Total tools registered: {} (including MCP)", all.len());
