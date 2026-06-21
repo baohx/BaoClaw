@@ -128,7 +128,7 @@ export async function sendMessage(
   content: string
 ): Promise<void> {
   await client.request('submitMessage', {
-    prompt: { content },
+    prompt: content,           // string (daemon expects prompt.as_str())
     uuid: null,
     attachments: null,
   });
