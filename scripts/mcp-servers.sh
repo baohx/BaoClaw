@@ -1,6 +1,12 @@
 #!/bin/bash
 # BaoClaw MCP Server Launcher
-# Starts all MCP servers defined in ~/.baoclaw/mcp.json
+# Manages MCP servers defined in ~/.baoclaw/mcp.json
+#
+# IMPORTANT: stdio-type MCP servers CANNOT be started with nohup/background!
+#   They require stdin/stdout pipes to communicate with the daemon.
+#   This script only manages SSE/HTTP-type servers. stdio servers are
+#   spawned on-demand by the daemon itself.
+#
 # Usage: ./mcp-servers.sh [start|stop|restart|status|debug]
 
 set -e
@@ -14,6 +20,24 @@ mkdir -p "$LOG_DIR" "$PID_DIR"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# Check if a server uses stdio transport (cannot be backgrounded)
+is_stdio_server() {
+    local name="$1"
+    local transport
+    transport=$(jq -r ".mcpServers.\"$name\".transport // \"stdio\"" "$MCP_CONFIG" 2>/dev/null)
+
+    # transport can be:
+    # - "stdio" (string) → stdio
+    # - "sse" (string) → SSE
+    # - { "sse": { ... } } (object) → SSE
+    # - default (missing) → stdio (MCP default)
+    if [ "$transport" = "stdio" ] || [ "$transport" = "null" ] || [ -z "$transport" ]; then
+        return 0  # true = is stdio
+    else
+        return 1  # false = is SSE/HTTP
+    fi
 }
 
 # Parse mcp.json and start servers
@@ -36,17 +60,30 @@ start_servers() {
         exit 1
     }
 
+    local stdio_count=0
+    local sse_started=0
+
     while IFS= read -r name; do
         [ -z "$name" ] && continue
 
-        # Get command and args for this server
+        # Skip stdio servers — they must be spawned by daemon
+        if is_stdio_server "$name"; then
+            log "SKIP (stdio): $name — managed by daemon, not this script"
+            stdio_count=$((stdio_count + 1))
+            continue
+        fi
+
+        # --- SSE/HTTP server: safe to background ---
         local command
         command=$(jq -r ".mcpServers.\"$name\".command // empty" "$MCP_CONFIG")
-        
+
         local args_json
         args_json=$(jq -c ".mcpServers.\"$name\".args // []" "$MCP_CONFIG")
 
-        [ -z "$command" ] && continue
+        [ -z "$command" ] && {
+            log "WARN: $name has no command, skipping"
+            continue
+        }
 
         # Check if already running
         local existing_pids
@@ -56,30 +93,25 @@ start_servers() {
             continue
         fi
 
-        log "Starting: $name"
+        log "Starting: $name (SSE/HTTP)"
 
-        # Build the command based on type
+        # Build the command
         local cmd
         if [ "$command" = "uvx" ]; then
-            # uvx takes remaining args as package spec
             local uvx_args
             uvx_args=$(jq -r '.[]' <<< "$args_json" | tr '\n' ' ')
             cmd="uvx $uvx_args"
         elif [ "$command" = "uv" ]; then
-            # Check if directory has existing .venv
             local uv_dir
             uv_dir=$(jq -r '.[]' <<< "$args_json" | grep "\-\-directory" -A1 | tail -1)
             if [ -d "$uv_dir/.venv" ]; then
-                # Use existing venv instead of uv run
                 cmd="bash -c 'cd $uv_dir && source .venv/bin/activate && python server.py'"
             else
-                # uv run needs each arg separate
                 local uv_run_args
                 uv_run_args=$(jq -r '.[]' <<< "$args_json" | tr '\n' ' ')
                 cmd="uv $uv_run_args"
             fi
         else
-            # Custom command with args
             local custom_args
             custom_args=$(jq -r '.[]' <<< "$args_json" | tr '\n' ' ')
             if [ -n "$custom_args" ]; then
@@ -91,32 +123,35 @@ start_servers() {
 
         log "  Command: $cmd"
 
-        # Start the server in background using setsid to create new session
-        # This prevents process from being killed when parent exits
-        nohup setsid bash -c "$cmd" >> "$LOG_DIR/$name.log" 2>&1 &
-        
-        # Wait a bit for process to start
+        # Start SSE/HTTP server in background (safe — no stdin needed)
+        nohup setsid bash -c "$cmd" >> "$LOG_DIR/$name.log" 2>&1 < /dev/null &
+
         sleep 2
-        
-        # Check if process is running
+
         local new_pids
         new_pids=$(pgrep -f "$name" 2>/dev/null || true)
         if [ -n "$new_pids" ]; then
             log "  ✓ $name running (PIDs: $new_pids)"
-            # Save first PID
             echo "$new_pids" | cut -d' ' -f1 > "$PID_DIR/$name.pid"
+            sse_started=$((sse_started + 1))
         else
             log "  ✗ $name FAILED to start - check log: $LOG_DIR/$name.log"
         fi
 
     done <<< "$server_names"
 
-    log "Done starting MCP servers"
+    log "Done: $sse_started SSE/HTTP server(s) started, $stdio_count stdio server(s) deferred to daemon"
+    if [ $stdio_count -gt 0 ]; then
+        log ""
+        log "NOTE: stdio MCP servers are automatically spawned by the BaoClaw daemon"
+        log "      when you start a conversation. No manual action needed."
+        log "      To verify, run: baoclaw → /mcp"
+    fi
 }
 
 stop_servers() {
     local killed=0
-    
+
     # Kill by PID files
     for pidfile in "$PID_DIR"/*.pid; do
         [ -f "$pidfile" ] || continue
@@ -133,27 +168,42 @@ stop_servers() {
         rm -f "$pidfile"
     done
 
-    # Also kill any remaining MCP processes by name pattern
-    local patterns=("computer-control" "excalidraw-architect" "glm-vision")
+    # Also kill any remaining SSE/HTTP MCP processes by name pattern
+    # (stdio servers are managed by daemon, don't kill them here)
+    local patterns=("computer-control-mcp" "excalidraw-architect-mcp")
     for pattern in "${patterns[@]}"; do
         pkill -f "$pattern" 2>/dev/null || true
     done
 
     if [ $killed -eq 1 ]; then
         sleep 1
-        # Force kill any that are still around
         for pattern in "${patterns[@]}"; do
             pkill -9 -f "$pattern" 2>/dev/null || true
         done
     fi
 
-    log "All MCP servers stopped"
+    log "All managed MCP servers stopped"
 }
 
 status_servers() {
     echo "MCP Server Status:"
     echo "=================="
+    echo ""
 
+    # Show config overview
+    if [ -f "$MCP_CONFIG" ]; then
+        echo "Configured servers (from mcp.json):"
+        jq -r '.mcpServers | keys[]' "$MCP_CONFIG" 2>/dev/null | while read name; do
+            local transport="stdio"
+            if ! is_stdio_server "$name"; then
+                transport="sse/http"
+            fi
+            echo "  • $name ($transport)"
+        done
+        echo ""
+    fi
+
+    echo "Managed (SSE/HTTP) servers:"
     local found=0
     for pidfile in "$PID_DIR"/*.pid; do
         [ -f "$pidfile" ] || continue
@@ -164,31 +214,19 @@ status_servers() {
         pid=$(cat "$pidfile" | cut -d' ' -f1)
 
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            echo "✓ $name (PID: $pid) - RUNNING"
+            echo "  ✓ $name (PID: $pid) - RUNNING"
         else
-            echo "✗ $name (was PID: $pid) - NOT RUNNING"
+            echo "  ✗ $name (was PID: $pid) - NOT RUNNING"
             rm -f "$pidfile"
         fi
     done
-
     if [ $found -eq 0 ]; then
-        echo "  (no PID files - no servers started yet)"
+        echo "  (no SSE/HTTP servers started)"
     fi
 
     echo ""
-    echo "Running processes:"
-    local count=0
-    for name in computer-control excalidraw glm-vision; do
-        pgrep -f "$name" | while read pid; do
-            if [ -n "$pid" ]; then
-                echo "  PID $pid: $(ps -p $pid -o comm= 2>/dev/null || echo 'unknown')"
-                count=$((count + 1))
-            fi
-        done
-    done
-    if [ $count -eq 0 ]; then
-        echo "  (none)"
-    fi
+    echo "stdio servers (spawned by daemon on demand):"
+    echo "  Use '/mcp' inside baoclaw CLI/TUI to see live status"
 }
 
 debug_servers() {
@@ -202,7 +240,7 @@ debug_servers() {
     ls -la "$PID_DIR"
     echo ""
     echo "=== Running Processes ==="
-    ps aux | grep -E "computer-control|excalidraw|glm-vision" | grep -v grep || echo "(none)"
+    ps aux | grep -E "computer-control|excalidraw|glm-vision|mcp" | grep -v grep || echo "(none)"
     echo ""
     echo "=== Log Contents ==="
     for log in "$LOG_DIR"/*.log; do
