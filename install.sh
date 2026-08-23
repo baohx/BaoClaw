@@ -43,6 +43,10 @@ copy_gateway() {
   local dst="$INSTALL_DIR/$name"
   [ ! -d "$src" ] && return 0
   mkdir -p "$dst/src" "$dst/public" "$dst/tui" 2>/dev/null
+  # Kök seviye TS kaynakları (ts-ipc cli.ts / client.ts / vb. kökte tutar)
+  for f in "$src"/*.ts "$src"/*.tsx; do
+    [ -f "$f" ] && cp "$f" "$dst/"
+  done
   # 复制 TS/TSX 源码
   for f in "$src"/src/*.ts "$src"/src/*.tsx; do
     [ -f "$f" ] && cp "$f" "$dst/src/"

@@ -576,6 +576,34 @@ function getSocketDir(): string {
 }
 
 /**
+ * True if an API key is available from either source the Rust core accepts:
+ * 1. ANTHROPIC_API_KEY env var (legacy fallback)
+ * 2. `api_key` of the primary model profile in ~/.baoclaw/config.json
+ *    (preferred; matches core's resolve_api_key contract in main.rs)
+ * Also honors OPENAI_API_KEY for openai-type profiles without a profile key.
+ */
+function hasApiKey(): boolean {
+  if (process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY) return true;
+  try {
+    const configPath = path.join(os.homedir(), '.baoclaw', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const profileName = config.primary_profile ?? 'primary';
+    const profile = config.model_profiles?.[profileName];
+    if (profile && typeof profile.api_key === 'string' && profile.api_key.trim() !== '') {
+      return true;
+    }
+    // Legacy single-config form: top-level api_key
+    if (typeof config.api_key === 'string' && config.api_key.trim() !== '') {
+      return true;
+    }
+  } catch {
+    // No config or unreadable — env was the only chance.
+  }
+  return false;
+}
+
+
+/**
  * Preferred fixed socket path for machine-level single daemon (P3-1c).
  * Linux: $XDG_RUNTIME_DIR/baoclaw.sock (/run/user/<UID>/)
  * macOS: /tmp/baoclaw-sockets/baoclaw.sock
@@ -930,10 +958,15 @@ async function main() {
     sandboxMode = undefined; // let baoclaw-core auto-detect (no value = just --sandbox)
   }
 
-  // Check API key
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error(`${FG_RED}${BOLD}Error:${RESET} ANTHROPIC_API_KEY is not set.`);
-    console.error(`${DIM}Set it with: export ANTHROPIC_API_KEY=sk-ant-...${RESET}`);
+  // Check API key: env var OR a key configured in the primary model profile.
+  // The Rust core (resolve_api_key) already prefers config profile keys over env;
+  // this gate only needs to ensure at least one source is available.
+  if (!hasApiKey()) {
+    console.error(`${FG_RED}${BOLD}Error:${RESET} No API key found.`);
+    console.error(`${DIM}Option 1 — env:${RESET} export ANTHROPIC_API_KEY=sk-ant-...`);
+    console.error(`${DIM}Option 2 — config:${RESET} set \`api_key\` in ~/.baoclaw/config.json →`);
+    console.error(`${DIM}  { "model_profiles": { "primary": { "api_key": "...", ... } },`);
+    console.error(`${DIM}      "primary_profile": "primary" }${RESET}`);
     process.exit(1);
   }
 
