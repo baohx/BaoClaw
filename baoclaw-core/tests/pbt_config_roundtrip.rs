@@ -22,6 +22,9 @@ fn fallback_strategy() -> impl Strategy<Value = Vec<String>> {
 fn config_strategy() -> impl Strategy<Value = BaoclawConfig> {
     (model_strategy(), fallback_strategy(), 1u32..10)
         .prop_map(|(model, fallback_models, max_retries)| BaoclawConfig {
+            primary_profile: None,
+            model_profiles: Default::default(),
+            fallback_profiles: Vec::new(),
             model,
             fallback_models,
             max_retries_per_model: max_retries,

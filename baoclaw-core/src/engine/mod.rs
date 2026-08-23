@@ -1,3 +1,6 @@
+pub mod api_builder;
+pub mod query_loop;
+pub mod tool_loop;
 // QueryEngine - core conversation loop
 
 pub mod abort_helpers;
