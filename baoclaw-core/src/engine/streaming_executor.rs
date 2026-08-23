@@ -276,6 +276,7 @@ impl StreamingExecutor {
         let mut stderr = child.stderr.take().ok_or("No stderr")?;
 
         let mut total_bytes = 0usize;
+        let mut truncated = false;
         let mut buf_out = [0u8; 4096];
         let mut buf_err = [0u8; 4096];
 
@@ -291,6 +292,11 @@ impl StreamingExecutor {
                             writer.stdout(&text).await;
                             if total_bytes >= max_bytes {
                                 writer.progress(&format!("Output truncated at {} bytes", max_bytes)).await;
+                                // Kill the child before stopping reads; otherwise it can
+                                // block on a full stdout pipe and wait() below stalls
+                                // until the execution timeout fires.
+                                let _ = child.start_kill();
+                                truncated = true;
                                 break;
                             }
                         }
@@ -315,8 +321,15 @@ impl StreamingExecutor {
             }
         }
 
-        // Wait for process to finish
-        let _ = child.wait().await;
+        // Wait for process to finish and propagate a non-zero exit as an error.
+        // A truncated run was killed deliberately — its exit status is not a failure.
+        let status = child.wait().await.map_err(|e| format!("Wait failed: {}", e))?;
+        if !truncated && !status.success() {
+            return Err(format!(
+                "Command exited with {}",
+                status.code().map_or_else(|| "signal".to_string(), |c| format!("code {}", c))
+            ));
+        }
         Ok(())
     }
 }
@@ -349,11 +362,31 @@ mod tests {
         writer.progress("working...").await;
         writer.stdout("output data").await;
         writer.completed().await;
+        // collect() only returns once the channel closes — drop the writer.
+        drop(writer);
 
         let result = reader.collect().await;
         assert!(result.success);
         assert!(result.stdout.contains("output data"));
         assert_eq!(result.total_chunks, 4);
+    }
+
+    #[tokio::test]
+    async fn test_streaming_truncation_kills_child() {
+        let config = StreamingConfig {
+            max_output_bytes: 100,
+            ..StreamingConfig::default()
+        };
+        let executor = StreamingExecutor::new(config);
+        // Produces far more than max_output_bytes; without the kill the
+        // executor would stall until the execution timeout.
+        let reader = executor.execute_streaming("test", "yes truncated-output-test");
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            reader.collect(),
+        ).await.expect("collect() timed out — child was not killed on truncation");
+        // Truncation is not an error: the run completes successfully.
+        assert!(result.success);
     }
 
     #[test]
@@ -369,6 +402,8 @@ mod tests {
         let (mut writer, reader) = create_stream_pair("hb_test".into());
         writer.heartbeat().await;
         writer.completed().await;
+        // collect() only returns once the channel closes — drop the writer.
+        drop(writer);
         let result = reader.collect().await;
         assert!(result.success);
     }

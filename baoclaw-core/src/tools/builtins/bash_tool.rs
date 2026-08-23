@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::engine::sandbox::SandboxConfig;
+use crate::infra::sandbox_config::SandboxConfig;
 use crate::tools::trait_def::*;
 
 /// BashTool - executes shell commands via /bin/bash -c
@@ -35,7 +35,7 @@ impl BashTool {
     fn build_command(&self, raw_command: &str, cwd: &Path) -> (String, Vec<String>) {
         if let Some(ref sandbox_cfg) = self.sandbox {
             match &sandbox_cfg.backend {
-                crate::engine::sandbox::SandboxBackend::None => {
+                crate::infra::sandbox_config::SandboxBackend::None => {
                     // SandboxConfig exists but backend is None → direct execution
                     ("/bin/bash".to_string(), vec!["-c".to_string(), raw_command.to_string()])
                 }
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_build_command_sandbox_docker() {
         let tool = BashTool::with_sandbox(Arc::new(SandboxConfig {
-            backend: crate::engine::sandbox::SandboxBackend::Docker {
+            backend: crate::infra::sandbox_config::SandboxBackend::Docker {
                 image: "baoclaw-sandbox:latest".into(),
             },
             ..SandboxConfig::default()
@@ -388,7 +388,7 @@ mod tests {
         assert!(!tool_no_sandbox.prompt().contains("sandbox"));
 
         let tool_with_sandbox = BashTool::with_sandbox(Arc::new(SandboxConfig {
-            backend: crate::engine::sandbox::SandboxBackend::Docker {
+            backend: crate::infra::sandbox_config::SandboxBackend::Docker {
                 image: "baoclaw-sandbox:latest".into(),
             },
             ..SandboxConfig::default()

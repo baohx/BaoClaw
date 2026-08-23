@@ -13,11 +13,12 @@ pub mod transcript;
 pub mod evolution;
 pub mod cron;
 pub mod projects;
-pub mod file_cache;
+// Moved to the leaf `infra` module; re-exported for backward-compatible paths.
+pub use crate::infra::file_cache;
 pub mod session_memory;
 pub mod session_persistence;
 pub mod token_counter;
-pub mod tool_result_store;
+pub use crate::infra::tool_result_store;
 pub mod security;
 pub mod cross_session_db;
 pub mod user_profile;
@@ -26,8 +27,6 @@ pub mod intent_predictor;
 pub mod warmup;
 pub mod context_allocator;
 pub mod sandbox;
-// Legacy sandbox types from sandbox_legacy.rs
-pub mod sandbox_legacy;
 pub mod prompt_injection;
 pub mod subagent_policy;
 pub mod streaming_executor;

@@ -10,6 +10,7 @@ mod config;
 mod discovery;
 mod doc_upload;
 mod engine;
+mod infra;
 mod ipc;
 mod mcp;
 mod models;

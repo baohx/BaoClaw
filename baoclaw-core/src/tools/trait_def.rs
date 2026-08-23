@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::engine::file_cache::FileCache;
-use crate::engine::tool_result_store::ToolResultStore;
+use crate::infra::file_cache::FileCache;
+use crate::infra::tool_result_store::ToolResultStore;
 
 /// Tool execution result
 #[derive(Clone, Debug, Serialize, Deserialize)]

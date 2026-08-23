@@ -7,6 +7,7 @@ pub mod config;
 pub mod discovery;
 pub mod doc_upload;
 pub mod engine;
+pub mod infra;
 pub mod ipc;
 pub mod mcp;
 pub mod models;

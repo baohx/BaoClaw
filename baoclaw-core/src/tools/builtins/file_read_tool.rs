@@ -102,7 +102,7 @@ impl Tool for FileReadTool {
                 let mut cache = cache_arc.lock().await;
                 let status = cache.check(&resolved);
                 match status {
-                    crate::engine::file_cache::CacheStatus::Hit => {
+                    crate::infra::file_cache::CacheStatus::Hit => {
                         cache.touch(&resolved);
                         let stub = cache.build_stub(&resolved).unwrap_or_else(|| {
                             "[File cache hit: content unchanged.]".to_string()
