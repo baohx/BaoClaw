@@ -1,6 +1,6 @@
 #!/bin/bash
 # build-sandbox.sh — 一键构建 baoclaw-sandbox:latest
-# 在宿主机终端执行: bash /home/baohx@spdbfl/BaoClaw/build-sandbox.sh
+# 在宿主机终端执行: bash <repo>/build-sandbox.sh
 set -e
 
 echo "========================================="

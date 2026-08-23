@@ -151,7 +151,8 @@ if [ -d "$SYSTEMD_DIR" ] && [ -f "$SYSTEMD_DIR/baoclaw.service" ]; then
         echo ""
         echo "⚠️  Updating systemd service to start MCP servers..."
         # 添加 ExecStartPre 启动 MCP 服务器
-        sed -i 's|ExecStart=/home/baohx@spdbfl/.baoclaw/bin/baoclaw-core --daemon|ExecStartPre=/home/baohx@spdbfl/.baoclaw/bin/mcp-servers start\nExecStart=/home/baohx@spdbfl/.baoclaw/bin/baoclaw-core --daemon|' "$SYSTEMD_DIR/baoclaw.service"
+        BAOCLAW_BIN="$HOME/.baoclaw/bin"
+        sed -i "s|ExecStart=${BAOCLAW_BIN}/baoclaw-core --daemon|ExecStartPre=${BAOCLAW_BIN}/mcp-servers start\nExecStart=${BAOCLAW_BIN}/baoclaw-core --daemon|" "$SYSTEMD_DIR/baoclaw.service"
         echo "✓ systemd service updated"
         echo "  Run: systemctl --user daemon-reload && systemctl --user restart baoclaw"
     fi
