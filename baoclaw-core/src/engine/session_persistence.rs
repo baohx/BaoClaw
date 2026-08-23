@@ -123,6 +123,7 @@ pub fn upsert_registry_entry(
     created_at: &str,
     last_active: &str,
 ) -> io::Result<()> {
+    ensure_dir(sessions_dir)?;
     let mut index = load_registry(sessions_dir);
     let now = last_active.to_string();
 

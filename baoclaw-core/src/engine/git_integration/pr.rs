@@ -239,6 +239,10 @@ mod tests {
     async fn test_ensure_git_repo_in_non_repo() {
         // Create a temp dir that is NOT a git repo
         let tmp = tempfile::tempdir().unwrap();
+        let _cwd_guard = match super::super::CWD_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // a sibling test panicked; recover and still restore cwd
+        };
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 

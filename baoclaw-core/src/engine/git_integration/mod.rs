@@ -17,3 +17,9 @@ pub mod commit;
 pub mod auth;
 
 // Re-export all public types for convenient access
+
+// Shared test-only lock: tests that mutate the process-global working
+// directory (`std::env::set_current_dir`) must serialize against each other,
+// otherwise parallel test threads race and observe the wrong cwd.
+#[cfg(test)]
+pub(crate) static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

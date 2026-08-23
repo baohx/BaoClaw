@@ -446,12 +446,19 @@ mod tests {
     #[test]
     fn test_search() {
         let (engine, _dir) = test_engine();
-        let results = engine.search("code");
+
+        // Unique query: only "Code Review" carries the "security" tag.
+        let results = engine.search("security");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Code Review");
 
         let results2 = engine.search("review");
         assert_eq!(results2.len(), 1);
+        assert_eq!(results2[0].name, "Code Review");
+
+        // Broad query matches several builtins (name/description/tags);
+        // just verify the expected template is among them.
+        assert!(engine.search("code").iter().any(|t| t.name == "Code Review"));
     }
 
     #[test]

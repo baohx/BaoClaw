@@ -1,10 +1,20 @@
 //! PBT: Property P3 — Config round-trip
-//! For any valid BaoclawConfig, save → load produces an equivalent config.
+//!
+//! `load_config_from` documents an auto-migration contract: legacy (profile-less)
+//! configs are normalized into the profile format on load (`normalize_profiles`
+//! + `sync_profiles_to_legacy`). Therefore the correct property is:
+//!
+//!   save(config) → load == migrate(config)
+//!
+//! where `migrate` applies the same documented pipeline. Additionally, loading
+//! must be idempotent: once migrated, a second round-trip is a fixed point.
 
 use proptest::prelude::*;
 use std::collections::HashMap;
 
-use baoclaw_core::config::{BaoclawConfig, load_config_from, save_config_to};
+use baoclaw_core::config::{
+    BaoclawConfig, load_config_from, normalize_profiles, save_config_to, sync_profiles_to_legacy,
+};
 
 fn model_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
@@ -37,6 +47,14 @@ fn config_strategy() -> impl Strategy<Value = BaoclawConfig> {
         })
 }
 
+/// The documented on-load migration pipeline, applied to an in-memory config.
+fn migrate(config: &BaoclawConfig) -> BaoclawConfig {
+    let mut migrated = config.clone();
+    normalize_profiles(&mut migrated);
+    sync_profiles_to_legacy(&mut migrated);
+    migrated
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
@@ -48,6 +66,13 @@ proptest! {
         save_config_to(&config, &path).unwrap();
         let loaded = load_config_from(&path);
 
-        prop_assert_eq!(&config, &loaded);
+        // Round-trip preserves the config modulo the documented migration.
+        prop_assert_eq!(&migrate(&config), &loaded);
+
+        // Idempotence: a second round-trip of the loaded config is a fixed point.
+        let path2 = dir.path().join("config2.json");
+        save_config_to(&loaded, &path2).unwrap();
+        let reloaded = load_config_from(&path2);
+        prop_assert_eq!(&loaded, &reloaded);
     }
 }
