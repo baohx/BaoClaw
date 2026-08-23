@@ -198,9 +198,10 @@ impl Stream for SseStream {
                         Err(e) => {
                             let valid_up_to = e.valid_up_to();
                             if valid_up_to > 0 {
-                                // Push the valid portion
-                                let valid_text = unsafe { std::str::from_utf8_unchecked(&bytes[..valid_up_to]) };
-                                this.buffer.push_str(valid_text);
+                                // Push the valid portion safely
+                                if let Ok(valid_text) = std::str::from_utf8(&bytes[..valid_up_to]) {
+                                    this.buffer.push_str(valid_text);
+                                }
                             }
                             // Check if this is an incomplete sequence at the end (recoverable)
                             // vs a genuinely invalid byte in the middle (unrecoverable)

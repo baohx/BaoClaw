@@ -194,9 +194,11 @@ impl Tool for BashTool {
                     }
                 }
             } => {
-                // Kill the child process by PID
+                // Kill the child process by PID securely (ensure pid > 0 to prevent killing process group 0)
                 if let Some(pid) = child_id {
-                    unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                    if pid > 0 {
+                        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                    }
                 }
                 Err(ToolError::Aborted)
             }
