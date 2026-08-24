@@ -1927,31 +1927,12 @@ async fn handle_shared_client(
                                 let usage = engine.get_usage();
                                 let model = &shared.baoclaw_config.model;
 
-                                // Build a CostTracker to calculate costs
                                 let cost_tracker = engine::cost_tracker::CostTracker::new();
                                 let session_cost = cost_tracker.calculate_cost(usage, model);
 
-                                // Pricing info for display
-                                let (input_price, output_price) = {
-                                    let pricing = engine::cost_tracker::CostTracker::new();
-                                    // We can't directly access the private pricing map, so
-                                    // calculate per-million by calling with 1M tokens
-                                    let test_input = crate::models::message::Usage {
-                                        input_tokens: 1_000_000,
-                                        output_tokens: 0,
-                                        cache_creation_input_tokens: None,
-                                        cache_read_input_tokens: None,
-                                    };
-                                    let test_output = crate::models::message::Usage {
-                                        input_tokens: 0,
-                                        output_tokens: 1_000_000,
-                                        cache_creation_input_tokens: None,
-                                        cache_read_input_tokens: None,
-                                    };
-                                    let ip = pricing.calculate_cost(&test_input, model);
-                                    let op = pricing.calculate_cost(&test_output, model);
-                                    (ip, op)
-                                };
+                                // Per-million unit prices in USD (single pricing-map access).
+                                let (input_price, output_price) =
+                                    cost_tracker.per_million_prices(model);
 
                                 let result = serde_json::json!({
                                     "session_cost_usd": session_cost,

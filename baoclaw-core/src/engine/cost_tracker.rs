@@ -90,6 +90,16 @@ impl CostTracker {
         input_cost + output_cost + cache_write_cost + cache_read_cost
     }
 
+    /// Per-million-token unit prices for a model: `(input, output)` in USD.
+    ///
+    /// Exposes the previously-private pricing map so callers (e.g. the session
+    /// cost IPC handler) can render per-mtok prices without faking a 1M-token
+    /// `Usage` and re-deriving them through `calculate_cost`.
+    pub fn per_million_prices(&self, model: &str) -> (f64, f64) {
+        let pricing = self.pricing.get(model).unwrap_or(&DEFAULT_PRICING);
+        (pricing.input_per_mtok, pricing.output_per_mtok)
+    }
+
     /// Accumulate a single API call's usage into current query and total costs.
     pub fn accumulate(&mut self, usage: &Usage, model: &str) {
         let cost = self.calculate_cost(usage, model);
@@ -167,6 +177,22 @@ mod tests {
         let usage = make_usage(1_000_000, 0, None, None);
         let cost = tracker.calculate_cost(&usage, "claude-sonnet-4-20250514");
         assert!((cost - 3.0).abs() < 1e-10, "Sonnet 4 input cost for 1M tokens should be $3.0, got {}", cost);
+    }
+
+    #[test]
+    fn test_per_million_prices_matches_calculate_cost() {
+        // Regression guard: per_million_prices() must agree with the cost that
+        // calculate_cost() would produce for a synthetic 1M-token call — the
+        // handler used to re-derive prices that way; now it calls the method.
+        let tracker = CostTracker::new();
+        let (ip, op) = tracker.per_million_prices("claude-sonnet-4-20250514");
+        assert!((ip - 3.0).abs() < 1e-10, "expected input $3.0/mtok, got {}", ip);
+        assert!((op - 15.0).abs() < 1e-10, "expected output $15.0/mtok, got {}", op);
+
+        // unknown model falls back to DEFAULT_PRICING, matching calculate_cost
+        let (dip, _dop) = tracker.per_million_prices("no-such-model");
+        let input_cost = tracker.calculate_cost(&make_usage(1_000_000, 0, None, None), "no-such-model");
+        assert!((dip - input_cost).abs() < 1e-10);
     }
 
     // --- calculate_cost for each model ---
