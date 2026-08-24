@@ -45,22 +45,59 @@ export function subscribeToEvents(
 ): () => void {
   const handlers: Array<() => void> = [];
 
+  // ── Stream chunk batching ──────────────────────────────────────────
+  // assistant/thinking chunks can arrive at token rate (dozens per second).
+  // Dispatching each one triggers a full Ink re-render; instead we buffer
+  // chunks and flush at most once per FLUSH_INTERVAL_MS. A trailing timer
+  // guarantees the final buffered text is never lost.
+  const FLUSH_INTERVAL_MS = 70;
+  let streamBuf = '';
+  let thinkingBuf = '';
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const flushBuffers = () => {
+    if (streamBuf) {
+      dispatch({ type: 'APPEND_STREAM', payload: streamBuf });
+      streamBuf = '';
+    }
+    if (thinkingBuf) {
+      dispatch({ type: 'APPEND_THINKING', payload: thinkingBuf });
+      thinkingBuf = '';
+    }
+    flushTimer = null;
+  };
+
+  const scheduleFlush = () => {
+    if (flushTimer === null) {
+      flushTimer = setTimeout(flushBuffers, FLUSH_INTERVAL_MS);
+    }
+  };
+
+  // Flush immediately when the turn ends so no trailing text is stuck.
+  const flushNow = () => {
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    flushBuffers();
+  };
+
   // Main stream/event handler - handles all EngineEvent types
   const unsubStreamEvent = client.onNotification('stream/event', (params) => {
     const p = params as { type: string; [key: string]: unknown };
-    
+
     switch (p.type) {
       case 'assistant_chunk': {
         // { type: "assistant_chunk", content: string, tool_use_id?: string }
-        const content = p.content as string;
-        dispatch({ type: 'APPEND_STREAM', payload: content });
+        streamBuf += p.content as string;
+        scheduleFlush();
         break;
       }
-      
+
       case 'thinking_chunk': {
         // { type: "thinking_chunk", content: string }
-        const content = p.content as string;
-        dispatch({ type: 'APPEND_THINKING', payload: content });
+        thinkingBuf += p.content as string;
+        scheduleFlush();
         break;
       }
       
@@ -93,12 +130,14 @@ export function subscribeToEvents(
       case 'result': {
         // { type: "result", status: string, usage: object }
         // Stream complete - handled in App component
+        flushNow();
         dispatch({ type: 'SET_STREAMING', payload: false });
         break;
       }
-      
+
       case 'error': {
         // { type: "error", message: string }
+        flushNow();
         const message = p.message || p.error?.message || 'Unknown error';
         dispatch({ type: 'SET_ERROR', payload: String(message) });
         break;

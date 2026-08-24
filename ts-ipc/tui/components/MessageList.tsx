@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, Box } from 'ink';
+import { Text, Box, Static } from 'ink';
 import { colors, zen } from '../theme.js';
 import { Message, ContentBlock } from '../types.js';
 
@@ -149,11 +149,16 @@ export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
     );
   }
 
+  // Completed messages render once via <Static>: Ink writes them permanently
+  // to the screen and never re-measures them on subsequent frames. This keeps
+  // render cost O(new content) instead of O(full history) per stream chunk.
+  // The empty-state and trailing spacer stay outside Static (dynamic region).
   return (
-    <Box flexDirection="column" flexGrow={1}>
-      {messages.map((msg) => (
-        <MessageView key={msg.id} message={msg} />
-      ))}
+    <Box flexDirection="column">
+      <Static items={messages}>
+        {(msg) => <MessageView key={msg.id} message={msg} />}
+      </Static>
+      <Box flexGrow={1} />
     </Box>
   );
 };
