@@ -88,7 +88,9 @@ pub async fn run_query_loop(
                     serde_json::Value::String(s) => s.clone(),
                     _ => serde_json::to_string(&message.content).unwrap_or_default(),
                 };
-                let _ = db.index_message(sid, "user", &text, &last_msg.timestamp);
+                if let Err(e) = db.index_message(sid, "user", &text, &last_msg.timestamp) {
+                    eprintln!("[cross-session] WARNING: user message not indexed: {}", e);
+                }
             }
         }
     }
@@ -767,7 +769,9 @@ pub async fn run_query_loop(
                 _ => None,
             }).collect::<Vec<_>>().join(" ");
             if !text.is_empty() {
-                let _ = db.index_message(sid, "assistant", &text, &assistant_msg.timestamp);
+                if let Err(e) = db.index_message(sid, "assistant", &text, &assistant_msg.timestamp) {
+                    eprintln!("[cross-session] WARNING: assistant message not indexed: {}", e);
+                }
             }
         }
 
