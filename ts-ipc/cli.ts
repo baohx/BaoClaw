@@ -1022,8 +1022,11 @@ async function main() {
   }
   const activeModel = process.env.ANTHROPIC_MODEL || (() => {
     try {
-      const raw = fs.readFileSync(path.join(os.homedir(), '.baoclaw', 'config.json'), 'utf-8');
-      return JSON.parse(raw).model || 'claude-sonnet-4-20250514';
+      const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.baoclaw', 'config.json'), 'utf-8'));
+      // Prefer the active model profile (matches core's resolve order), then legacy fields.
+      const profileName = cfg.primary_profile ?? 'primary';
+      const profileModel = cfg.model_profiles?.[profileName]?.model;
+      return profileModel || cfg.model || 'claude-sonnet-4-20250514';
     } catch { return 'claude-sonnet-4-20250514'; }
   })();
   printWelcome(initResult.session_id, activeModel, effectiveCwd);
@@ -1801,7 +1804,8 @@ async function main() {
         try {
           const raw = fs.readFileSync(configPath, 'utf-8');
           const cfg = JSON.parse(raw);
-          configModel = cfg.model || configModel;
+          const profileName = cfg.primary_profile ?? 'primary';
+          configModel = cfg.model_profiles?.[profileName]?.model || cfg.model || configModel;
           fallbackModels = cfg.fallback_models || [];
           maxRetries = cfg.max_retries_per_model ?? 2;
         } catch { /* use defaults */ }
