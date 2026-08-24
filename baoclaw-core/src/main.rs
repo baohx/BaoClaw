@@ -900,10 +900,18 @@ async fn handle_shared_client(
                                             // Auto-scaffold
                                             let baoclaw_dir = abs_path.join(".baoclaw");
                                             if !baoclaw_dir.exists() {
-                                                let _ = std::fs::create_dir_all(&baoclaw_dir);
-                                                let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
-                                                let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
-                                                let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
+                                                if let Err(e) = std::fs::create_dir_all(&baoclaw_dir) {
+                                                    eprintln!("[projects] WARNING: could not create {}: {}", baoclaw_dir.display(), e);
+                                                }
+                                                if let Err(e) = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n") {
+                                                    eprintln!("[projects] WARNING: could not write BAOCLAW.md: {}", e);
+                                                }
+                                                if let Err(e) = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n") {
+                                                    eprintln!("[projects] WARNING: could not write mcp.json: {}", e);
+                                                }
+                                                if let Err(e) = std::fs::create_dir_all(baoclaw_dir.join("skills")) {
+                                                    eprintln!("[projects] WARNING: could not create skills dir: {}", e);
+                                                }
                                             }
                                             // Switch to the new project
                                             let mut engine = session.engine_write().await;
@@ -2595,7 +2603,9 @@ pub fn run_daemon_main_with_shutdown_check() {
             // On Windows, kill() sends a TerminateProcess which is forceful;
             // for graceful shutdown we'd need CTRL_BREAK_EVENT, but the daemon's
             // session persistence is also handled by its periodic save logic.
-            let _ = child.kill();
+            if let Err(e) = child.kill() {
+                eprintln!("[daemon] WARNING: could not kill engine child: {} (may have already exited)", e);
+            }
             break;
         }
 
@@ -2617,8 +2627,10 @@ pub fn run_daemon_main_with_shutdown_check() {
         }
     }
 
-    // Ensure child is reaped
-    let _ = child.wait();
+    // Ensure child is reaped; failure here would leak a zombie — surface it.
+    if let Err(e) = child.wait() {
+        eprintln!("[daemon] WARNING: child wait failed: {}", e);
+    }
 }
 
 #[tokio::main]
