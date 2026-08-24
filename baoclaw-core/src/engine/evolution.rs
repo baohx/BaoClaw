@@ -286,7 +286,9 @@ impl EvolutionEngine {
                 "task_count": *count,
                 "timestamp": chrono::Utc::now().to_rfc3339(),
             });
-            let _ = std::fs::write(&nudge_path, serde_json::to_string_pretty(&nudge).unwrap_or_default());
+            if let Err(e) = std::fs::write(&nudge_path, serde_json::to_string_pretty(&nudge).unwrap_or_default()) {
+                eprintln!("[evolution] WARNING: could not write nudge file {}: {}", nudge_path.display(), e);
+            }
         }
     }
 
@@ -319,13 +321,17 @@ impl EvolutionEngine {
     /// Save a skill candidate to the candidates directory for review/promotion.
     async fn save_skill_candidate(&self, dir: &Path, candidate: &SkillCandidate) {
         let candidates_dir = dir.join("candidates");
-        let _ = std::fs::create_dir_all(&candidates_dir);
+        if let Err(e) = std::fs::create_dir_all(&candidates_dir) {
+            eprintln!("[evolution] WARNING: could not create candidates dir {}: {}", candidates_dir.display(), e);
+        }
 
         let filename = format!("{}.json", candidate.name);
         let path = candidates_dir.join(&filename);
 
         if let Ok(json) = serde_json::to_string_pretty(candidate) {
-            let _ = std::fs::write(&path, json);
+            if let Err(e) = std::fs::write(&path, json) {
+                eprintln!("[evolution] WARNING: could not write candidate {}: {}", path.display(), e);
+            }
         }
     }
 
@@ -367,7 +373,9 @@ impl EvolutionEngine {
                     traj.user_rating = Some(rating);
                     if let Ok(updated) = serde_json::to_string(&traj) {
                         *last = updated;
-                        let _ = std::fs::write(&traj_path, lines.join("\n") + "\n");
+                        if let Err(e) = std::fs::write(&traj_path, lines.join("\n") + "\n") {
+                            eprintln!("[evolution] WARNING: could not update trajectory {}: {}", traj_path.display(), e);
+                        }
                     }
                 }
             }

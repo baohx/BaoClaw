@@ -398,7 +398,9 @@ impl WarmupManager {
         // Preload skills/MCP: interface reserved — actual loading is performed
         // by the host (CLI) which owns the skill registry and MCP clients.
 
-        let _ = self.stats.save_to(&self.stats_path);
+        if let Err(e) = self.stats.save_to(&self.stats_path) {
+            eprintln!("[warmup] WARNING: could not save stats to {}: {}", self.stats_path.display(), e);
+        }
         result
     }
 
@@ -452,7 +454,9 @@ impl WarmupManager {
                     s.hits += 1;
                 }
             }
-            let _ = self.stats.save_to(&self.stats_path);
+            if let Err(e) = self.stats.save_to(&self.stats_path) {
+            eprintln!("[warmup] WARNING: could not save stats to {}: {}", self.stats_path.display(), e);
+        }
         }
     }
 
@@ -478,7 +482,9 @@ impl WarmupManager {
                 stats.weight = (stats.weight + 0.1).min(1.0);
             }
         }
-        let _ = self.stats.save_to(&self.stats_path);
+        if let Err(e) = self.stats.save_to(&self.stats_path) {
+            eprintln!("[warmup] WARNING: could not save stats to {}: {}", self.stats_path.display(), e);
+        }
     }
 
     /// Whether a rule is still active (weight above elimination threshold).
