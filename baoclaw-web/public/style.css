@@ -4,6 +4,111 @@
   --bg-msg-ai: #1a1a2e; --bg-tool: #12122a; --accent: #e07a2f;
   --text: #e0e0e0; --text-dim: #888; --text-bright: #fff; --border: #2a2a4a;
   --green: #4ade80; --red: #f87171; --cyan: #67e8f9; --yellow: #fbbf24; --blue: #60a5fa;
+  /* derived surfaces */
+  --code-bg: #0d1117; --diff-bg: #0d1117; --scrollbar: #444; --mark-contrast: #000;
+}
+
+/* ═══════════ Theme system ═══════════
+   Each theme overrides the variables above via [data-theme="..."].
+   Switching sets document.documentElement.dataset.theme; "auto" removes
+   the attribute and follows prefers-color-scheme (see themes.js).      */
+
+/* ── Catppuccin — soft pastel, low contrast (github.com/catppuccin) ── */
+[data-theme="catppuccin-latte"] {
+  --bg: #eff1f5; --bg-secondary: #e6e9ef; --bg-msg-user: #dce0e8;
+  --bg-msg-ai: #eff1f5; --bg-tool: #e6e9ef; --accent: #8839ef;
+  --text: #4c4f69; --text-dim: #8c8fa1; --text-bright: #179299; --border: #ccd0da;
+  --green: #40a02b; --red: #d20f39; --cyan: #179299; --yellow: #df8e1d; --blue: #1e66f5;
+  --code-bg: #e6e9ef; --diff-bg: #e6e9ef; --scrollbar: #bcc0cc; --mark-contrast: #eff1f5;
+}
+[data-theme="catppuccin-frappe"] {
+  --bg: #303446; --bg-secondary: #292c3c; --bg-msg-user: #414559;
+  --bg-msg-ai: #303446; --bg-tool: #292c3c; --accent: #ca9ee6;
+  --text: #c6d0f5; --text-dim: #838ba7; --text-bright: #e5c890; --border: #414559;
+  --green: #a6d189; --red: #e78284; --cyan: #81c8be; --yellow: #e5c890; --blue: #8caaee;
+  --code-bg: #292c3c; --diff-bg: #292c3c; --scrollbar: #626880; --mark-contrast: #303446;
+}
+[data-theme="catppuccin-macchiato"] {
+  --bg: #24273a; --bg-secondary: #1e2030; --bg-msg-user: #363a4f;
+  --bg-msg-ai: #24273a; --bg-tool: #1e2030; --accent: #c6a0f6;
+  --text: #cad3f5; --text-dim: #8087a2; --text-bright: #eed49f; --border: #363a4f;
+  --green: #a6da95; --red: #ed8796; --cyan: #8bd5ca; --yellow: #eed49f; --blue: #8aadf4;
+  --code-bg: #1e2030; --diff-bg: #1e2030; --scrollbar: #5b6078; --mark-contrast: #24273a;
+}
+[data-theme="catppuccin-mocha"] {
+  --bg: #1e1e2e; --bg-secondary: #181825; --bg-msg-user: #313244;
+  --bg-msg-ai: #1e1e2e; --bg-tool: #181825; --accent: #cba6f7;
+  --text: #cdd6f4; --text-dim: #7f849c; --text-bright: #f9e2af; --border: #313244;
+  --green: #a6e3a1; --red: #f38ba8; --cyan: #94e2d5; --yellow: #f9e2af; --blue: #89b4fa;
+  --code-bg: #181825; --diff-bg: #181825; --scrollbar: #585b70; --mark-contrast: #1e1e2e;
+}
+
+/* ── Tokyo Night — tokyonight.nvim (github.com/folke/tokyonight.nvim) ── */
+[data-theme="tokyo-night"] {
+  --bg: #1a1b26; --bg-secondary: #16161e; --bg-msg-user: #24283b;
+  --bg-msg-ai: #1a1b26; --bg-tool: #16161e; --accent: #7aa2f7;
+  --text: #c0caf5; --text-dim: #565f89; --text-bright: #e0af68; --border: #292e42;
+  --green: #9ece6a; --red: #f7768e; --cyan: #7dcfff; --yellow: #e0af68; --blue: #7aa2f7;
+  --code-bg: #16161e; --diff-bg: #16161e; --scrollbar: #414868; --mark-contrast: #1a1b26;
+}
+[data-theme="tokyo-night-storm"] {
+  --bg: #24283b; --bg-secondary: #1f2335; --bg-msg-user: #2f334d;
+  --bg-msg-ai: #24283b; --bg-tool: #1f2335; --accent: #7dcfff;
+  --text: #c0caf5; --text-dim: #545c7e; --text-bright: #e0af68; --border: #2f334d;
+  --green: #9ece6a; --red: #f7768e; --cyan: #7dcfff; --yellow: #e0af68; --blue: #7aa2f7;
+  --code-bg: #1f2335; --diff-bg: #1f2335; --scrollbar: #414868; --mark-contrast: #24283b;
+}
+[data-theme="tokyo-night-day"] {
+  --bg: #e1e2e7; --bg-secondary: #d5d6db; --bg-msg-user: #c4c8da;
+  --bg-msg-ai: #e1e2e7; --bg-tool: #d5d6db; --accent: #2e7de9;
+  --text: #3760bf; --text-dim: #8990b3; --text-bright: #b15c00; --border: #c4c8da;
+  --green: #587539; --red: #f52a65; --cyan: #007197; --yellow: #8c6c3e; --blue: #2e7de9;
+  --code-bg: #d5d6db; --diff-bg: #d5d6db; --scrollbar: #a1a6c5; --mark-contrast: #e1e2e7;
+}
+
+/* ── Dracula (github.com/dracula/dracula-theme) ── */
+[data-theme="dracula"] {
+  --bg: #282a36; --bg-secondary: #21222c; --bg-msg-user: #343746;
+  --bg-msg-ai: #282a36; --bg-tool: #21222c; --accent: #bd93f9;
+  --text: #f8f8f2; --text-dim: #6272a4; --text-bright: #ffb86c; --border: #44475a;
+  --green: #50fa7b; --red: #ff5555; --cyan: #8be9fd; --yellow: #f1fa8c; --blue: #6272a4;
+  --code-bg: #21222c; --diff-bg: #21222c; --scrollbar: #44475a; --mark-contrast: #282a36;
+}
+
+/* ── Nord (nordtheme.com) ── */
+[data-theme="nord"] {
+  --bg: #2e3440; --bg-secondary: #292e39; --bg-msg-user: #3b4252;
+  --bg-msg-ai: #2e3440; --bg-tool: #292e39; --accent: #88c0d0;
+  --text: #eceff4; --text-dim: #7b88a1; --text-bright: #ebcb8b; --border: #434c5e;
+  --green: #a3be8c; --red: #bf616a; --cyan: #8fbcbb; --yellow: #ebcb8b; --blue: #81a1c1;
+  --code-bg: #292e39; --diff-bg: #292e39; --scrollbar: #4c566a; --mark-contrast: #2e3440;
+}
+
+/* ── Gruvbox (github.com/morhetz/gruvbox-contrib) ── */
+[data-theme="gruvbox-dark"] {
+  --bg: #282828; --bg-secondary: #1d2021; --bg-msg-user: #3c3836;
+  --bg-msg-ai: #282828; --bg-tool: #1d2021; --accent: #fe8019;
+  --text: #ebdbb2; --text-dim: #928374; --text-bright: #fabd2f; --border: #504945;
+  --green: #b8bb26; --red: #fb4934; --cyan: #8ec07c; --yellow: #fabd2f; --blue: #83a598;
+  --code-bg: #1d2021; --diff-bg: #1d2021; --scrollbar: #665c54; --mark-contrast: #282828;
+}
+[data-theme="gruvbox-light"] {
+  --bg: #fbf1c7; --bg-secondary: #f2e5bc; --bg-msg-user: #ebdbb2;
+  --bg-msg-ai: #fbf1c7; --bg-tool: #f2e5bc; --accent: #d65d0e;
+  --text: #3c3836; --text-dim: #928374; --text-bright: #b57614; --border: #d5c4a1;
+  --green: #98971a; --red: #cc241d; --cyan: #689d6a; --yellow: #d79921; --blue: #458588;
+  --code-bg: #f2e5bc; --diff-bg: #f2e5bc; --scrollbar: #a89984; --mark-contrast: #fbf1c7;
+}
+
+/* ── System light — clean minimal counterpart for "auto" on light OS ── */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f5f5f7; --bg-secondary: #ffffff; --bg-msg-user: #e8ecf3;
+    --bg-msg-ai: #f5f5f7; --bg-tool: #ffffff; --accent: #0066cc;
+    --text: #1d1d1f; --text-dim: #6e6e73; --text-bright: #000; --border: #d2d2d7;
+    --green: #1d8a4b; --red: #d0342c; --cyan: #007a8a; --yellow: #b25000; --blue: #0066cc;
+    --code-bg: #f0f0f2; --diff-bg: #f0f0f2; --scrollbar: #b0b0b5; --mark-contrast: #f5f5f7;
+  }
 }
 body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; font-size: 14px; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
 #app { display: flex; height: 100vh; }
@@ -38,7 +143,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 #search-results .search-hit:hover { background: rgba(255,255,255,0.03); }
 #search-results .search-hit .hit-role { font-size: 11px; color: var(--accent); }
 #search-results .search-hit .hit-text { font-size: 13px; margin-top: 4px; }
-#search-results .search-hit mark { background: var(--yellow); color: #000; border-radius: 2px; padding: 0 2px; }
+#search-results .search-hit mark { background: var(--yellow); color: var(--mark-contrast); border-radius: 2px; padding: 0 2px; }
 
 /* ── Chat area ── */
 #chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -73,7 +178,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 
 /* ── Diff view ── */
 .diff-container { margin: 8px 0; border-radius: 6px; overflow: hidden; font-size: 12px; }
-.diff-container .d2h-wrapper { background: #0d1117; }
+.diff-container .d2h-wrapper { background: var(--diff-bg); }
 .diff-container .d2h-file-header { background: var(--bg-tool); color: var(--text); border-bottom: 1px solid var(--border); }
 
 /* ── Image rendering ── */
@@ -90,7 +195,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 .stats-bar .stat-cost { color: var(--yellow); }
 
 /* ── Code blocks ── */
-.msg-body pre { background: #0d1117; border-radius: 6px; padding: 12px; overflow-x: auto; margin: 8px 0; position: relative; }
+.msg-body pre { background: var(--code-bg); border-radius: 6px; padding: 12px; overflow-x: auto; margin: 8px 0; position: relative; }
 .msg-body pre code { font-size: 13px; }
 .msg-body code:not(pre code) { background: rgba(255,255,255,0.08); padding: 2px 5px; border-radius: 3px; font-size: 13px; }
 .copy-btn { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.1); border: none; color: var(--text-dim); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
@@ -120,7 +225,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 #input:focus { border-color: var(--accent); }
 #btn-send, #btn-abort { width: 40px; height: 40px; border-radius: 8px; border: none; cursor: pointer; font-size: 16px; flex-shrink: 0; }
 #btn-send { background: var(--accent); color: #fff; }
-#btn-send:hover { background: #c96a22; }
+#btn-send:hover { background: color-mix(in srgb, var(--accent) 85%, black); }
 #btn-abort { background: var(--red); color: #fff; z-index: 10; position: relative; }
 .hidden { display: none !important; }
 
@@ -135,7 +240,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #444; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar); }
 
 /* ── Tab bar ── */
 #tab-bar { display: flex; background: var(--bg-secondary); border-bottom: 1px solid var(--border); min-height: 0; overflow-x: auto; flex-shrink: 0; }
@@ -187,6 +292,21 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 #panel-body .panel-item-actions button { margin: 0; padding: 4px 8px; font-size: 11px; }
 #panel-body .panel-empty { color: var(--text-dim); text-align: center; padding: 20px; }
 #panel-body .panel-error { color: var(--red); padding: 8px; border: 1px solid var(--red); border-radius: 6px; margin: 8px 0; }
+
+/* ── Theme picker ── */
+#theme-picker {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-tool);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#theme-picker:focus { outline: 1px solid var(--accent); }
+#theme-picker option { background: var(--bg-secondary); color: var(--text); }
 
 /* ── Mermaid 图表 ── */
 .mermaid-block {

@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="themes.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
@@ -38,6 +39,10 @@
         <button id="btn-memory" class="sidebar-btn">🧠 Memory</button>
         <button id="btn-cron" class="sidebar-btn">⏰ Cron</button>
         <button id="btn-tasks" class="sidebar-btn">📋 Tasks</button>
+      </div>
+      <div class="sidebar-section">
+        <div class="section-title">Theme</div>
+        <select id="theme-picker" title="Color theme"></select>
       </div>
       <div id="status-bar" class="sidebar-section status">
         <span id="status-text">Connecting…</span>

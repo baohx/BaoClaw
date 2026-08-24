@@ -19,7 +19,11 @@ marked.setOptions({highlight:(code,lang)=>{
 },breaks:true});
 
 // ── Mermaid 初始化 ──
-mermaid.initialize({startOnLoad:false,theme:'default',securityLevel:'loose'});
+// Mermaid theme is managed by themes.js (re-initialized on theme change).
+// Guarded init here only if themes.js failed to load.
+if (typeof mermaid !== 'undefined' && !window.BaoClawThemes) {
+  mermaid.initialize({startOnLoad:false,theme:'default',securityLevel:'loose'});
+}
 
 // ── 渲染 Mermaid 图表 ──
 async function renderMermaidBlocks(container) {
