@@ -116,7 +116,9 @@ impl MemoryArchive {
             .iter()
             .filter_map(|e| serde_json::to_string(e).ok())
             .collect();
-        let _ = std::fs::write(path, lines.join("\n") + "\n");
+        if let Err(e) = std::fs::write(path, lines.join("\n") + "\n") {
+            eprintln!("[memory-archive] WARNING: could not write archive {}: {} — archived memories may be lost", path.display(), e);
+        }
     }
 
     /// Archive a single memory entry.
@@ -140,7 +142,9 @@ impl MemoryArchive {
                     .append(true)
                     .open(&*fp)
                 {
-                    let _ = writeln!(f, "{}", line);
+                    if let Err(e) = writeln!(f, "{}", line) {
+                        eprintln!("[memory-archive] WARNING: append failed: {} — entry may be lost", e);
+                    }
                 }
             }
         }
@@ -257,7 +261,9 @@ impl MemoryArchive {
         entries.clear();
 
         let fp = self.file_path.lock().await;
-        let _ = std::fs::write(&*fp, "");
+        if let Err(e) = std::fs::write(&*fp, "") {
+            eprintln!("[memory-archive] WARNING: could not truncate archive {}: {}", fp.display(), e);
+        }
 
         count
     }
