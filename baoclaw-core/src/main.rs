@@ -949,109 +949,25 @@ async fn handle_shared_client(
                                 let messages = engine.get_messages();
                                 let start = if messages.len() > count { messages.len() - count } else { 0 };
                                 // Collect tool results from user messages to attach to tool_use blocks
-                                let tool_results: std::collections::HashMap<String, serde_json::Value> = messages[start..].iter()
+                                let tool_results: std::collections::HashMap<String, serde_json::Value> = messages.iter()
                                     .filter_map(|m| match &m.content {
                                         crate::models::message::MessageContent::User { tool_use_result, .. } => {
                                             tool_use_result.as_ref().map(|r| (r.tool_use_id.clone(), r.output.clone()))
                                         }
                                         _ => None,
                                     }).collect();
-
                                 let tail: Vec<serde_json::Value> = messages[start..].iter().enumerate().map(|(idx, m)| {
-                                    let turn_num = start + idx + 1;
-                                    match &m.content {
-                                        crate::models::message::MessageContent::User { message, tool_use_result, .. } => {
-                                            let text = match &message.content {
-                                                serde_json::Value::String(s) => s.clone(),
-                                                serde_json::Value::Array(arr) => {
-                                                    arr.iter().filter_map(|b| {
-                                                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                                            b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
-                                                        } else if b.get("type").and_then(|t| t.as_str()) == Some("image") {
-                                                            Some("[image]".to_string())
-                                                        } else if b.get("type").and_then(|t| t.as_str()) == Some("document") {
-                                                            Some("[document]".to_string())
-                                                        } else { None }
-                                                    }).collect::<Vec<_>>().join(" ")
-                                                }
-                                                _ => serde_json::to_string(&message.content).unwrap_or_default(),
-                                            };
-                                            let is_tool_result = tool_use_result.is_some();
-                                            let mut entry = serde_json::json!({
-                                                "role": "user",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                            });
-                                            if is_tool_result {
-                                                entry["is_tool_result"] = serde_json::json!(true);
-                                                if let Some(tr) = tool_use_result {
-                                                    entry["tool_use_id"] = serde_json::json!(tr.tool_use_id);
-                                                    entry["result_output"] = tr.output.clone();
-                                                    entry["is_error"] = serde_json::json!(tr.is_error);
-                                                }
-                                            }
-                                            entry
-                                        }
-                                        crate::models::message::MessageContent::Assistant { message, cost_usd, duration_ms } => {
-                                            let text: String = message.content.iter().filter_map(|b| {
-                                                match b {
-                                                    crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
-                                                    _ => None,
-                                                }
-                                            }).collect::<Vec<_>>().join("");
-                                            let tools: Vec<serde_json::Value> = message.content.iter().filter_map(|b| {
-                                                match b {
-                                                    crate::models::message::ContentBlock::ToolUse { id, name, input } => {
-                                                        let mut info = serde_json::json!({"name": name, "id": id});
-                                                        let mut details: Vec<String> = Vec::new();
-                                                        if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                                                            details.push(format!("command: {}", cmd));
-                                                        }
-                                                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
-                                                            details.push(format!("path: {}", fp));
-                                                        }
-                                                        if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
-                                                            details.push(format!("pattern: {}", p));
-                                                        }
-                                                        if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
-                                                            details.push(format!("query: {}", q));
-                                                        }
-                                                        if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
-                                                            details.push(format!("url: {}", u));
-                                                        }
-                                                        if let Some(p) = input.get("prompt").and_then(|v| v.as_str()) {
-                                                            details.push(format!("prompt: {}", p.chars().take(200).collect::<String>()));
-                                                        }
-                                                        if !details.is_empty() {
-                                                            info["detail"] = serde_json::json!(details.join(", "));
-                                                        }
-                                                        if let Some(result) = tool_results.get(id) {
-                                                            info["result"] = result.clone();
-                                                        }
-                                                        Some(info)
-                                                    }
-                                                    _ => None,
-                                                }
-                                            }).collect();
-                                            let mut entry = serde_json::json!({
-                                                "role": "assistant",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                                "cost_usd": cost_usd,
-                                                "duration_ms": duration_ms,
-                                            });
-                                            if !tools.is_empty() {
-                                                entry["tools"] = serde_json::json!(tools);
-                                            }
-                                            if let Some(usage) = &message.usage {
-                                                entry["usage"] = serde_json::json!(usage);
-                                            }
-                                            entry
-                                        }
-                                        _ => serde_json::json!({"role": "system", "timestamp": m.timestamp, "turn": turn_num}),
-                                    }
+                                    crate::ipc::message_format::message_to_tail_entry(
+                                        m,
+                                        start + idx + 1,
+                                        &tool_results,
+                                        crate::ipc::message_format::TailEntryOptions {
+                                            include_tool_result_fields: true,
+                                            include_tool_results: true,
+                                            include_rich_tool_details: true,
+                                            include_assistant_metadata: true,
+                                        },
+                                    )
                                 }).collect();
                                 let total = messages.len();
                                 let mut conn_guard = conn.lock().await;
@@ -1148,72 +1064,17 @@ async fn handle_shared_client(
                                 let engine = session.engine_read().await;
                                 let messages = engine.get_messages();
                                 let tail: Vec<serde_json::Value> = messages.iter().enumerate().map(|(idx, m)| {
-                                    let turn_num = idx + 1;
-                                    match &m.content {
-                                        crate::models::message::MessageContent::User { message, tool_use_result, .. } => {
-                                            let text = match &message.content {
-                                                serde_json::Value::String(s) => s.clone(),
-                                                serde_json::Value::Array(arr) => {
-                                                    arr.iter().filter_map(|b| {
-                                                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                                            b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
-                                                        } else { None }
-                                                    }).collect::<Vec<_>>().join(" ")
-                                                }
-                                                _ => serde_json::to_string(&message.content).unwrap_or_default(),
-                                            };
-                                            let is_tool_result = tool_use_result.is_some();
-                                            let mut entry = serde_json::json!({
-                                                "role": "user",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                            });
-                                            if is_tool_result {
-                                                entry["is_tool_result"] = serde_json::json!(true);
-                                            }
-                                            entry
-                                        }
-                                        crate::models::message::MessageContent::Assistant { message, cost_usd, .. } => {
-                                            let text: String = message.content.iter().filter_map(|b| {
-                                                match b {
-                                                    crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
-                                                    _ => None,
-                                                }
-                                            }).collect::<Vec<_>>().join("");
-                                            let tools: Vec<serde_json::Value> = message.content.iter().filter_map(|b| {
-                                                match b {
-                                                    crate::models::message::ContentBlock::ToolUse { id, name, input } => {
-                                                        let mut info = serde_json::json!({"name": name, "id": id});
-                                                        let mut details: Vec<String> = Vec::new();
-                                                        if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                                                            details.push(format!("command: {}", cmd));
-                                                        }
-                                                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
-                                                            details.push(format!("path: {}", fp));
-                                                        }
-                                                        if !details.is_empty() {
-                                                            info["detail"] = serde_json::json!(details.join(", "));
-                                                        }
-                                                        Some(info)
-                                                    }
-                                                    _ => None,
-                                                }
-                                            }).collect();
-                                            let mut entry = serde_json::json!({
-                                                "role": "assistant",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                                "cost_usd": cost_usd,
-                                            });
-                                            if !tools.is_empty() {
-                                                entry["tools"] = serde_json::json!(tools);
-                                            }
-                                            entry
-                                        }
-                                        _ => serde_json::json!({"role": "system", "text": "", "timestamp": m.timestamp, "turn": turn_num}),
-                                    }
+                                    crate::ipc::message_format::message_to_tail_entry(
+                                        m,
+                                        idx + 1,
+                                        &Default::default(),
+                                        crate::ipc::message_format::TailEntryOptions {
+                                            include_tool_result_fields: false,
+                                            include_tool_results: false,
+                                            include_rich_tool_details: false,
+                                            include_assistant_metadata: false,
+                                        },
+                                    )
                                 }).collect();
                                 drop(engine);
 
