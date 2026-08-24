@@ -30,8 +30,28 @@
 
   const isLight = (id) => /latte|day|light/.test(id);
 
+  const isLight = (id) => /latte|day|light/.test(id);
+
+  function applyHljs(id) {
+    // highlightjs ships separate light/dark stylesheets; toggle them so
+    // syntax colors match the active theme family.
+    const light = document.getElementById('hljs-light');
+    const dark = document.getElementById('hljs-dark');
+    if (!light || !dark) return;
+    if (id === 'auto') {
+      const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+      light.disabled = !prefersLight;
+      dark.disabled = prefersLight;
+    } else {
+      const useLight = isLight(id);
+      light.disabled = !useLight;
+      dark.disabled = useLight;
+    }
+  }
+
   function apply(id) {
     if (!THEMES.some((t) => t.id === id)) id = 'auto';
+    applyHljs(id);
     if (id === 'auto') {
       delete document.documentElement.dataset.theme;
       const mq = window.matchMedia('(prefers-color-scheme: light)');

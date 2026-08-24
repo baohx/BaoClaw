@@ -1,11 +1,13 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
+  color-scheme: dark;
   --bg: #1a1a2e; --bg-secondary: #16213e; --bg-msg-user: #0f3460;
   --bg-msg-ai: #1a1a2e; --bg-tool: #12122a; --accent: #e07a2f;
   --text: #e0e0e0; --text-dim: #888; --text-bright: #fff; --border: #2a2a4a;
   --green: #4ade80; --red: #f87171; --cyan: #67e8f9; --yellow: #fbbf24; --blue: #60a5fa;
   /* derived surfaces */
   --code-bg: #0d1117; --diff-bg: #0d1117; --scrollbar: #444; --mark-contrast: #000;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 
 /* ═══════════ Theme system ═══════════
@@ -15,94 +17,117 @@
 
 /* ── Catppuccin — soft pastel, low contrast (github.com/catppuccin) ── */
 [data-theme="catppuccin-latte"] {
+  color-scheme: light;
   --bg: #eff1f5; --bg-secondary: #e6e9ef; --bg-msg-user: #dce0e8;
   --bg-msg-ai: #eff1f5; --bg-tool: #e6e9ef; --accent: #8839ef;
   --text: #4c4f69; --text-dim: #8c8fa1; --text-bright: #179299; --border: #ccd0da;
   --green: #40a02b; --red: #d20f39; --cyan: #179299; --yellow: #df8e1d; --blue: #1e66f5;
   --code-bg: #e6e9ef; --diff-bg: #e6e9ef; --scrollbar: #bcc0cc; --mark-contrast: #eff1f5;
+  --hover-overlay: rgba(0,0,0,0.06); --mermaid-bg: var(--bg-secondary);
 }
 [data-theme="catppuccin-frappe"] {
+  color-scheme: dark;
   --bg: #303446; --bg-secondary: #292c3c; --bg-msg-user: #414559;
   --bg-msg-ai: #303446; --bg-tool: #292c3c; --accent: #ca9ee6;
   --text: #c6d0f5; --text-dim: #838ba7; --text-bright: #e5c890; --border: #414559;
   --green: #a6d189; --red: #e78284; --cyan: #81c8be; --yellow: #e5c890; --blue: #8caaee;
   --code-bg: #292c3c; --diff-bg: #292c3c; --scrollbar: #626880; --mark-contrast: #303446;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 [data-theme="catppuccin-macchiato"] {
+  color-scheme: dark;
   --bg: #24273a; --bg-secondary: #1e2030; --bg-msg-user: #363a4f;
   --bg-msg-ai: #24273a; --bg-tool: #1e2030; --accent: #c6a0f6;
   --text: #cad3f5; --text-dim: #8087a2; --text-bright: #eed49f; --border: #363a4f;
   --green: #a6da95; --red: #ed8796; --cyan: #8bd5ca; --yellow: #eed49f; --blue: #8aadf4;
   --code-bg: #1e2030; --diff-bg: #1e2030; --scrollbar: #5b6078; --mark-contrast: #24273a;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 [data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
   --bg: #1e1e2e; --bg-secondary: #181825; --bg-msg-user: #313244;
   --bg-msg-ai: #1e1e2e; --bg-tool: #181825; --accent: #cba6f7;
   --text: #cdd6f4; --text-dim: #7f849c; --text-bright: #f9e2af; --border: #313244;
   --green: #a6e3a1; --red: #f38ba8; --cyan: #94e2d5; --yellow: #f9e2af; --blue: #89b4fa;
   --code-bg: #181825; --diff-bg: #181825; --scrollbar: #585b70; --mark-contrast: #1e1e2e;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 
 /* ── Tokyo Night — tokyonight.nvim (github.com/folke/tokyonight.nvim) ── */
 [data-theme="tokyo-night"] {
+  color-scheme: dark;
   --bg: #1a1b26; --bg-secondary: #16161e; --bg-msg-user: #24283b;
   --bg-msg-ai: #1a1b26; --bg-tool: #16161e; --accent: #7aa2f7;
   --text: #c0caf5; --text-dim: #565f89; --text-bright: #e0af68; --border: #292e42;
   --green: #9ece6a; --red: #f7768e; --cyan: #7dcfff; --yellow: #e0af68; --blue: #7aa2f7;
   --code-bg: #16161e; --diff-bg: #16161e; --scrollbar: #414868; --mark-contrast: #1a1b26;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 [data-theme="tokyo-night-storm"] {
+  color-scheme: dark;
   --bg: #24283b; --bg-secondary: #1f2335; --bg-msg-user: #2f334d;
   --bg-msg-ai: #24283b; --bg-tool: #1f2335; --accent: #7dcfff;
   --text: #c0caf5; --text-dim: #545c7e; --text-bright: #e0af68; --border: #2f334d;
   --green: #9ece6a; --red: #f7768e; --cyan: #7dcfff; --yellow: #e0af68; --blue: #7aa2f7;
   --code-bg: #1f2335; --diff-bg: #1f2335; --scrollbar: #414868; --mark-contrast: #24283b;
+  --hover-overlay: rgba(0,0,0,0.06); --mermaid-bg: var(--bg-secondary);
 }
 [data-theme="tokyo-night-day"] {
+  color-scheme: light;
   --bg: #e1e2e7; --bg-secondary: #d5d6db; --bg-msg-user: #c4c8da;
   --bg-msg-ai: #e1e2e7; --bg-tool: #d5d6db; --accent: #2e7de9;
   --text: #3760bf; --text-dim: #8990b3; --text-bright: #b15c00; --border: #c4c8da;
   --green: #587539; --red: #f52a65; --cyan: #007197; --yellow: #8c6c3e; --blue: #2e7de9;
   --code-bg: #d5d6db; --diff-bg: #d5d6db; --scrollbar: #a1a6c5; --mark-contrast: #e1e2e7;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 
 /* ── Dracula (github.com/dracula/dracula-theme) ── */
 [data-theme="dracula"] {
+  color-scheme: dark;
   --bg: #282a36; --bg-secondary: #21222c; --bg-msg-user: #343746;
   --bg-msg-ai: #282a36; --bg-tool: #21222c; --accent: #bd93f9;
   --text: #f8f8f2; --text-dim: #6272a4; --text-bright: #ffb86c; --border: #44475a;
   --green: #50fa7b; --red: #ff5555; --cyan: #8be9fd; --yellow: #f1fa8c; --blue: #6272a4;
   --code-bg: #21222c; --diff-bg: #21222c; --scrollbar: #44475a; --mark-contrast: #282a36;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 
 /* ── Nord (nordtheme.com) ── */
 [data-theme="nord"] {
+  color-scheme: dark;
   --bg: #2e3440; --bg-secondary: #292e39; --bg-msg-user: #3b4252;
   --bg-msg-ai: #2e3440; --bg-tool: #292e39; --accent: #88c0d0;
   --text: #eceff4; --text-dim: #7b88a1; --text-bright: #ebcb8b; --border: #434c5e;
   --green: #a3be8c; --red: #bf616a; --cyan: #8fbcbb; --yellow: #ebcb8b; --blue: #81a1c1;
   --code-bg: #292e39; --diff-bg: #292e39; --scrollbar: #4c566a; --mark-contrast: #2e3440;
+  --hover-overlay: rgba(255,255,255,0.04); --mermaid-bg: #ffffff;
 }
 
 /* ── Gruvbox (github.com/morhetz/gruvbox-contrib) ── */
 [data-theme="gruvbox-dark"] {
+  color-scheme: dark;
   --bg: #282828; --bg-secondary: #1d2021; --bg-msg-user: #3c3836;
   --bg-msg-ai: #282828; --bg-tool: #1d2021; --accent: #fe8019;
   --text: #ebdbb2; --text-dim: #928374; --text-bright: #fabd2f; --border: #504945;
   --green: #b8bb26; --red: #fb4934; --cyan: #8ec07c; --yellow: #fabd2f; --blue: #83a598;
   --code-bg: #1d2021; --diff-bg: #1d2021; --scrollbar: #665c54; --mark-contrast: #282828;
+  --hover-overlay: rgba(0,0,0,0.06); --mermaid-bg: var(--bg-secondary);
 }
 [data-theme="gruvbox-light"] {
+  color-scheme: light;
   --bg: #fbf1c7; --bg-secondary: #f2e5bc; --bg-msg-user: #ebdbb2;
   --bg-msg-ai: #fbf1c7; --bg-tool: #f2e5bc; --accent: #d65d0e;
   --text: #3c3836; --text-dim: #928374; --text-bright: #b57614; --border: #d5c4a1;
   --green: #98971a; --red: #cc241d; --cyan: #689d6a; --yellow: #d79921; --blue: #458588;
   --code-bg: #f2e5bc; --diff-bg: #f2e5bc; --scrollbar: #a89984; --mark-contrast: #fbf1c7;
+  --hover-overlay: rgba(0,0,0,0.06); --mermaid-bg: var(--bg-secondary);
 }
 
 /* ── System light — clean minimal counterpart for "auto" on light OS ── */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
+    color-scheme: light;
     --bg: #f5f5f7; --bg-secondary: #ffffff; --bg-msg-user: #e8ecf3;
     --bg-msg-ai: #f5f5f7; --bg-tool: #ffffff; --accent: #0066cc;
     --text: #1d1d1f; --text-dim: #6e6e73; --text-bright: #000; --border: #d2d2d7;
@@ -130,7 +155,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 
 /* ── Project list ── */
 .project-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-dim); transition: background 0.15s; border-left: 2px solid transparent; }
-.project-item:hover { background: rgba(255,255,255,0.04); }
+.project-item:hover { background: var(--hover-overlay); }
 .project-item.active { border-left-color: var(--accent); color: var(--text); background: rgba(224,122,47,0.08); }
 .project-item .proj-name { color: var(--text); font-weight: 500; }
 .project-item .proj-path { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -140,7 +165,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 #search-input:focus { border-color: var(--accent); }
 #search-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 60px; background: rgba(26,26,46,0.95); z-index: 10; padding: 20px; overflow-y: auto; }
 #search-results .search-hit { padding: 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
-#search-results .search-hit:hover { background: rgba(255,255,255,0.03); }
+#search-results .search-hit:hover { background: var(--hover-overlay); }
 #search-results .search-hit .hit-role { font-size: 11px; color: var(--accent); }
 #search-results .search-hit .hit-text { font-size: 13px; margin-top: 4px; }
 #search-results .search-hit mark { background: var(--yellow); color: var(--mark-contrast); border-radius: 2px; padding: 0 2px; }
@@ -162,7 +187,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 .msg.assistant .msg-body a { color: var(--blue); text-decoration: underline; }
 .msg.assistant .msg-body table { border-collapse: collapse; margin: 8px 0; width: 100%; }
 .msg.assistant .msg-body th, .msg.assistant .msg-body td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; font-size: 13px; }
-.msg.assistant .msg-body th { background: rgba(255,255,255,0.04); }
+.msg.assistant .msg-body th { background: var(--hover-overlay); }
 .msg.assistant .msg-body blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--text-dim); margin: 8px 0; }
 .msg.assistant .msg-body ul, .msg.assistant .msg-body ol { padding-left: 20px; margin: 6px 0; }
 
@@ -197,7 +222,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 /* ── Code blocks ── */
 .msg-body pre { background: var(--code-bg); border-radius: 6px; padding: 12px; overflow-x: auto; margin: 8px 0; position: relative; }
 .msg-body pre code { font-size: 13px; }
-.msg-body code:not(pre code) { background: rgba(255,255,255,0.08); padding: 2px 5px; border-radius: 3px; font-size: 13px; }
+.msg-body code:not(pre code) { background: var(--hover-overlay); padding: 2px 5px; border-radius: 3px; font-size: 13px; }
 .copy-btn { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.1); border: none; color: var(--text-dim); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
 .copy-btn:hover { background: rgba(255,255,255,0.2); color: var(--text); }
 .lang-badge { position: absolute; top: 6px; left: 10px; font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
@@ -249,7 +274,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 .tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(224,122,47,0.06); }
 .tab .tab-close { font-size: 10px; opacity: 0.4; padding: 2px; border-radius: 3px; }
-.tab .tab-close:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+.tab .tab-close:hover { opacity: 1; background: var(--hover-overlay); }
 
 /* Tab message containers */
 .tab-messages { flex: 1; overflow-y: auto; padding: 20px 24px; scroll-behavior: smooth; }
@@ -310,7 +335,7 @@ body { font-family: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace; 
 
 /* ── Mermaid 图表 ── */
 .mermaid-block {
-  background: #fff;
+  background: var(--mermaid-bg);
   border-radius: 8px;
   padding: 16px;
   margin: 12px 0;
