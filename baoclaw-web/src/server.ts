@@ -93,7 +93,36 @@ interface DaemonInfo { pid: number; cwd: string; session_id: string; socket: str
 
 function getSocketDir(): string { return path.join(os.tmpdir(), 'baoclaw-sockets'); }
 
+/**
+ * Preferred fixed socket path (P3-1c) — matches the Rust daemon and the
+ * CLI/TUI resolvers. Linux uses $XDG_RUNTIME_DIR (/run/user/<UID>/),
+ * macOS and others fall back to /tmp.
+ */
+function fixedSocketPath(): string | null {
+  if (process.platform === 'linux') {
+    const xdg = process.env.XDG_RUNTIME_DIR;
+    if (xdg && fs.existsSync(xdg)) return path.join(xdg, 'baoclaw.sock');
+    return null;
+  }
+  return path.join(getSocketDir(), 'baoclaw.sock');
+}
+
 function discoverDaemons(): DaemonInfo[] {
+  // Fixed socket first (P3-1c): read its sibling meta file if present,
+  // otherwise synthesize an entry from the socket's existence.
+  const fixed = fixedSocketPath();
+  if (fixed && fs.existsSync(fixed)) {
+    const metaPath = fixed.replace(/\.sock$/, '.json');
+    try {
+      const meta: DaemonInfo = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      try { process.kill(meta.pid, 0); } catch { /* fall through to synthesized */ }
+      if (!fs.existsSync(meta.socket)) throw new Error('stale meta');
+      return [meta];
+    } catch {
+      // No/stale meta file — the socket itself is the source of truth.
+      return [{ pid: -1, cwd: '', session_id: '', socket: fixed, started_at: '' }];
+    }
+  }
   const dir = getSocketDir();
   if (!fs.existsSync(dir)) return [];
   const daemons: DaemonInfo[] = [];
