@@ -561,7 +561,7 @@ pub async fn run_query_loop(
                                 // instead of streaming via input_json_delta. Pre-seed
                                 // current_tool_input_json if a non-empty input is present.
                                 current_tool_input_json = match content_block.get("input") {
-                                    Some(v) if v.is_object() && !v.as_object().unwrap().is_empty() => {
+                                    Some(v) if v.is_object() && v.as_object().is_some_and(|o| !o.is_empty()) => {
                                         serde_json::to_string(v).unwrap_or_default()
                                     }
                                     _ => String::new(),

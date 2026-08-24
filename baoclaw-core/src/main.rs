@@ -2439,9 +2439,9 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                 drop(engine);
 
                 // Estimate session duration from first and last message timestamps
-                let duration_secs = if messages_clone.len() >= 2 {
-                    let first_ts = &messages_clone.first().unwrap().timestamp;
-                    let last_ts = &messages_clone.last().unwrap().timestamp;
+                let duration_secs = if let [first, .., last] = messages_clone.as_slice() {
+                    let first_ts = &first.timestamp;
+                    let last_ts = &last.timestamp;
                     (|| -> Option<u64> {
                         let t1 = chrono::DateTime::parse_from_rfc3339(first_ts).ok()?;
                         let t2 = chrono::DateTime::parse_from_rfc3339(last_ts).ok()?;
@@ -2645,7 +2645,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cwd_str = args.iter().position(|a| a == "--cwd")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.to_string())
-        .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string());
+        .unwrap_or_else(|| std::env::current_dir().map(|d| d.to_string_lossy().to_string()).unwrap_or_else(|_| ".".to_string()));
     let _cwd = PathBuf::from(&cwd_str);
 
     // Parse --resume flag for session resumption
@@ -2777,12 +2777,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     libc::dup2(f.as_raw_fd(), 2); // stderr → log
                 }
             } else {
-                let devnull = std::fs::File::open("/dev/null").unwrap();
+                // Init-time: /dev/null is guaranteed to exist on unix targets;
+                // failure here means the fd table is exhausted — aborting startup
+                // is the correct behavior, hence unwrap is intentional.
+                let devnull = std::fs::File::open("/dev/null").expect("/dev/null must be openable at startup");
                 unsafe {
                     libc::dup2(devnull.as_raw_fd(), 2);
                 }
             }
-            let devnull = std::fs::File::open("/dev/null").unwrap();
+            let devnull = std::fs::File::open("/dev/null").expect("/dev/null must be openable at startup");
             unsafe {
                 libc::dup2(devnull.as_raw_fd(), 1); // stdout → /dev/null
             }
@@ -3216,7 +3219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(unix)]
             let terminate = async {
                 let mut sig = signal::unix::signal(signal::unix::SignalKind::terminate())
-                    .expect("failed to install SIGTERM handler");
+                    .expect("failed to install SIGTERM handler (init-time; no recovery possible)");
                 sig.recv().await;
             };
 
