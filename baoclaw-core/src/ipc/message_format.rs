@@ -328,6 +328,40 @@ mod tests {
     }
 
     #[test]
+    fn assistant_rich_tool_details_all_fields() {
+        // Covers the rich-detail branches (pattern/query/url/prompt + prompt
+        // truncation) that the export/lean test deliberately omits.
+        let tool = ContentBlock::ToolUse {
+            id: "tu2".into(),
+            name: "grep".into(),
+            input: json!({
+                "command": "rg",
+                "file_path": "src/main.rs",
+                "pattern": "TODO",
+                "query": "config",
+                "url": "https://example.com",
+                "prompt": "x".repeat(300),
+            }),
+        };
+        let blocks = vec![tool];
+        let rich = message_to_tail_entry(&assistant_msg(blocks.clone(), None), 2, &HashMap::new(), TALKTAIL);
+        let rich_tool = &rich["tools"][0];
+        // 300-char prompt is truncated to 200; build the expected 200-char suffix.
+        let expected_prompt = "prompt: ".to_string() + &"x".repeat(200);
+        let expected_detail = format!("command: rg, path: src/main.rs, pattern: TODO, query: config, url: https://example.com, {}", expected_prompt);
+        assert_eq!(rich_tool["detail"], expected_detail);
+        // prompt truncated to 200 chars
+        let prompt_part = expected_prompt.strip_prefix("prompt: ").unwrap();
+        assert_eq!(prompt_part.len(), 200, "prompt must be truncated to 200 chars");
+
+        // Export (lean) must drop the rich fields, keeping only command + path
+        let lean = message_to_tail_entry(&assistant_msg(blocks, None), 2, &HashMap::new(), EXPORT);
+        assert_eq!(lean["tools"][0]["detail"], "command: rg, path: src/main.rs");
+        assert!(!lean["tools"][0]["detail"].as_str().unwrap().contains("pattern:"));
+        assert!(!lean["tools"][0]["detail"].as_str().unwrap().contains("prompt:"));
+    }
+
+    #[test]
     fn assistant_metadata_usage_attached_when_requested() {
         let usage = Usage {
             input_tokens: 10,
