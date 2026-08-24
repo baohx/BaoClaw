@@ -727,7 +727,11 @@ function openPanel(title,contentHtml){
 }
 function panelRpc(method,params){
   const w=getActiveWs();
-  if(w?.readyState===1)w.send(JSON.stringify({action:'rpc',method,params:params||{}}));
+  // params===undefined gönderilirse unit-variant RPC'ler (config.model gibi)
+  // daemon tarafında doğru deserialize edilir; boş {} zorlamak hataya yol açar.
+  const payload={action:'rpc',method};
+  if(params!==undefined)payload.params=params;
+  if(w?.readyState===1)w.send(JSON.stringify(payload));
 }
 function panelError(msg){return '<div class="panel-error">❌ '+esc(msg)+'</div>';}
 
@@ -737,17 +741,55 @@ $('btn-model').onclick=()=>{
   const model=s._currentModel||'(unknown)';
   openPanel('🤖 Model Management',
     '<div style="margin-bottom:12px"><b>Current Model:</b> <span style="color:var(--accent)">'+esc(model)+'</span></div>'+
-    '<div style="margin-bottom:8px"><label>Switch to:</label></div>'+
-    '<input id="panel-model-input" placeholder="e.g. claude-sonnet-4-20250514">'+
-    '<button id="panel-model-switch">Switch Model</button>'+
+    '<div id="panel-model-info" class="panel-empty">Loading model config…</div>'+
+    '<div style="margin:12px 0 8px"><label>Switch to:</label></div>'+
+    '<select id="panel-model-select" style="width:100%"></select>'+
+    '<div id="panel-model-custom-row" style="margin-top:6px;display:none">'+
+      '<input id="panel-model-input" placeholder="custom model name" style="width:100%"></div>'+
+    '<button id="panel-model-switch" style="margin-top:8px">Switch Model</button>'+
     '<div id="panel-model-result"></div>');
   $('panel-model-switch').onclick=()=>{
-    const v=$('panel-model-input').value.trim();
+    const sel=$('panel-model-select');
+    let v;
+    if(sel.value==='__custom__')v=$('panel-model-input').value.trim();
+    else v=sel.value;
     if(!v)return;
     panelRpc('switchModel',{model:v});
     $('panel-model-result').innerHTML='<div style="color:var(--text-dim)">Switching...</div>';
   };
+  // Fetch full config (primary + fallback chain) via config.model RPC
+  panelRpc('config.model');
 };
+
+window.panelRenderModelConfig=function(data){
+  const info=$('panel-model-info'); if(!info)return;
+  const sel=$('panel-model-select'); if(!sel)return;
+  if(data.error){info.innerHTML=panelError(data.error);return;}
+  const rows=[];
+  if(data.primary_model){
+    rows.push('<div>📦 <b>'+esc(data.primary_model)+'</b> <span style="color:var(--text-dim)">('+esc(data.primary_api_type||'?')+')</span></div>');
+    if(data.primary_context_window)rows.push('<div style="color:var(--text-dim);font-size:12px">Context: '+fmtTok(data.primary_context_window)+' · compact @ '+Math.round((data.primary_threshold_ratio||0.7)*100)+'%</div>');
+    if(data.primary_base_url)rows.push('<div style="color:var(--text-dim);font-size:12px">'+esc(data.primary_base_url)+'</div>');
+    if(data.primary_api_key_masked)rows.push('<div style="color:var(--text-dim);font-size:12px">Key: '+esc(data.primary_api_key_masked)+'</div>');
+  }
+  info.innerHTML=rows.join('');
+  // Populate selector: primary + fallbacks + custom
+  const opts=[];
+  if(data.primary_model)opts.push({v:data.primary_model,l:'★ '+data.primary_model+' (primary)'});
+  for(const f of (data.fallback_chain||[])){
+    if(f.model&&f.model!==data.primary_model&&!opts.some(o=>o.v===f.model))opts.push({v:f.model,l:f.model+(f.api_type?' ('+f.api_type+')':'')});
+  }
+  opts.push({v:'__custom__',l:'✏️ Custom model…'});
+  sel.innerHTML=opts.map(o=>'<option value="'+esc(o.v)+'">'+esc(o.l)+'</option>').join('');
+  if(s_activeModelMatches(sel,data))sel.value=data.primary_model;
+  sel.onchange=()=>{
+    $('panel-model-custom-row').style.display=sel.value==='__custom__'?'block':'none';
+  };
+};
+function s_activeModelMatches(sel,data){
+  const s=getActiveState();
+  return s._currentModel&&s._currentModel!==data.primary_model&&sel.querySelector('option[value="'+CSS.escape(s._currentModel)+'"]');
+}
 
 // ── 7.2 Git Integration Panel ──
 $('btn-git').onclick=()=>{
@@ -902,6 +944,7 @@ handleTabMessage=function(tab,msg){
           const s=getActiveState();s._currentModel=data.model||data.active_model||'';}
       }
     }
+    else if(method==='config.model'){window.panelRenderModelConfig(data);}
     else if(method==='gitCommit'){
       const el=$('panel-git-result');
       if(el){

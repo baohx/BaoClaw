@@ -2449,6 +2449,7 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
             "reconnected": msg_count > 0,
             "resumed": false,
             "message_count": msg_count,
+            "model": session.engine_read().await.get_model(),
         })).await;
 
         // Enter shared-mode RPC loop
