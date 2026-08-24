@@ -52,13 +52,22 @@ pub async fn run_query_loop(
 
     // Open transcript writer if session_id is available
     let mut transcript_writer = config.session_id.as_ref().and_then(|sid| {
-        TranscriptWriter::open(sid).ok()
+        match TranscriptWriter::open(sid) {
+            Ok(w) => Some(w),
+            Err(e) => {
+                eprintln!("[transcript] WARNING: could not open transcript for session {}: {} — transcript will be missing", sid, e);
+                None
+            }
+        }
     });
 
-    // Helper closure to append a transcript entry (errors are silently ignored)
+    // Helper to append a transcript entry; failures are logged, never fatal
+    // (a broken transcript must not take down the query loop).
     fn append_transcript(writer: &mut Option<TranscriptWriter>, entry: &TranscriptEntry) {
         if let Some(w) = writer.as_mut() {
-            let _ = w.append(entry);
+            if let Err(e) = w.append(entry) {
+                eprintln!("[transcript] WARNING: append failed: {} (entry type: {:?})", e, entry.entry_type);
+            }
         }
     }
 

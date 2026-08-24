@@ -257,7 +257,13 @@ pub fn archive_stale_default(sessions_dir: &Path) -> io::Result<Vec<String>> {
 /// Delete a session's state file and remove it from the registry index.
 pub fn delete_session(sessions_dir: &Path, session_id: &str) -> io::Result<()> {
     let path = session_file_path(sessions_dir, session_id);
-    let _ = fs::remove_file(&path); // ignore error if not exists
+    if let Err(e) = fs::remove_file(&path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            // Deletion failed for a real reason (permissions, read-only fs):
+            // surface it, but don't abort registry cleanup.
+            eprintln!("[session-persist] WARNING: could not delete {}: {}", path.display(), e);
+        }
+    }
 
     let mut index = load_registry(sessions_dir);
     index.sessions.retain(|e| e.session_id != session_id);

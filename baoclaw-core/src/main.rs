@@ -73,7 +73,9 @@ struct SharedState {
 /// Socket directory for all BaoClaw daemon instances
 fn socket_dir() -> PathBuf {
     let dir = std::env::temp_dir().join("baoclaw-sockets");
-    let _ = std::fs::create_dir_all(&dir);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("[ipc] WARNING: could not create socket dir {}: {}", dir.display(), e);
+    }
     dir
 }
 
@@ -113,13 +115,17 @@ fn fixed_socket_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let dir = std::env::temp_dir().join("baoclaw-sockets");
-        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("[ipc] WARNING: could not create socket dir {}: {}", dir.display(), e);
+        }
         Some(dir.join("baoclaw.sock"))
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let dir = std::env::temp_dir().join("baoclaw-sockets");
-        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("[ipc] WARNING: could not create socket dir {}: {}", dir.display(), e);
+        }
         Some(dir.join("baoclaw.sock"))
     }
 }
@@ -161,11 +167,19 @@ fn write_meta(socket_path: &std::path::Path, cwd: &str, session_id: &str) {
         "socket": socket_path.to_string_lossy(),
         "started_at": chrono::Utc::now().to_rfc3339(),
     });
-    let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
+    if let Err(e) = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default()) {
+        eprintln!("[daemon] WARNING: could not write daemon meta {}: {}", meta_path.display(), e);
+    }
 }
 
 fn cleanup_meta(socket_path: &std::path::Path) {
-    let _ = std::fs::remove_file(socket_path.with_extension("json"));
+    // Best-effort cleanup: a stale meta file is harmless (next daemon overwrites it),
+    // but log so operators can spot permission problems.
+    if let Err(e) = std::fs::remove_file(socket_path.with_extension("json")) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("[daemon] WARNING: could not remove daemon meta: {}", e);
+        }
+    }
 }
 
 /// Simple hash for cwd → short hex string
@@ -571,10 +585,18 @@ async fn handle_shared_client(
                                 } else {
                                     let baoclaw_dir = abs_cwd.join(".baoclaw");
                                     if !baoclaw_dir.exists() {
-                                        let _ = std::fs::create_dir_all(&baoclaw_dir);
-                                        let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
-                                        let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
-                                        let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
+                                        if let Err(e) = std::fs::create_dir_all(&baoclaw_dir) {
+                                            eprintln!("[projects] WARNING: could not create {}: {}", baoclaw_dir.display(), e);
+                                        }
+                                        if let Err(e) = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n") {
+                                            eprintln!("[projects] WARNING: could not write BAOCLAW.md: {}", e);
+                                        }
+                                        if let Err(e) = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n") {
+                                            eprintln!("[projects] WARNING: could not write mcp.json: {}", e);
+                                        }
+                                        if let Err(e) = std::fs::create_dir_all(baoclaw_dir.join("skills")) {
+                                            eprintln!("[projects] WARNING: could not create skills dir: {}", e);
+                                        }
                                     }
                                     let mut engine = session.engine_write().await;
                                     engine.update_cwd(abs_cwd.clone());
