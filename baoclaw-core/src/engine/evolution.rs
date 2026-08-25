@@ -269,7 +269,7 @@ impl EvolutionEngine {
         if trajectory.tool_count >= SKILL_CREATION_THRESHOLD {
             if let TrajectoryOutcome::Completed { .. } = &trajectory.outcome {
                 let candidate = self.extract_skill_candidate(&trajectory);
-                self.save_skill_candidate(&*dir, &candidate).await;
+                self.save_skill_candidate(&dir, &candidate).await;
                 eprintln!("Evolution: skill candidate '{}' extracted from trajectory {}",
                     candidate.name, trajectory.id);
             }
@@ -390,7 +390,7 @@ impl EvolutionEngine {
 
         if let Ok(entries) = std::fs::read_dir(&candidates_dir) {
             for entry in entries.flatten() {
-                if entry.path().extension().map_or(false, |e| e == "json") {
+                if entry.path().extension().is_some_and(|e| e == "json") {
                     if let Ok(content) = std::fs::read_to_string(entry.path()) {
                         if let Ok(candidate) = serde_json::from_str::<SkillCandidate>(&content) {
                             candidates.push(candidate);
@@ -554,6 +554,7 @@ impl EvolutionEngine {
     /// reflect on what it learned.
     ///
     /// This is pure Rust — no LLM call, fast and reliable.
+    #[allow(clippy::too_many_arguments)]
     pub async fn on_session_close(
         &self,
         session_id: &str,
@@ -622,7 +623,7 @@ impl EvolutionEngine {
 
         // Sort tool usage by count descending
         let mut tool_usage: Vec<(String, u32)> = tool_counts.into_iter().collect();
-        tool_usage.sort_by(|a, b| b.1.cmp(&a.1));
+        tool_usage.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         // Limit errors to 10
         errors.truncate(10);
@@ -976,7 +977,7 @@ impl EvolutionEngine {
             }
         }
 
-        suggestions.sort_by(|a, b| b.priority.cmp(&a.priority));
+        suggestions.sort_by_key(|a| std::cmp::Reverse(a.priority));
         suggestions
     }
 

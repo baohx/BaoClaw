@@ -192,7 +192,7 @@ impl MemoryStore {
     fn write_all_sync(path: &PathBuf, entries: &[MemoryEntry]) -> Result<(), MemoryError> {
         let lines: Vec<String> = entries
             .iter()
-            .map(|e| serde_json::to_string(e))
+            .map(serde_json::to_string)
             .collect::<Result<Vec<_>, _>>()?;
         std::fs::write(path, lines.join("\n") + "\n")?;
         Ok(())
@@ -260,8 +260,7 @@ impl MemoryStore {
                     "ERROR: memory write task panicked for entry {}: {}",
                     entry.id, e
                 );
-                Err(MemoryError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(MemoryError::Io(std::io::Error::other(
                     format!("spawn_blocking failed: {}", e),
                 )))
             }
@@ -297,8 +296,7 @@ impl MemoryStore {
                     eprintln!("ERROR: memory delete write failed: {}", e);
                     Err(e)
                 }
-                Err(e) => Err(MemoryError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(e) => Err(MemoryError::Io(std::io::Error::other(
                     format!("spawn_blocking failed: {}", e),
                 ))),
             }
@@ -331,8 +329,7 @@ impl MemoryStore {
                 eprintln!("ERROR: memory clear write failed: {}", e);
                 Err(e)
             }
-            Err(e) => Err(MemoryError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(e) => Err(MemoryError::Io(std::io::Error::other(
                 format!("spawn_blocking failed: {}", e),
             ))),
         }

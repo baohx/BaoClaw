@@ -3,7 +3,6 @@
 /// Translates BaoClaw's Anthropic-format requests into OpenAI chat completion
 /// requests, and translates OpenAI SSE responses back into ApiStreamEvent
 /// so that QueryEngine works without changes.
-
 use bytes::Bytes;
 use futures::stream::Stream;
 use serde_json::{json, Value};

@@ -1,7 +1,7 @@
 use futures::StreamExt;
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 
 use crate::api::client::{ApiError, ApiStreamEvent, CreateMessageRequest};
 use crate::api::fallback::{FallbackAction, FallbackController};
@@ -9,19 +9,19 @@ use crate::api::unified::UnifiedClient;
 use crate::config::BaoclawConfig;
 use crate::engine::api_builder::build_api_request;
 use crate::engine::cost_tracker::CostTracker;
-use crate::engine::git_info::{get_git_info_async, GitInfo};
-use crate::engine::hooks::{HookManager, TriggerContext, TriggerType};
+use crate::engine::git_info::get_git_info_async;
+use crate::engine::hooks::{TriggerContext, TriggerType};
 use crate::engine::session_memory::SessionMemory;
 use crate::engine::token_counter::BudgetStatus;
 use crate::engine::transcript::{TranscriptEntry, TranscriptEntryType, TranscriptWriter};
 use crate::models::message::{
     ApiAssistantMessage, ApiUserMessage, ContentBlock, Message, MessageContent, Usage,
 };
-use crate::tools::executor::{execute_tools, ToolExecutionResult, ToolUseRequest};
-use crate::tools::trait_def::{ProgressSender, ToolContext};
+use crate::tools::executor::execute_tools;
+use crate::tools::trait_def::ToolContext;
 
 use crate::engine::query_engine::{
-    estimate_tokens, estimate_tokens_str, format_messages_for_summary, AdaptiveCompactTracker, CompactResult, EngineError, EngineEvent,
+    estimate_tokens, format_messages_for_summary, AdaptiveCompactTracker, EngineError, EngineEvent,
     NoopProgressSender, QueryLoopConfig, QueryResult, QueryStatus, EMPTY_USAGE,
 };
 use crate::engine::tool_loop::{
@@ -45,10 +45,10 @@ pub async fn run_query_loop(
 
     // Per-turn tracking for TurnStart/TurnEnd events
     let mut turn_id_counter: u32 = 0;
-    let mut turn_start_time = std::time::Instant::now();
-    let mut turn_tool_count: u32 = 0;
-    let mut turn_input_tokens_at_start: u64 = 0;
-    let mut turn_output_tokens_at_start: u64 = 0;
+    let mut turn_start_time;
+    let mut turn_tool_count: u32;
+    let mut turn_input_tokens_at_start: u64;
+    let mut turn_output_tokens_at_start: u64;
 
     // Open transcript writer if session_id is available
     let mut transcript_writer = config.session_id.as_ref().and_then(|sid| {
@@ -148,7 +148,7 @@ pub async fn run_query_loop(
         // ── Git info refresh (non-blocking after first turn) ──
         // First turn or every 10th turn: refresh git info.
         // Other turns: use cached value to save ~30-50ms on TTFB.
-        if turn_count == 0 || turn_count % 10 == 0 {
+        if turn_count == 0 || turn_count.is_multiple_of(10) {
             if let Some(fresh_git) = get_git_info_async(&config.cwd).await {
                 config.git_info = Some(fresh_git);
             }
@@ -246,12 +246,12 @@ pub async fn run_query_loop(
                 precomputed
             } else {
                 let counter = config.token_counter.lock().await;
-                let est = counter.current_estimate(&messages);
+                let est = counter.current_estimate(messages);
                 (counter.budget_status_given(est), est)
             }
         } else {
             let counter = config.token_counter.lock().await;
-            let est = counter.current_estimate(&messages);
+            let est = counter.current_estimate(messages);
             (counter.budget_status_given(est), est)
         };
 
@@ -276,7 +276,7 @@ pub async fn run_query_loop(
                     );
                 } else {
                     // Try session_memory_compact first (no API call needed).
-                    let session_ok = config.session_memory.as_ref().map_or(false, |sm| {
+                    let session_ok = config.session_memory.as_ref().is_some_and(|sm| {
                         session_memory_compact(messages, &sm.get())
                     });
 
@@ -334,7 +334,7 @@ pub async fn run_query_loop(
             context_window: config.context_window,
             auto_compact_threshold_ratio: config.auto_compact_threshold_ratio,
         };
-        let request = build_api_request(&messages, &current_config);
+        let request = build_api_request(messages, &current_config);
 
         // Show what we're about to send
         let _ = tx.send(EngineEvent::Progress {
@@ -497,7 +497,7 @@ pub async fn run_query_loop(
                 }
                 let _ = tx.send(EngineEvent::Error(EngineError {
                     code: "api_bad_request".to_string(),
-                    message: format!("{}", message),
+                    message: message.to_string(),
                     details: None,
                 })).await;
                 return;
@@ -638,13 +638,12 @@ pub async fn run_query_loop(
                                     input: input.clone(),
                                 });
                             }
-                            "thinking" => {
-                                if !current_thinking_text.is_empty() {
+                            "thinking"
+                                if !current_thinking_text.is_empty() => {
                                     assistant_content_blocks.push(ContentBlock::Thinking {
                                         thinking: current_thinking_text.clone(),
                                     });
                                 }
-                            }
                             _ => {}
                         }
                         current_block_type.clear();
@@ -1208,7 +1207,7 @@ pub async fn compact_messages(
     let max_summary_chars: usize = 60_000;
     let truncated_summary = if raw_summary.len() > max_summary_chars {
         format!("{}...\n\n[Conversation truncated, {} total chars]",
-            &raw_summary.chars().take(max_summary_chars).collect::<String>(), raw_summary.len())
+            raw_summary.chars().take(max_summary_chars).collect::<String>(), raw_summary.len())
     } else {
         raw_summary
     };
@@ -1324,7 +1323,7 @@ const MAX_COMPACT_FAILURES: usize = 3;
 /// `idle_threshold_secs` (default 60 min) and larger than 500 chars are
 /// replaced with a size annotation, freeing context budget without an API
 /// summarisation round-trip.
-pub fn micro_compact(messages: &mut Vec<Message>, idle_threshold_secs: u64) {
+pub fn micro_compact(messages: &mut [Message], idle_threshold_secs: u64) {
     let now = std::time::SystemTime::now();
     let threshold = std::time::Duration::from_secs(idle_threshold_secs);
 
@@ -1418,23 +1417,20 @@ pub fn reactive_compact(messages: &mut Vec<Message>, target_reduction: Option<us
     // the following assistant message (and any tool-result user messages).
     let mut turn_starts: Vec<usize> = Vec::new();
     for (i, msg) in messages.iter().enumerate() {
-        match &msg.content {
-            MessageContent::User { message, tool_use_result, .. } => {
-                // A turn-starting user message is one that is NOT a tool_result.
-                if tool_use_result.is_none() {
-                    // Also skip if content is an array of tool_result blocks.
-                    let is_tool_result_array = match &message.content {
-                        Value::Array(arr) => arr.iter().all(|b| {
-                            b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
-                        }),
-                        _ => false,
-                    };
-                    if !is_tool_result_array {
-                        turn_starts.push(i);
-                    }
+        if let MessageContent::User { message, tool_use_result, .. } = &msg.content {
+            // A turn-starting user message is one that is NOT a tool_result.
+            if tool_use_result.is_none() {
+                // Also skip if content is an array of tool_result blocks.
+                let is_tool_result_array = match &message.content {
+                    Value::Array(arr) => arr.iter().all(|b| {
+                        b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
+                    }),
+                    _ => false,
+                };
+                if !is_tool_result_array {
+                    turn_starts.push(i);
                 }
             }
-            _ => {}
         }
     }
 
@@ -1476,7 +1472,7 @@ pub fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
     let mut tool_use_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for (_idx, msg) in messages.iter().enumerate() {
+    for msg in messages.iter() {
         match &msg.content {
             MessageContent::Assistant { message, .. } => {
                 let ids: Vec<String> = message.content.iter()
@@ -1591,7 +1587,7 @@ pub async fn update_session_memory_background(
     let max_chars: usize = 40_000;
     let truncated = if conversation_text.len() > max_chars {
         format!("{}...\n\n[Truncated, {} total chars]",
-            &conversation_text.chars().take(max_chars).collect::<String>(),
+            conversation_text.chars().take(max_chars).collect::<String>(),
             conversation_text.len())
     } else {
         conversation_text

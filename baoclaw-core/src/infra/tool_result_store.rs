@@ -4,7 +4,6 @@
 /// full content is written to a file under the session directory and only a
 /// short preview is kept in the conversation context. This prevents large
 /// outputs from consuming the context window.
-
 use std::path::PathBuf;
 
 /// Default threshold in bytes: 30 KB.

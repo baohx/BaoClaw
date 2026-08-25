@@ -378,12 +378,11 @@ impl SandboxExecutor {
             if mount == "*" {
                 continue; // Can't mount entire filesystem in Docker
             }
-            if mounted.insert(mount.clone()) {
-                if Path::new(mount).exists() {
+            if mounted.insert(mount.clone())
+                && Path::new(mount).exists() {
                     args.push("-v".into());
                     args.push(format!("{}:{}", mount, mount));
                 }
-            }
         }
 
         // Working directory

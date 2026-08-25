@@ -17,6 +17,12 @@ pub struct OAuthToken {
     pub server_name: String,
 }
 
+impl Default for McpOAuthManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl McpOAuthManager {
     /// Create a new manager with default token store at ~/.baoclaw/mcp-auth/
     pub fn new() -> Self {
@@ -49,7 +55,7 @@ impl McpOAuthManager {
             .token_store_dir
             .join(format!("{}.json", token.server_name));
         let json = serde_json::to_string_pretty(token)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         // Write file with restricted permissions on Unix
         #[cfg(unix)]
@@ -60,7 +66,7 @@ impl McpOAuthManager {
             use std::io::Write;
             let mut file = opts.open(&path)?;
             file.write_all(json.as_bytes())?;
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(not(unix))]

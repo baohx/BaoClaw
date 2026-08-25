@@ -8,6 +8,12 @@ use crate::tools::trait_def::*;
 /// to long-term memory (user preferences, facts, decisions).
 pub struct MemoryTool;
 
+impl Default for MemoryTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryTool {
     pub fn new() -> Self { Self }
 }

@@ -164,7 +164,7 @@ impl HookManagerConfig {
     /// Save configuration to a file.
     pub fn save(&self, path: &PathBuf) -> Result<(), std::io::Error> {
         let content = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         std::fs::write(path, content)
     }
 }
@@ -386,7 +386,7 @@ impl HookManager {
             .iter()
             .filter(|h| h.matches(&trigger_type, &ctx))
             .collect();
-        matching_hooks.sort_by(|a, b| b.priority.cmp(&a.priority));
+        matching_hooks.sort_by_key(|a| std::cmp::Reverse(a.priority));
 
         let mut result = HookProcessingResult::default();
 

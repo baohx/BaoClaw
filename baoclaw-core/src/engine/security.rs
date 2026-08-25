@@ -4,12 +4,10 @@
 /// 1. Dangerous command blocking (destructive shell commands)
 /// 2. SSRF URL protection (internal/private network access)
 /// 3. Memory content validation (credential leakage, invisible Unicode, prompt injection)
-
 // ---------------------------------------------------------------------------
 // 1. Dangerous command checker
 // ---------------------------------------------------------------------------
-
-/// Hard blocklist of destructive command patterns.
+///    Hard blocklist of destructive command patterns.
 ///
 /// Each entry is a `(pattern_to_match, reason)` tuple. The pattern is matched
 /// case-insensitively against the full command string using substring matching.
@@ -111,7 +109,7 @@ fn extract_host(url: &str) -> Option<String> {
 
     // Everything up to the first '/' or '?' or '#' is the authority
     let authority = after_scheme
-        .split(|c| c == '/' || c == '?' || c == '#')
+        .split(['/', '?', '#'])
         .next()
         .unwrap_or(after_scheme);
 
@@ -340,15 +338,14 @@ fn contains_credential(content: &str) -> bool {
     for i in memchr_iter(b'x', bytes) {
         if i + 5 < len && &bytes[i..i + 3] == b"xox" {
             let fourth = bytes[i + 3];
-            if fourth == b'b' || fourth == b'p' || fourth == b'a' || fourth == b's' {
-                if bytes[i + 4] == b'-' {
+            if (fourth == b'b' || fourth == b'p' || fourth == b'a' || fourth == b's')
+                && bytes[i + 4] == b'-' {
                     // Check that there's a reasonable token body after
                     let rest = &content[i + 5..];
                     if count_alnum_dash(rest) >= 10 {
                         return true;
                     }
                 }
-            }
         }
     }
 

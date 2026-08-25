@@ -175,7 +175,7 @@ fn diff_usage(old: &Usage, new: &Usage, patches: &mut Vec<StatePatch>) {
         patches.push(StatePatch {
             path: "/usage/cache_creation_input_tokens".to_string(),
             op: PatchOp::Replace {
-                value: serde_json::to_value(&new.cache_creation_input_tokens)
+                value: serde_json::to_value(new.cache_creation_input_tokens)
                     .unwrap_or(Value::Null),
             },
         });
@@ -184,7 +184,7 @@ fn diff_usage(old: &Usage, new: &Usage, patches: &mut Vec<StatePatch>) {
         patches.push(StatePatch {
             path: "/usage/cache_read_input_tokens".to_string(),
             op: PatchOp::Replace {
-                value: serde_json::to_value(&new.cache_read_input_tokens)
+                value: serde_json::to_value(new.cache_read_input_tokens)
                     .unwrap_or(Value::Null),
             },
         });

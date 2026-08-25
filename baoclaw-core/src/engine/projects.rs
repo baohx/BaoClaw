@@ -23,6 +23,12 @@ pub struct ProjectRegistry {
     file_path: PathBuf,
 }
 
+impl Default for ProjectRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProjectRegistry {
     pub fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());

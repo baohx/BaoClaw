@@ -7,6 +7,12 @@ use crate::tools::trait_def::*;
 /// TODO list management tool — stores items in .baoclaw/todo.json
 pub struct TodoWriteTool;
 
+impl Default for TodoWriteTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TodoWriteTool {
     pub fn new() -> Self {
         Self

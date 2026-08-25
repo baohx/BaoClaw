@@ -49,6 +49,12 @@ struct InjectionPattern {
     score: f64,
 }
 
+impl Default for PromptInjectionDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PromptInjectionDetector {
     pub fn new() -> Self {
         let patterns = vec![

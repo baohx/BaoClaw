@@ -247,7 +247,7 @@ pub fn save_config_to(config: &BaoclawConfig, path: &std::path::Path) -> Result<
         std::fs::create_dir_all(parent)?;
     }
     let json = serde_json::to_string_pretty(config)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 

@@ -132,8 +132,10 @@ pub struct DepthTools {
 /// Action to take when budget is exceeded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum BudgetExceededAction {
     /// Terminate the agent/team immediately.
+    #[default]
     Terminate,
     /// Escalate to parent agent for handling.
     Escalate,
@@ -143,11 +145,6 @@ pub enum BudgetExceededAction {
     AskUser,
 }
 
-impl Default for BudgetExceededAction {
-    fn default() -> Self {
-        Self::Terminate
-    }
-}
 
 impl Default for TeamPolicy {
     fn default() -> Self {

@@ -118,7 +118,7 @@ pub fn parse_rule_file(content: &str) -> RuleFile {
                     .find_map(|line| {
                         let line = line.trim();
                         if line.starts_with("paths:") || line.starts_with("paths :") {
-                            let value = line.splitn(2, ':').nth(1)?.trim();
+                            let value = line.split_once(':')?.1.trim();
                             // Strip quotes if present
                             let value = value.trim_matches('"').trim_matches('\'');
                             if value.is_empty() {
@@ -414,12 +414,10 @@ pub fn build_tools_list(config: &QueryLoopConfig) -> Option<Vec<Value>> {
         name_a.cmp(name_b)
     });
     if let Some(last_tool) = tool_list.last_mut() {
-        last_tool.as_object_mut().map(|obj| {
-            obj.insert(
+        if let Some(obj) = last_tool.as_object_mut() { obj.insert(
                 "cache_control".to_string(),
                 serde_json::json!({ "type": "ephemeral" }),
-            );
-        });
+            ); }
     }
     Some(tool_list)
 }

@@ -66,7 +66,7 @@ impl Tool for FileWriteTool {
         let has_path = input
             .get("file_path")
             .and_then(|v| v.as_str())
-            .map_or(false, |s| !s.is_empty());
+            .is_some_and(|s| !s.is_empty());
         let has_content = input.get("content").and_then(|v| v.as_str()).is_some();
 
         if !has_path {
@@ -101,7 +101,7 @@ impl Tool for FileWriteTool {
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'content' field".to_string()))?;
 
         let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
-            .map_err(|e| ToolError::ExecutionFailed(e))?;
+            .map_err(ToolError::ExecutionFailed)?;
 
         // Backup existing file before overwriting
         if let Err(e) = backup_file_before_write(&resolved, &context.cwd).await {

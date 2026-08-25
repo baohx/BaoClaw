@@ -126,8 +126,8 @@ impl TelemetryExporter {
 
         // General stats
         md.push_str("## Overview\n\n");
-        md.push_str(&format!("| Metric | Value |\n"));
-        md.push_str(&format!("|--------|-------|\n"));
+        md.push_str("| Metric | Value |\n");
+        md.push_str("|--------|-------|\n");
         md.push_str(&format!("| Total Turns | {} |\n", stats.total_turns));
         md.push_str(&format!(
             "| Total Tokens | {} |\n",

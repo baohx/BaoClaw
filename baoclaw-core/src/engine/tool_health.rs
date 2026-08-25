@@ -43,6 +43,12 @@ pub struct ToolHealthTracker {
     pub recovery_minutes: u32,
 }
 
+impl Default for ToolHealthTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ToolHealthTracker {
     pub fn new() -> Self {
         Self {
@@ -61,7 +67,7 @@ impl ToolHealthTracker {
         record.success_count += 1;
         record.consecutive_failures = 0;
         // If was degraded, check if we should recover
-        if record.status == ToolStatus::Degraded && record.success_count % 5 == 0 {
+        if record.status == ToolStatus::Degraded && record.success_count.is_multiple_of(5) {
             record.status = ToolStatus::Healthy;
             record.last_status_change = chrono::Utc::now().to_rfc3339();
         }
@@ -114,7 +120,7 @@ impl ToolHealthTracker {
     /// Get warning message for degraded tools (to inject into system prompt).
     pub fn get_warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
-        for (_, record) in &self.records {
+        for record in self.records.values() {
             match record.status {
                 ToolStatus::Degraded => {
                     let rate = if record.total_calls > 0 {

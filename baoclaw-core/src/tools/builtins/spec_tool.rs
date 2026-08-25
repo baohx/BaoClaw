@@ -10,6 +10,12 @@ use crate::tools::trait_def::{
 
 pub struct SpecTool;
 
+impl Default for SpecTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpecTool {
     pub fn new() -> Self {
         Self {}

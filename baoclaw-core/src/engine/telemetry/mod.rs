@@ -46,7 +46,3 @@ pub mod trends;
 pub mod types;
 
 // Re-export main types for convenience
-pub use collector::TelemetryCollector;
-pub use export::TelemetryExporter;
-pub use trends::TrendAnalyzer;
-pub use types::{DailyStats, SessionSnapshot, ToolUsageStat, Trend, TrendDirection, UsageStats};

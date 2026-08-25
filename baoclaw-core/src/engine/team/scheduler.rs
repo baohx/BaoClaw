@@ -63,8 +63,10 @@ impl std::error::Error for SchedulerError {}
 /// Status of a DAG node.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum NodeStatus {
     /// Node is waiting for dependencies.
+    #[default]
     Pending,
     /// Node is ready to execute (all dependencies satisfied).
     Ready,
@@ -78,11 +80,6 @@ pub enum NodeStatus {
     Skipped,
 }
 
-impl Default for NodeStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
 
 impl std::fmt::Display for NodeStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -743,6 +740,7 @@ impl DagScheduler {
     }
     
     /// Get statistics about the DAG.
+    #[allow(clippy::field_reassign_with_default)]
     pub fn stats(&self) -> DagStats {
         let mut stats = DagStats::default();
         stats.total_nodes = self.nodes.len();
@@ -862,7 +860,7 @@ impl DagScheduler {
             ));
         }
         
-        dot.push_str("\n");
+        dot.push('\n');
         
         for node in self.nodes.values() {
             for dep in &node.dependencies {

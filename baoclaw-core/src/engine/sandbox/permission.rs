@@ -174,7 +174,7 @@ impl PermissionManager {
         // Check temporary grants
         if let Ok(mut grants) = self.temp_grants.lock() {
             let now = Instant::now();
-            grants.retain(|g| g.expires_at.map_or(true, |exp| now < exp));
+            grants.retain(|g| g.expires_at.is_none_or(|exp| now < exp));
 
             for grant in grants.iter() {
                 if grant.tool == tool
@@ -367,7 +367,7 @@ impl PermissionManager {
             .into_iter()
             .map(|((tool, action), count)| (tool, action, count))
             .collect();
-        stats.sort_by(|a, b| b.2.cmp(&a.2));
+        stats.sort_by_key(|a| std::cmp::Reverse(a.2));
         stats
     }
 
@@ -375,7 +375,7 @@ impl PermissionManager {
     pub fn active_temp_grants(&self) -> usize {
         if let Ok(mut grants) = self.temp_grants.lock() {
             let now = Instant::now();
-            grants.retain(|g| g.expires_at.map_or(true, |exp| now < exp));
+            grants.retain(|g| g.expires_at.is_none_or(|exp| now < exp));
             grants.len()
         } else {
             0

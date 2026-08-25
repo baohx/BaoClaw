@@ -169,7 +169,7 @@ impl BranchManager {
                     let bracket_end = rest_str[bracket_start..].find(']').unwrap_or(0);
                     let bracket_content = &rest_str[bracket_start + 1..bracket_start + bracket_end];
                     // Support both "," and ":" as separators (e.g. "[origin/main: ahead 3]")
-                    for part in bracket_content.split(|c: char| c == ',' || c == ':') {
+                    for part in bracket_content.split([',', ':']) {
                         let part = part.trim();
                         if let Some(num_str) = part.strip_prefix("ahead ") {
                             ahead = num_str.parse().unwrap_or(0);

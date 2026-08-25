@@ -10,6 +10,12 @@ pub struct WebSearchTool {
     api_key: Option<String>,
 }
 
+impl Default for WebSearchTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebSearchTool {
     pub fn new() -> Self {
         let mut builder = reqwest::Client::builder()
@@ -171,7 +177,7 @@ async fn search(
         let status = response.status();
 
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            last_error = Some(format!("Rate limited (429)"));
+            last_error = Some("Rate limited (429)".to_string());
             continue; // retry
         }
 

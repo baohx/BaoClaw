@@ -30,7 +30,7 @@ impl SkillTool {
         let search_dirs: Vec<(PathBuf, &str)> = {
             let mut dirs = Vec::new();
             // User-level skills
-            if let Some(home) = std::env::var("HOME").ok() {
+            if let Ok(home) = std::env::var("HOME") {
                 dirs.push((PathBuf::from(&home).join(".baoclaw").join("skills"), "user"));
             }
             // Project-level skills

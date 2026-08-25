@@ -43,6 +43,12 @@ pub struct TrendAnalyzer {
     db: DbHelper,
 }
 
+impl Default for TrendAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrendAnalyzer {
     /// Create a new trend analyzer using the default telemetry database.
     pub fn new() -> Self {

@@ -53,8 +53,8 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
     prev[0] = true;
 
     // Handle leading *s
-    for i in 0..p_len {
-        if pattern_bytes[i] == b'*' {
+    for &b in pattern_bytes.iter().take(p_len) {
+        if b == b'*' {
             prev[0] = true;
         } else {
             break;
@@ -80,8 +80,7 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
             if pattern_bytes[i - 1] == b'*' {
                 // * matches zero chars (dp[i-1][j]) or one more char (dp[i][j-1])
                 dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
-            } else if pattern_bytes[i - 1].to_ascii_lowercase()
-                == text_bytes[j - 1].to_ascii_lowercase()
+            } else if pattern_bytes[i - 1].eq_ignore_ascii_case(&text_bytes[j - 1])
             {
                 dp[i][j] = dp[i - 1][j - 1];
             }

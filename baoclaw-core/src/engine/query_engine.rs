@@ -9,19 +9,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-use crate::api::client::{ApiError, ApiStreamEvent, CreateMessageRequest};
+use crate::api::client::CreateMessageRequest;
 use crate::api::unified::UnifiedClient;
-use crate::api::fallback::{FallbackAction, FallbackController};
-use crate::config::BaoclawConfig;
-use crate::engine::cost_tracker::CostTracker;
-use crate::engine::git_info::{get_git_info, get_git_info_async, GitInfo};
+use crate::engine::git_info::{get_git_info, GitInfo};
 use crate::engine::hooks::{HookManager, TriggerContext, TriggerType};
 use crate::engine::session_memory::SessionMemory;
 use crate::engine::token_counter::BudgetStatus;
-use crate::engine::transcript::{TranscriptEntry, TranscriptEntryType, TranscriptWriter};
-use crate::models::message::{ContentBlock, Message, MessageContent, ApiAssistantMessage, ApiUserMessage, Usage};
-use crate::tools::executor::{execute_tools, ToolExecutionResult, ToolUseRequest};
-use crate::tools::trait_def::{ProgressSender, Tool, ToolContext};
+use crate::models::message::{ContentBlock, Message, MessageContent, ApiUserMessage, Usage};
+use crate::tools::trait_def::{ProgressSender, Tool};
 
 /// Constant representing zero usage, useful for initialization.
 pub const EMPTY_USAGE: Usage = Usage {
@@ -285,6 +280,12 @@ impl AdaptiveCompactTracker {
     /// Get the recommended keep_recent value.
     pub fn recommended_keep_recent(&self) -> usize {
         self.keep_recent
+    }
+}
+
+impl Default for AdaptiveCompactTracker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -677,8 +678,11 @@ impl QueryEngine {
         let raw_summary = format_messages_for_summary(old_messages);
         let max_summary_chars: usize = 60_000; // ~15k tokens, safe for most APIs
         let truncated_summary = if raw_summary.len() > max_summary_chars {
-            format!("{}...\n\n[Conversation truncated, {} total chars]",
-                &raw_summary.chars().take(max_summary_chars).collect::<String>(), raw_summary.len())
+            format!(
+                "{}...\n\n[Conversation truncated, {} total chars]",
+                raw_summary.chars().take(max_summary_chars).collect::<String>(),
+                raw_summary.len()
+            )
         } else {
             raw_summary
         };
@@ -1084,7 +1088,7 @@ impl QueryLoopConfig {
 }
 
 /// The core query loop that calls the LLM, processes tool uses, and loops until done.
-
+///
 /// Estimate the token count for a slice of messages.
 ///
 /// Uses a simple heuristic: ~4 characters per token.

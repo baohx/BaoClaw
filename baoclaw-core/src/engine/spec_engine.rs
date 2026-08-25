@@ -303,7 +303,7 @@ impl TaskTracker {
         }
     }
 
-    fn update_status_recursive(tasks: &mut Vec<TaskItem>, task_id: &str, status: &TaskStatus) -> bool {
+    fn update_status_recursive(tasks: &mut [TaskItem], task_id: &str, status: &TaskStatus) -> bool {
         for task in tasks.iter_mut() {
             if task.id == task_id {
                 task.status = status.clone();
@@ -316,7 +316,7 @@ impl TaskTracker {
         false
     }
 
-    fn auto_complete_recursive(tasks: &mut Vec<TaskItem>) {
+    fn auto_complete_recursive(tasks: &mut [TaskItem]) {
         for task in tasks.iter_mut() {
             if !task.children.is_empty() {
                 Self::auto_complete_recursive(&mut task.children);

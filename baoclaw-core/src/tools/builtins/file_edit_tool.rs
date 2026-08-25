@@ -74,7 +74,7 @@ impl Tool for FileEditTool {
         let has_path = input
             .get("file_path")
             .and_then(|v| v.as_str())
-            .map_or(false, |s| !s.is_empty());
+            .is_some_and(|s| !s.is_empty());
         let has_old = input.get("old_string").and_then(|v| v.as_str()).is_some();
         let has_new = input.get("new_string").and_then(|v| v.as_str()).is_some();
 
@@ -121,7 +121,7 @@ impl Tool for FileEditTool {
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'new_string' field".to_string()))?;
 
         let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
-            .map_err(|e| ToolError::ExecutionFailed(e))?;
+            .map_err(ToolError::ExecutionFailed)?;
 
         // Backup existing file before editing
         if let Err(e) = backup_file_before_write(&resolved, &context.cwd).await {

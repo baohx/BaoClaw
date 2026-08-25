@@ -8,6 +8,12 @@ pub struct ImageGenTool {
     http_client: reqwest::Client,
 }
 
+impl Default for ImageGenTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImageGenTool {
     pub fn new() -> Self {
         Self {
@@ -152,7 +158,7 @@ impl Tool for ImageGenTool {
 
 fn base64_encode_bytes(bytes: &bytes::Bytes) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((bytes.len() * 4 + 2) / 3);
+    let mut result = String::with_capacity((bytes.len() * 4).div_ceil(3));
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };

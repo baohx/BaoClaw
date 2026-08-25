@@ -353,3 +353,10 @@ impl SessionRegistry {
         );
     }
 }
+
+impl Default for SessionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+

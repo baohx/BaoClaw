@@ -7,6 +7,12 @@ use crate::tools::trait_def::*;
 /// and notes to BAOCLAW.md in the project directory.
 pub struct ProjectNoteTool;
 
+impl Default for ProjectNoteTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProjectNoteTool {
     pub fn new() -> Self { Self }
 }

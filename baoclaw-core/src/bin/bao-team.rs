@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! bao-team — BaoClaw Multi-Agent Team Runner
 //!
 //! CLI for validating and executing DAG-based multi-agent workflows,
@@ -50,10 +51,8 @@ struct MatchResult {
 
 fn load_registry() -> Result<Vec<DagRegistryEntry>, String> {
     // Try to find dag_registry.json next to the DAG fixtures
-    let candidates = vec![
-        "tests/fixtures/dag_registry.json",
-        "baoclaw-core/tests/fixtures/dag_registry.json",
-    ];
+    let candidates = ["tests/fixtures/dag_registry.json",
+        "baoclaw-core/tests/fixtures/dag_registry.json"];
     let content = candidates
         .iter()
         .find_map(|p| std::fs::read_to_string(p).ok())

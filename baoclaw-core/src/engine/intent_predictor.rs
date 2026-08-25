@@ -125,6 +125,12 @@ pub struct IntentPredictor {
     pub correct_predictions: u32,
 }
 
+impl Default for IntentPredictor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IntentPredictor {
     pub fn new() -> Self {
         let mut patterns = HashMap::new();

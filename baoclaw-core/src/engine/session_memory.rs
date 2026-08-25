@@ -93,7 +93,7 @@ impl SessionMemory {
 
         let truncated = if summary.len() > MAX_SUMMARY_CHARS {
             format!("{}...\n\n[Summary truncated at {} chars]",
-                &summary.chars().take(MAX_SUMMARY_CHARS).collect::<String>(),
+                summary.chars().take(MAX_SUMMARY_CHARS).collect::<String>(),
                 summary.len())
         } else {
             summary

@@ -81,7 +81,7 @@ impl TemplateEngine {
         if let Ok(entries) = std::fs::read_dir(&self.templates_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "json") {
+                if path.extension().is_some_and(|ext| ext == "json") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         if let Ok(mut template) = serde_json::from_str::<Template>(&content) {
                             // Use filename stem as key

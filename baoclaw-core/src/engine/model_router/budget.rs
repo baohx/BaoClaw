@@ -204,14 +204,17 @@ impl BudgetManager {
                     manager
                 }
                 Err(_) => {
-                    let mut manager = Self::default();
-                    manager.persist_path = Some(path);
-                    manager
+                    BudgetManager {
+                        persist_path: Some(path.clone()),
+                        ..Self::default()
+                    }
                 }
             },
             Err(_) => {
-                let mut manager = Self::default();
-                manager.persist_path = Some(path);
+                let manager = BudgetManager {
+                    persist_path: Some(path.clone()),
+                    ..Self::default()
+                };
                 let _ = manager.save();
                 manager
             }

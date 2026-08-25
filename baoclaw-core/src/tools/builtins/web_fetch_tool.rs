@@ -11,6 +11,12 @@ pub struct WebFetchTool {
     max_size_bytes: usize,
 }
 
+impl Default for WebFetchTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebFetchTool {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()

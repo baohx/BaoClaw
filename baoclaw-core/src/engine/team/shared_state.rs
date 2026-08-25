@@ -90,8 +90,10 @@ pub struct AgentResultForMerge {
 /// Strategy for merging agent results.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum MergeStrategy {
     /// Concatenate all results with a separator.
+    #[default]
     Concat,
     /// Collect results into a JSON array.
     JsonArray,
@@ -107,11 +109,6 @@ pub enum MergeStrategy {
     Custom(String),
 }
 
-impl Default for MergeStrategy {
-    fn default() -> Self {
-        Self::Concat
-    }
-}
 
 impl std::fmt::Display for MergeStrategy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -494,7 +491,7 @@ impl SharedStateManager {
         let failed: Vec<_> = results.iter().filter(|r| !r.success).collect();
 
         let mut summary = String::new();
-        summary.push_str(&format!("# Team Results Summary\n\n"));
+        summary.push_str("# Team Results Summary\n\n");
         summary.push_str(&format!("Total agents: {}\n", results.len()));
         summary.push_str(&format!("Successful: {}\n", successful.len()));
         summary.push_str(&format!("Failed: {}\n", failed.len()));

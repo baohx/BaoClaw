@@ -49,11 +49,5 @@ pub mod interactive;
 // ── Re-export canonical types from top-level `permissions` module ──────────
 // These are the single source of truth for permission primitives.
 // Callers should import these from here or from `crate::permissions` directly.
-pub use crate::permissions::gate::{PermissionDecision, PermissionGate};
-pub use crate::permissions::manager::{
-    PermissionManager, PermissionMode, PermissionResult, PermissionRule, ToolPermissionContext,
-};
 
 // ── Re-export engine-specific types for convenient single-path access ──────
-pub use gate::RuleBasedPermissionGate;
-pub use types::{CacheEntry, DecisionType, EnginePermissionDecision, PermissionRequest};

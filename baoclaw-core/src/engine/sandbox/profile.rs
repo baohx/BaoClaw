@@ -87,8 +87,10 @@ impl NetworkRule {
 
 /// Predefined sandbox profiles.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ProfilePreset {
     #[serde(rename = "read_only")]
+    #[default]
     ReadOnly,
     #[serde(rename = "web_dev")]
     WebDev,
@@ -98,11 +100,6 @@ pub enum ProfilePreset {
     Custom,
 }
 
-impl Default for ProfilePreset {
-    fn default() -> Self {
-        Self::ReadOnly
-    }
-}
 
 /// Sandbox profile defining security boundaries.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

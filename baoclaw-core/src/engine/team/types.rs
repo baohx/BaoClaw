@@ -9,8 +9,10 @@ use std::collections::HashMap;
 /// Execution mode for a team of agents.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TeamMode {
     /// All agents execute simultaneously.
+    #[default]
     Parallel,
     /// Agents execute one after another in sequence.
     Sequence,
@@ -18,11 +20,6 @@ pub enum TeamMode {
     Dag,
 }
 
-impl Default for TeamMode {
-    fn default() -> Self {
-        Self::Parallel
-    }
-}
 
 impl std::fmt::Display for TeamMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -50,8 +47,10 @@ impl std::str::FromStr for TeamMode {
 /// Status of a team execution.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TeamStatus {
     /// Team is created but not yet started.
+    #[default]
     Pending,
     /// Team is currently executing.
     Running,
@@ -63,11 +62,6 @@ pub enum TeamStatus {
     Aborted,
 }
 
-impl Default for TeamStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
 
 impl std::fmt::Display for TeamStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -84,8 +78,10 @@ impl std::fmt::Display for TeamStatus {
 /// Status of an individual sub-agent.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SubAgentStatus {
     /// Agent is waiting to start.
+    #[default]
     Pending,
     /// Agent is currently executing.
     Running,
@@ -97,11 +93,6 @@ pub enum SubAgentStatus {
     Skipped,
 }
 
-impl Default for SubAgentStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
 
 impl std::fmt::Display for SubAgentStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -503,6 +494,7 @@ impl AgentTeam {
     }
 
     /// Get a summary of the team status.
+    #[allow(clippy::field_reassign_with_default)]
     pub fn summary(&self) -> TeamSummary {
         let mut summary = TeamSummary::default();
         summary.total_agents = self.agents.len();

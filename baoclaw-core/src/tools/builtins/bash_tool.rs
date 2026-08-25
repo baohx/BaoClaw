@@ -15,6 +15,12 @@ pub struct BashTool {
     sandbox: Option<Arc<SandboxConfig>>,
 }
 
+impl Default for BashTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BashTool {
     /// Create a BashTool with no sandbox (direct execution).
     pub fn new() -> Self {

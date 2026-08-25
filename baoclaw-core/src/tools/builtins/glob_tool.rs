@@ -10,6 +10,12 @@ const MAX_GLOB_RESULTS: usize = 1000;
 /// Returns matching file paths relative to the current working directory.
 pub struct GlobTool;
 
+impl Default for GlobTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlobTool {
     pub fn new() -> Self {
         Self
@@ -92,20 +98,18 @@ impl Tool for GlobTool {
         let mut files: Vec<String> = Vec::new();
         let mut truncated = false;
 
-        for entry in entries {
-            if let Ok(path) = entry {
-                if path.is_file() {
-                    let relative = path
-                        .strip_prefix(&context.cwd)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
-                    files.push(relative);
-                }
-                if files.len() >= MAX_GLOB_RESULTS {
-                    truncated = true;
-                    break;
-                }
+        for path in entries.flatten() {
+            if path.is_file() {
+                let relative = path
+                    .strip_prefix(&context.cwd)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
+                files.push(relative);
+            }
+            if files.len() >= MAX_GLOB_RESULTS {
+                truncated = true;
+                break;
             }
         }
 
@@ -138,20 +142,18 @@ pub fn glob_search(
     let mut files: Vec<String> = Vec::new();
     let mut truncated = false;
 
-    for entry in entries {
-        if let Ok(path) = entry {
-            if path.is_file() {
-                let relative = path
-                    .strip_prefix(cwd)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .to_string();
-                files.push(relative);
-            }
-            if files.len() >= max_results {
-                truncated = true;
-                break;
-            }
+    for path in entries.flatten() {
+        if path.is_file() {
+            let relative = path
+                .strip_prefix(cwd)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            files.push(relative);
+        }
+        if files.len() >= max_results {
+            truncated = true;
+            break;
         }
     }
 

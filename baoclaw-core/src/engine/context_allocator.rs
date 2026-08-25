@@ -71,6 +71,12 @@ pub struct AllocationStats {
     pub avg_tokens_per_category: HashMap<String, f64>,
 }
 
+impl Default for ContextAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ContextAllocator {
     pub fn new() -> Self {
         Self {

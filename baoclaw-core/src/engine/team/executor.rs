@@ -647,7 +647,7 @@ impl TeamExecutor {
                 for agent in &mut team.agents {
                     if agent.status == SubAgentStatus::Pending {
                         agent.skip("Team aborted".to_string());
-                        if let Err(_) = scheduler.fail_node(&agent.id, Some("Team aborted")) {
+                        if scheduler.fail_node(&agent.id, Some("Team aborted")).is_err() {
                             // Ignore errors during abort
                         }
                     }
@@ -686,7 +686,7 @@ impl TeamExecutor {
                     .unwrap_or_default();
 
                 // Mark as running in both scheduler and team
-                if let Err(_) = scheduler.start_node(&agent_id) {
+                if scheduler.start_node(&agent_id).is_err() {
                     continue;
                 }
                 if let Some(agent) = team.get_agent_mut(&agent_id) {
@@ -857,6 +857,7 @@ impl TeamExecutor {
     ///
     /// Creates a QueryEngine and runs the prompt, returning the result.
     /// Applies policy restrictions on tools, budget, and turns.
+    #[allow(clippy::too_many_arguments)]
     async fn execute_single_agent(
         api_client: Arc<UnifiedClient>,
         tools: Vec<Arc<dyn Tool>>,

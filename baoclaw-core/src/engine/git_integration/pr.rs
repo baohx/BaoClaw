@@ -76,10 +76,8 @@ impl PrManager {
         Self::ensure_gh().await?;
         Self::ensure_git_repo().await?;
 
-        let mut args = vec![
-            "pr", "create", "--title", title, "--json",
-            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
-        ];
+        let args = ["pr", "create", "--title", title, "--json",
+            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url"];
 
         let mut dynamic_args: Vec<String> = Vec::new();
         if let Some(b) = body {
@@ -123,10 +121,8 @@ impl PrManager {
         Self::ensure_gh().await?;
         Self::ensure_git_repo().await?;
 
-        let mut args = vec![
-            "pr", "list", "--json",
-            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
-        ];
+        let args = ["pr", "list", "--json",
+            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url"];
 
         let mut dynamic_args: Vec<String> = Vec::new();
         if let Some(s) = state {

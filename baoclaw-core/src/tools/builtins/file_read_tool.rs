@@ -91,7 +91,7 @@ impl Tool for FileReadTool {
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'file_path' field".to_string()))?;
 
         let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
-            .map_err(|e| ToolError::ExecutionFailed(e))?;
+            .map_err(ToolError::ExecutionFailed)?;
 
         let offset = input.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let limit = input.get("limit").and_then(|v| v.as_u64());

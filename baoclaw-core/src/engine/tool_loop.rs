@@ -25,19 +25,16 @@ pub fn extract_tool_uses(content_blocks: &[ContentBlock]) -> Vec<ToolUseRequest>
 pub fn extract_tool_result_ids(user_message: &ApiUserMessage) -> Vec<String> {
     let mut ids = Vec::new();
 
-    match &user_message.content {
-        Value::Array(arr) => {
-            for block in arr {
-                if let Some(block_type) = block.get("type").and_then(|t| t.as_str()) {
-                    if block_type == "tool_result" {
-                        if let Some(id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
-                            ids.push(id.to_string());
-                        }
+    if let Value::Array(arr) = &user_message.content {
+        for block in arr {
+            if let Some(block_type) = block.get("type").and_then(|t| t.as_str()) {
+                if block_type == "tool_result" {
+                    if let Some(id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                        ids.push(id.to_string());
                     }
                 }
             }
         }
-        _ => {}
     }
 
     ids
@@ -73,7 +70,7 @@ pub fn build_tool_result_message(results: &[ToolExecutionResult]) -> Message {
                 if s.len() > MAX_TOOL_RESULT_CHARS {
                     Value::String(format!(
                         "{}\n\n[… truncated, {} total chars]",
-                        &s.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>(),
+                        s.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>(),
                         s.len()
                     ))
                 } else {
@@ -87,7 +84,7 @@ pub fn build_tool_result_message(results: &[ToolExecutionResult]) -> Message {
                 if s.len() > MAX_TOOL_RESULT_CHARS {
                     Value::String(format!(
                         "{}\n\n[… truncated, {} total chars]",
-                        &s.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>(),
+                        s.chars().take(MAX_TOOL_RESULT_CHARS).collect::<String>(),
                         s.len()
                     ))
                 } else {
@@ -151,7 +148,7 @@ pub fn strip_base64_images(value: &Value) -> Value {
             Value::Object(new_map)
         }
         Value::Array(arr) => {
-            Value::Array(arr.iter().map(|v| strip_base64_images(v)).collect())
+            Value::Array(arr.iter().map(strip_base64_images).collect())
         }
         _ => value.clone(),
     }

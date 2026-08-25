@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A single transcript record.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -67,7 +67,7 @@ impl TranscriptWriter {
     }
 
     /// Load all valid transcript entries from a specific directory.
-    pub fn load_from_dir(session_id: &str, dir: &PathBuf) -> Result<Vec<TranscriptEntry>, std::io::Error> {
+    pub fn load_from_dir(session_id: &str, dir: &Path) -> Result<Vec<TranscriptEntry>, std::io::Error> {
         let path = dir.join(format!("{}.jsonl", session_id));
         let file = std::fs::File::open(&path)?;
         let reader = std::io::BufReader::new(file);
@@ -122,7 +122,7 @@ pub fn rebuild_messages_from_transcript(entries: &[TranscriptEntry]) -> Vec<crat
                         content: MessageContent::User {
                             message: ApiUserMessage {
                                 role: "user".to_string(),
-                                content: serde_json::Value::Array(pending_tool_results.drain(..).collect()),
+                                content: serde_json::Value::Array(std::mem::take(&mut pending_tool_results)),
                             },
                             is_meta: false,
                             tool_use_result: None,
@@ -249,7 +249,7 @@ pub fn find_latest_session_for_cwd(cwd: &str) -> Option<String> {
                 let session_id = name.trim_end_matches(".jsonl").to_string();
                 if let Ok(meta) = entry.metadata() {
                     if let Ok(modified) = meta.modified() {
-                        if best.as_ref().map_or(true, |(_, t)| modified > *t) {
+                        if best.as_ref().is_none_or(|(_, t)| modified > *t) {
                             best = Some((session_id, modified));
                         }
                     }

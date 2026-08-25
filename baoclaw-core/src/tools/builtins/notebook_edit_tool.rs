@@ -7,6 +7,12 @@ use crate::tools::trait_def::*;
 /// Jupyter Notebook editing tool — operates on .ipynb JSON structure
 pub struct NotebookEditTool;
 
+impl Default for NotebookEditTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NotebookEditTool {
     pub fn new() -> Self {
         Self
@@ -69,7 +75,7 @@ impl Tool for NotebookEditTool {
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'notebook_path'".to_string()))?;
 
         let resolved = resolve_and_validate_path(notebook_path_str, &context.cwd, &[])
-            .map_err(|e| ToolError::ExecutionFailed(e))?;
+            .map_err(ToolError::ExecutionFailed)?;
 
         let operation = input
             .get("operation")

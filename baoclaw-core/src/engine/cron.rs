@@ -56,6 +56,12 @@ pub struct CronManager {
     result_tx: broadcast::Sender<CronResult>,
 }
 
+impl Default for CronManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CronManager {
     pub fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -197,7 +203,7 @@ impl CronManager {
                         let now_m = now.format("%M").to_string().parse::<u32>().unwrap_or(0);
                         let time_match = now_h == *hour && now_m == *minute;
                         let last = last_check.get(&job.id);
-                        let not_recently = last.map_or(true, |l| l.elapsed().as_secs() > 120);
+                        let not_recently = last.is_none_or(|l| l.elapsed().as_secs() > 120);
                         time_match && not_recently
                     }
                     Schedule::Weekly { day, hour, minute } => {
@@ -206,7 +212,7 @@ impl CronManager {
                         let now_m = now.format("%M").to_string().parse::<u32>().unwrap_or(0);
                         let time_match = now_dow == *day && now_h == *hour && now_m == *minute;
                         let last = last_check.get(&job.id);
-                        let not_recently = last.map_or(true, |l| l.elapsed().as_secs() > 120);
+                        let not_recently = last.is_none_or(|l| l.elapsed().as_secs() > 120);
                         time_match && not_recently
                     }
                 };
@@ -247,8 +253,7 @@ fn parse_schedule(s: &str) -> Result<Schedule, String> {
     let s = s.trim().to_lowercase();
 
     // "every 30m", "every 1h", "every 2h30m", "every 60s"
-    if s.starts_with("every ") {
-        let rest = &s[6..];
+    if let Some(rest) = s.strip_prefix("every ") {
         let secs = parse_duration(rest)?;
         if secs < 60 {
             return Err("Minimum interval is 60 seconds".to_string());
@@ -257,15 +262,14 @@ fn parse_schedule(s: &str) -> Result<Schedule, String> {
     }
 
     // "daily 09:00"
-    if s.starts_with("daily ") {
-        let time = &s[6..];
+    if let Some(time) = s.strip_prefix("daily ") {
         let (h, m) = parse_time(time)?;
         return Ok(Schedule::Daily { hour: h, minute: m });
     }
 
     // "weekly mon 09:00"
-    if s.starts_with("weekly ") {
-        let parts: Vec<&str> = s[7..].split_whitespace().collect();
+    if let Some(stripped) = s.strip_prefix("weekly ") {
+        let parts: Vec<&str> = stripped.split_whitespace().collect();
         if parts.len() != 2 {
             return Err("Expected: weekly <day> <HH:MM>".to_string());
         }
