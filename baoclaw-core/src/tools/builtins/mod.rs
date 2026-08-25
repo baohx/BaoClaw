@@ -41,3 +41,6 @@ pub use evolve_tool::EvolveTool;
 pub mod image_edit_tool;
 pub use image_edit_tool::ImageEditTool;
 pub mod spec_tool;
+pub mod memory_tool_tests;
+pub mod project_note_tool_tests;
+pub mod evolve_tool_tests;

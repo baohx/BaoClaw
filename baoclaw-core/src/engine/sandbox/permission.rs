@@ -532,14 +532,14 @@ mod tests {
             _ => panic!("Expected Pending"),
         };
 
-        // Grant with very short duration
-        manager.confirm_escalation(&request_id, false, Some(Duration::from_millis(1)));
+        // Grant with longer duration to survive test execution latency under tarpaulin
+        manager.confirm_escalation(&request_id, false, Some(Duration::from_millis(500)));
 
         // Should still have active grant immediately
         assert!(manager.has_active_grant("FileWrite", "file_write", "src/main.rs").is_some());
 
         // Wait for grant to expire
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(600));
 
         // Grant should have expired
         assert!(manager.has_active_grant("FileWrite", "file_write", "src/main.rs").is_none());

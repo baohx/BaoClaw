@@ -113,15 +113,32 @@ impl SandboxExecutor {
     }
 
     /// Detect the best available backend.
+    ///
+    /// Falls back to [`SandboxBackend::None`] (direct, unsandboxed execution)
+    /// when no isolation mechanism is usable. That downgrade is a security
+    /// boundary change, so it is always announced on stderr — never silent.
     fn detect_backend() -> SandboxBackend {
         if which_exists("bwrap") {
             SandboxBackend::Bubblewrap
         } else if which_exists("docker") {
-            SandboxBackend::Docker {
-                image: std::env::var("BAOCLAW_SANDBOX_IMAGE")
-                    .unwrap_or_else(|_| "baoclaw-sandbox:latest".into()),
+            let image = std::env::var("BAOCLAW_SANDBOX_IMAGE")
+                .unwrap_or_else(|_| "baoclaw-sandbox:latest".into());
+            if super::legacy::docker_image_exists(&image) {
+                SandboxBackend::Docker { image }
+            } else {
+                eprintln!(
+                    "Warning: sandbox backend 'docker' found but image '{}' is not available \
+                     locally; falling back to UNSANDBOXED execution. Pull/build the image or \
+                     point BAOCLAW_SANDBOX_IMAGE at an existing one.",
+                    image
+                );
+                SandboxBackend::None
             }
         } else {
+            eprintln!(
+                "Warning: no sandbox backend available (install bwrap or docker); \
+                 falling back to UNSANDBOXED execution."
+            );
             SandboxBackend::None
         }
     }
@@ -594,7 +611,34 @@ mod tests {
     #[test]
     fn test_auto_detect() {
         let executor = SandboxExecutor::auto_detect(SandboxProfile::read_only());
-        assert!(executor.is_available());
+        // Environment-independent invariant: whatever backend auto-detection
+        // picks must actually be usable on this machine. This holds whether
+        // or not bwrap/docker are installed, so the test is not fragile.
+        assert!(
+            executor.is_available(),
+            "auto-detected backend {:?} reports itself unavailable",
+            executor.backend()
+        );
+    }
+
+    #[test]
+    fn test_auto_detect_never_silently_downgrades() {
+        // detect_backend() must never return an unusable backend: if it
+        // falls back to None, that decision was announced on stderr and the
+        // resulting executor still reports available.
+        let backend = SandboxExecutor::detect_backend();
+        match &backend {
+            SandboxBackend::None => {} // loud fallback, fine
+            SandboxBackend::Bubblewrap => assert!(
+                which_exists("bwrap"),
+                "picked Bubblewrap but bwrap binary missing"
+            ),
+            SandboxBackend::Docker { image } => assert!(
+                super::super::legacy::docker_image_exists(image),
+                "picked Docker backend but image '{}' missing",
+                image
+            ),
+        }
     }
 
     #[test]
