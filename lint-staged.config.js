@@ -47,6 +47,7 @@ export default {
     const formatCmds = filenames.map((f) => `rustfmt --edition 2021 ${f}`);
     const checkCmds = [
       ...filenames.map((f) => `rustfmt --edition 2021 --check ${f}`),
+      "cargo clippy --manifest-path baoclaw-core/Cargo.toml --all-targets --all-features",
       "cargo check --manifest-path baoclaw-core/Cargo.toml --all-targets --all-features",
     ];
     return [...formatCmds, ...checkCmds];
