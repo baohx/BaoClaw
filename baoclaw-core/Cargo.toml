@@ -2,6 +2,7 @@
 name = "baoclaw-core"
 version = "2.1.0"
 edition = "2021"
+rust-version = "1.96"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -33,3 +34,17 @@ windows-service = "0.7"
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"
+
+# Unified lint policy. `cargo clippy` (used by `make check-all` / CI) enforces
+# `-D warnings` on the command line; these table entries additionally make the
+# same policy explicit in the crate itself, so the lints apply even when
+# someone runs `cargo check`/`cargo clippy` without the Makefile wrapper.
+#
+# Note: `unsafe` is used legitimately in the sandbox (libc uid/gid, kill) and
+# main.rs, so we deliberately do NOT forbid it here.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_must_use = "warn"
+
+[lints.clippy]
+all = "warn"
