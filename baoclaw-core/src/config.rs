@@ -338,11 +338,16 @@ mod tests {
 
     #[test]
     fn test_env_override_model() {
+        // Save and restore so we don't leak global state to other tests.
+        let original = std::env::var("ANTHROPIC_MODEL").ok();
         std::env::set_var("ANTHROPIC_MODEL", "claude-opus-4-20250514");
         let mut config = BaoclawConfig::default();
         apply_env_override(&mut config);
         assert_eq!(config.model, "claude-opus-4-20250514");
-        std::env::remove_var("ANTHROPIC_MODEL");
+        match original {
+            Some(v) => std::env::set_var("ANTHROPIC_MODEL", v),
+            None => std::env::remove_var("ANTHROPIC_MODEL"),
+        }
     }
 
     #[test]

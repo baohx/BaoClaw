@@ -8,7 +8,17 @@ mod tests {
     async fn test_discover_mcp_servers_empty() {
         let dir = tempdir().unwrap();
         let servers = discover_mcp_servers(dir.path()).await;
-        let _ = servers;
+        // User-level (~/.baoclaw) configs are scanned too, so we cannot
+        // assert the whole list is empty. The invariant: an EMPTY project
+        // dir contributes zero servers.
+        let prefix = dir.path().to_string_lossy().to_string();
+        assert!(
+            servers
+                .iter()
+                .all(|s| !s.config_path.starts_with(&prefix)),
+            "empty project dir produced servers: {:?}",
+            servers
+        );
     }
 
     #[tokio::test]

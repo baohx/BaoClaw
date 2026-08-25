@@ -641,7 +641,6 @@ impl OpenAiSseStream {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

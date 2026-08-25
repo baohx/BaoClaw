@@ -8,7 +8,15 @@ mod tests {
     async fn test_discover_plugins_empty() {
         let dir = tempdir().unwrap();
         let plugins = discover_plugins(dir.path()).await;
-        let _ = plugins;
+        // User-level (~/.baoclaw) dirs are scanned too, so we cannot assert
+        // the whole list is empty. The invariant: an EMPTY project dir
+        // contributes zero plugins.
+        let prefix = dir.path().to_string_lossy().to_string();
+        assert!(
+            plugins.iter().all(|p| !p.path.starts_with(&prefix)),
+            "empty project dir produced plugins: {:?}",
+            plugins
+        );
     }
 
     #[tokio::test]

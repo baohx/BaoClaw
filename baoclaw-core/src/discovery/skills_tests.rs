@@ -8,7 +8,15 @@ mod tests {
     async fn test_discover_skills_empty() {
         let dir = tempdir().unwrap();
         let skills = discover_skills(dir.path()).await;
-        let _ = skills;
+        // User-level (~/.claude) dirs are scanned too, so we cannot assert
+        // the whole list is empty. The invariant: an EMPTY project dir
+        // contributes zero skills.
+        let prefix = dir.path().to_string_lossy().to_string();
+        assert!(
+            skills.iter().all(|s| !s.path.starts_with(&prefix)),
+            "empty project dir produced skills: {:?}",
+            skills
+        );
     }
 
     #[tokio::test]
