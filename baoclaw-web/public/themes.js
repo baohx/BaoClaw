@@ -30,8 +30,6 @@
 
   const isLight = (id) => /latte|day|light/.test(id);
 
-  const isLight = (id) => /latte|day|light/.test(id);
-
   function applyHljs(id) {
     // highlightjs ships separate light/dark stylesheets; toggle them so
     // syntax colors match the active theme family.
