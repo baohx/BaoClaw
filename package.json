@@ -6,9 +6,9 @@
   "scripts": {
     "prepare": "husky",
     "format": "prettier --write . && cargo fmt --all",
-    "lint": "eslint . --ext .ts,.tsx && cargo clippy --all-targets --all-features -- -D warnings",
-    "typecheck": "tsc --noEmit",
-    "check": "cargo check --all-targets --all-features",
+    "lint": "eslint . --ext .ts,.tsx && cargo clippy --manifest-path baoclaw-core/Cargo.toml --all-targets --all-features -- -D warnings",
+    "typecheck": "tsc --noEmit -p ts-ipc/tsconfig.json",
+    "check": "cargo check --manifest-path baoclaw-core/Cargo.toml --all-targets --all-features",
     "verify-all": "npm run format && npm run lint && npm run typecheck && npm run check"
   },
   "devDependencies": {

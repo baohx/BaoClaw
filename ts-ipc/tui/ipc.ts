@@ -1,6 +1,6 @@
 // IPC Integration for BaoClaw TUI
-import { IpcClient } from '../client.js';
-import { Action } from './types.js';
+import { IpcClient } from "../client.js";
+import { Action } from "./types.js";
 
 export type IpcEventHandler = (event: IpcEvent) => void;
 
@@ -16,24 +16,30 @@ export interface IpcConfig {
 }
 
 // Create IPC client and connect
-export async function createIpcConnection(config: IpcConfig): Promise<IpcClient> {
+export async function createIpcConnection(
+  config: IpcConfig,
+): Promise<IpcClient> {
   const client = new IpcClient();
   await client.connect(config.socketPath);
-  
+
   // Send initialize message to register as a client
   // This is required by the backend
   try {
-    await client.request('initialize', {
-      cwd: config.cwd || process.cwd(),
-      model: config.model,
-      settings: {},
-      shared_session_id: 'tui',
-    }, 10000);
+    await client.request(
+      "initialize",
+      {
+        cwd: config.cwd || process.cwd(),
+        model: config.model,
+        settings: {},
+        shared_session_id: "tui",
+      },
+      10000,
+    );
   } catch (err) {
     // Log but continue - some backends may not require initialize
-    console.log('Initialize response received');
+    console.log("Initialize response received");
   }
-  
+
   return client;
 }
 
@@ -41,7 +47,7 @@ export async function createIpcConnection(config: IpcConfig): Promise<IpcClient>
 // The backend sends "stream/event" notifications with EngineEvent types
 export function subscribeToEvents(
   client: IpcClient,
-  dispatch: React.Dispatch<Action>
+  dispatch: React.Dispatch<Action>,
 ): () => void {
   const handlers: Array<() => void> = [];
 
@@ -51,18 +57,18 @@ export function subscribeToEvents(
   // chunks and flush at most once per FLUSH_INTERVAL_MS. A trailing timer
   // guarantees the final buffered text is never lost.
   const FLUSH_INTERVAL_MS = 70;
-  let streamBuf = '';
-  let thinkingBuf = '';
+  let streamBuf = "";
+  let thinkingBuf = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   const flushBuffers = () => {
     if (streamBuf) {
-      dispatch({ type: 'APPEND_STREAM', payload: streamBuf });
-      streamBuf = '';
+      dispatch({ type: "APPEND_STREAM", payload: streamBuf });
+      streamBuf = "";
     }
     if (thinkingBuf) {
-      dispatch({ type: 'APPEND_THINKING', payload: thinkingBuf });
-      thinkingBuf = '';
+      dispatch({ type: "APPEND_THINKING", payload: thinkingBuf });
+      thinkingBuf = "";
     }
     flushTimer = null;
   };
@@ -83,63 +89,69 @@ export function subscribeToEvents(
   };
 
   // Main stream/event handler - handles all EngineEvent types
-  const unsubStreamEvent = client.onNotification('stream/event', (params) => {
+  const unsubStreamEvent = client.onNotification("stream/event", (params) => {
     const p = params as { type: string; [key: string]: unknown };
 
     switch (p.type) {
-      case 'assistant_chunk': {
+      case "assistant_chunk": {
         // { type: "assistant_chunk", content: string, tool_use_id?: string }
         streamBuf += p.content as string;
         scheduleFlush();
         break;
       }
 
-      case 'thinking_chunk': {
+      case "thinking_chunk": {
         // { type: "thinking_chunk", content: string }
         thinkingBuf += p.content as string;
         scheduleFlush();
         break;
       }
-      
-      case 'tool_use': {
+
+      case "tool_use": {
         // { type: "tool_use", tool_name: string, input: object, tool_use_id: string }
-        const toolName = (p.tool_name as string) || 'tool';
-        const toolId = (p.tool_use_id as string) || '';
+        const toolName = (p.tool_name as string) || "tool";
+        const toolId = (p.tool_use_id as string) || "";
         const input = p.input ?? {};
         dispatch({
-          type: 'ADD_TOOL_USE',
+          type: "ADD_TOOL_USE",
           payload: { toolName, toolId, input },
         });
         break;
       }
-      
-      case 'tool_result': {
+
+      case "tool_result": {
         // { type: "tool_result", tool_use_id: string, output: object, is_error: bool }
-        const toolId = (p.tool_use_id as string) || '';
-        const output = typeof p.output === 'string'
-          ? p.output
-          : JSON.stringify(p.output, null, 2);
+        const toolId = (p.tool_use_id as string) || "";
+        const output =
+          typeof p.output === "string"
+            ? p.output
+            : JSON.stringify(p.output, null, 2);
         const isError = p.is_error === true;
         dispatch({
-          type: 'ADD_TOOL_RESULT',
+          type: "ADD_TOOL_RESULT",
           payload: { toolId, output, isError },
         });
         break;
       }
-      
-      case 'result': {
+
+      case "result": {
         // { type: "result", status: string, usage: object }
         // Stream complete - handled in App component
         flushNow();
-        dispatch({ type: 'SET_STREAMING', payload: false });
+        dispatch({ type: "SET_STREAMING", payload: false });
         break;
       }
 
-      case 'error': {
+      case "error": {
         // { type: "error", message: string }
         flushNow();
-        const message = p.message || p.error?.message || 'Unknown error';
-        dispatch({ type: 'SET_ERROR', payload: String(message) });
+        const errorParams = p as {
+          message?: unknown;
+          error?: { message?: unknown };
+        };
+        const message =
+          errorParams.message || errorParams.error?.message || "Unknown error";
+        dispatch({ type: "SET_ERROR", payload: String(message) });
         break;
       }
     }
@@ -147,9 +159,9 @@ export function subscribeToEvents(
   handlers.push(unsubStreamEvent);
 
   // Error notification (direct)
-  const unsubError = client.onNotification('error', (params) => {
+  const unsubError = client.onNotification("error", (params) => {
     const p = params as { message: string };
-    dispatch({ type: 'SET_ERROR', payload: p.message });
+    dispatch({ type: "SET_ERROR", payload: p.message });
   });
   handlers.push(unsubError);
 
@@ -164,10 +176,10 @@ export function subscribeToEvents(
 // Send a message to the backend using submitMessage
 export async function sendMessage(
   client: IpcClient,
-  content: string
+  content: string,
 ): Promise<void> {
-  await client.request('submitMessage', {
-    prompt: content,           // string (daemon expects prompt.as_str())
+  await client.request("submitMessage", {
+    prompt: content, // string (daemon expects prompt.as_str())
     uuid: null,
     attachments: null,
   });

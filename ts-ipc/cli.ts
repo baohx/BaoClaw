@@ -3,22 +3,26 @@
  * BaoClaw CLI — Rich terminal interface powered by Rust core engine.
  * Visual style inspired by BaoClaw TUI.
  */
-import * as net from 'net';
-import * as readline from 'readline';
-import * as path from 'path';
-import * as crypto from 'crypto';
-import { spawn, ChildProcess } from 'child_process';
-import { renderMarkdown } from './markdownRenderer.js';
-import * as fs from 'fs';
-import * as os from 'os';
+import * as net from "net";
+import * as readline from "readline";
+import * as path from "path";
+import * as crypto from "crypto";
+import { spawn, ChildProcess } from "child_process";
+import { renderMarkdown } from "./markdownRenderer.js";
+import * as fs from "fs";
+import * as os from "os";
 // @ts-ignore — pdf-parse and mammoth loaded dynamically for CJS compat
 let pdf: any;
 let mammoth: any;
 
+function turnPrefix(): string {
+  return "";
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ANSI helpers
 // ═══════════════════════════════════════════════════════════════
-const ESC = '\x1b[';
+const ESC = "\x1b[";
 const RESET = `${ESC}0m`;
 const BOLD = `${ESC}1m`;
 const DIM = `${ESC}2m`;
@@ -26,15 +30,15 @@ const ITALIC = `${ESC}3m`;
 const UNDERLINE = `${ESC}4m`;
 
 // Colors (optimized for dark terminal backgrounds)
-const FG_ORANGE = `${ESC}38;2;217;119;40m`;   // BaoClaw orange
-const FG_CYAN = `${ESC}96m`;                   // bright cyan
-const FG_GREEN = `${ESC}92m`;                  // bright green
-const FG_YELLOW = `${ESC}93m`;                 // bright yellow
-const FG_RED = `${ESC}91m`;                    // bright red
-const FG_MAGENTA = `${ESC}95m`;                // bright magenta
-const FG_BLUE = `${ESC}94m`;                   // bright blue
-const FG_WHITE = `${ESC}97m`;                  // bright white
-const FG_GRAY = `${ESC}38;2;160;160;160m`;     // lighter gray (visible on dark bg)
+const FG_ORANGE = `${ESC}38;2;217;119;40m`; // BaoClaw orange
+const FG_CYAN = `${ESC}96m`; // bright cyan
+const FG_GREEN = `${ESC}92m`; // bright green
+const FG_YELLOW = `${ESC}93m`; // bright yellow
+const FG_RED = `${ESC}91m`; // bright red
+const FG_MAGENTA = `${ESC}95m`; // bright magenta
+const FG_BLUE = `${ESC}94m`; // bright blue
+const FG_WHITE = `${ESC}97m`; // bright white
+const FG_GRAY = `${ESC}38;2;160;160;160m`; // lighter gray (visible on dark bg)
 const FG_BRIGHT_WHITE = `${ESC}97m`;
 const BG_DARK = `${ESC}48;2;30;30;30m`;
 
@@ -45,7 +49,7 @@ const BG_CLAWD = `${ESC}48;2;60;50;40m`;
 // ═══════════════════════════════════════════════════════════════
 // Image helpers — save base64 images & iTerm2 inline display
 // ═══════════════════════════════════════════════════════════════
-const IMAGE_DIR = '/tmp/baoclaw-images';
+const IMAGE_DIR = "/tmp/baoclaw-images";
 
 /** Ensure the image output directory exists */
 function ensureImageDir(): void {
@@ -57,25 +61,27 @@ function ensureImageDir(): void {
 /** Save a base64-encoded image to /tmp/baoclaw-images/ and return the file path */
 function saveBase64Image(base64Data: string, mediaType: string): string {
   ensureImageDir();
-  const ext = mediaType.split('/')[1] || 'png';          // e.g. "png", "jpeg", "gif", "webp"
-  const normalizedExt = ext === 'jpeg' ? 'jpg' : ext;
+  const ext = mediaType.split("/")[1] || "png"; // e.g. "png", "jpeg", "gif", "webp"
+  const normalizedExt = ext === "jpeg" ? "jpg" : ext;
   const timestamp = Math.floor(Date.now() / 1000);
   const fileName = `baoclaw-${timestamp}.${normalizedExt}`;
   const filePath = path.join(IMAGE_DIR, fileName);
-  const buffer = Buffer.from(base64Data, 'base64');
+  const buffer = Buffer.from(base64Data, "base64");
   fs.writeFileSync(filePath, buffer);
   return filePath;
 }
 
 /** Display an image inline using iTerm2 Inline Image Protocol (if supported) */
 function displayIterm2Image(filePath: string): void {
-  if (process.env.TERM_PROGRAM !== 'iTerm.app') return;
+  if (process.env.TERM_PROGRAM !== "iTerm.app") return;
   try {
     const data = fs.readFileSync(filePath);
-    const base64 = data.toString('base64');
+    const base64 = data.toString("base64");
     const name = path.basename(filePath);
     // iTerm2 escape: ESC ] 1337 ; File = ... BEL
-    process.stdout.write(`\x1b]1337;File=inline=1;name=${name}:size=${data.length}:${base64}\x07\n`);
+    process.stdout.write(
+      `\x1b]1337;File=inline=1;name=${name}:size=${data.length}:${base64}\x07\n`,
+    );
   } catch {
     // Silently ignore if iTerm2 display fails
   }
@@ -84,32 +90,48 @@ function displayIterm2Image(filePath: string): void {
 /** Extract image content blocks from a tool_result output, save & display them.
  *  Returns the number of images found. */
 function extractAndSaveImages(output: unknown): number {
-  if (typeof output !== 'object' || output === null) return 0;
+  if (typeof output !== "object" || output === null) return 0;
   const o = output as Record<string, unknown>;
 
   let count = 0;
 
   // Case 1: Top-level image (ImageGenTool format)
   // { type: "image", source: { type: "base64", media_type: "...", data: "..." } }
-  if (o.type === 'image' && typeof o.source === 'object' && o.source !== null) {
+  if (o.type === "image" && typeof o.source === "object" && o.source !== null) {
     const src = o.source as Record<string, unknown>;
-    if (src.type === 'base64' && typeof src.data === 'string' && (src.data as string).length > 100) {
-      const mediaType = typeof src.media_type === 'string' ? src.media_type : 'image/png';
+    if (
+      src.type === "base64" &&
+      typeof src.data === "string" &&
+      (src.data as string).length > 100
+    ) {
+      const mediaType =
+        typeof src.media_type === "string" ? src.media_type : "image/png";
       const filePath = saveBase64Image(src.data as string, mediaType);
       count++;
-      const prompt = typeof o.prompt === 'string' ? ` (${(o.prompt as string).slice(0, 50)})` : '';
-      console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}${prompt}`);
+      const prompt =
+        typeof o.prompt === "string"
+          ? ` (${(o.prompt as string).slice(0, 50)})`
+          : "";
+      console.log(
+        `${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}${prompt}`,
+      );
       displayIterm2Image(filePath);
       return count;
     }
   }
 
   // Case 2: Top-level MCP image { type: "image", data: "base64...", mimeType: "..." }
-  if (o.type === 'image' && typeof o.data === 'string' && (o.data as string).length > 100) {
-    const mediaType = typeof o.mimeType === 'string' ? o.mimeType : 'image/png';
+  if (
+    o.type === "image" &&
+    typeof o.data === "string" &&
+    (o.data as string).length > 100
+  ) {
+    const mediaType = typeof o.mimeType === "string" ? o.mimeType : "image/png";
     const filePath = saveBase64Image(o.data as string, mediaType);
     count++;
-    console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
+    console.log(
+      `${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`,
+    );
     displayIterm2Image(filePath);
     return count;
   }
@@ -122,27 +144,37 @@ function extractAndSaveImages(output: unknown): number {
 
   for (const arr of contentArrays) {
     for (const block of arr) {
-      if (typeof block !== 'object' || block === null) continue;
+      if (typeof block !== "object" || block === null) continue;
       const b = block as Record<string, unknown>;
-      if (b.type !== 'image') continue;
+      if (b.type !== "image") continue;
 
       // Anthropic format: source.data
       const src = b.source as Record<string, unknown> | undefined;
-      if (src && src.type === 'base64' && typeof src.data === 'string') {
-        const mediaType = typeof src.media_type === 'string' ? src.media_type : 'image/png';
+      if (src && src.type === "base64" && typeof src.data === "string") {
+        const mediaType =
+          typeof src.media_type === "string" ? src.media_type : "image/png";
         const filePath = saveBase64Image(src.data as string, mediaType);
         count++;
-        console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
+        console.log(
+          `${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`,
+        );
         displayIterm2Image(filePath);
         continue;
       }
 
       // MCP format: data at top level of block
-      if (typeof b.data === 'string' && (b.data as string).length > 100) {
-        const mediaType = typeof b.mimeType === 'string' ? b.mimeType : (typeof b.media_type === 'string' ? b.media_type : 'image/png');
+      if (typeof b.data === "string" && (b.data as string).length > 100) {
+        const mediaType =
+          typeof b.mimeType === "string"
+            ? b.mimeType
+            : typeof b.media_type === "string"
+              ? b.media_type
+              : "image/png";
         const filePath = saveBase64Image(b.data as string, mediaType);
         count++;
-        console.log(`${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`);
+        console.log(
+          `${turnPrefix()}  📷 图片已保存: ${FG_CYAN}${filePath}${RESET}`,
+        );
         displayIterm2Image(filePath);
       }
     }
@@ -153,10 +185,10 @@ function extractAndSaveImages(output: unknown): number {
 // ═══════════════════════════════════════════════════════════════
 // Spinner
 // ═══════════════════════════════════════════════════════════════
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 let spinnerInterval: ReturnType<typeof setInterval> | null = null;
 let spinnerFrame = 0;
-let spinnerMessage = '';
+let spinnerMessage = "";
 
 function startSpinner(msg: string) {
   spinnerMessage = msg;
@@ -164,7 +196,9 @@ function startSpinner(msg: string) {
   if (spinnerInterval) clearInterval(spinnerInterval);
   spinnerInterval = setInterval(() => {
     const frame = SPINNER_FRAMES[spinnerFrame % SPINNER_FRAMES.length];
-    process.stderr.write(`\r${FG_ORANGE}${frame}${RESET} ${DIM}${spinnerMessage}${RESET}  `);
+    process.stderr.write(
+      `\r${FG_ORANGE}${frame}${RESET} ${DIM}${spinnerMessage}${RESET}  `,
+    );
     spinnerFrame++;
   }, 80);
 }
@@ -175,7 +209,7 @@ function stopSpinner() {
     spinnerInterval = null;
     // Clear the spinner line with spaces, then advance to next line
     // so subsequent output doesn't overlap on the same line
-    process.stderr.write('\r' + ' '.repeat(60) + '\r\n');
+    process.stderr.write("\r" + " ".repeat(60) + "\r\n");
   }
 }
 
@@ -184,10 +218,10 @@ function stopSpinner() {
 // ═══════════════════════════════════════════════════════════════
 function printLogo() {
   // White Bichon Frise dog — BaoClaw mascot (4 legs + tail)
-  const W = `${ESC}38;2;255;255;255m`;  // white fur
-  const B = `${ESC}38;2;40;40;40m`;     // black (eyes/nose)
-  const P = `${ESC}38;2;255;182;193m`;  // pink (tongue)
-  const S = `${ESC}38;2;220;220;220m`;  // light shadow
+  const W = `${ESC}38;2;255;255;255m`; // white fur
+  const B = `${ESC}38;2;40;40;40m`; // black (eyes/nose)
+  const P = `${ESC}38;2;255;182;193m`; // pink (tongue)
+  const S = `${ESC}38;2;220;220;220m`; // light shadow
   const G = FG_GRAY;
   const O = FG_ORANGE;
   const R = RESET;
@@ -215,16 +249,20 @@ ${G}                                                                ${R}
 
 function printWelcome(sessionId: string, model: string, cwd: string) {
   const cols = process.stdout.columns || 80;
-  const line = '─'.repeat(Math.min(cols - 2, 70));
+  const line = "─".repeat(Math.min(cols - 2, 70));
 
-  console.log(`${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v2.1.0${RESET}`);
+  console.log(
+    `${FG_ORANGE}${BOLD}  Welcome to BaoClaw ${RESET}${DIM}v2.1.0${RESET}`,
+  );
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log(`  ${DIM}Session${RESET}  ${sessionId}`);
   console.log(`  ${DIM}Model${RESET}    ${FG_GREEN}${model}${RESET}`);
   console.log(`  ${DIM}CWD${RESET}      ${cwd}`);
   console.log(`${FG_GRAY}${line}${RESET}`);
   console.log();
-  console.log(`  ${DIM}Type your message and press Enter. /help for all commands.${RESET}`);
+  console.log(
+    `  ${DIM}Type your message and press Enter. /help for all commands.${RESET}`,
+  );
   console.log();
 }
 
@@ -232,106 +270,134 @@ function printWelcome(sessionId: string, model: string, cwd: string) {
 // Message formatting
 // ═══════════════════════════════════════════════════════════════
 function formatToolUse(toolName: string, input: unknown): string {
-  const inp = (typeof input === 'object' && input !== null) ? input as Record<string, unknown> : {};
+  const inp =
+    typeof input === "object" && input !== null
+      ? (input as Record<string, unknown>)
+      : {};
 
   // Smart formatting per tool type
-  if (toolName === 'Bash') {
-    const cmd = 'command' in inp ? String(inp.command) : '';
-    const preview = cmd.length > 120 ? cmd.slice(0, 120) + '…' : cmd;
+  if (toolName === "Bash") {
+    const cmd = "command" in inp ? String(inp.command) : "";
+    const preview = cmd.length > 120 ? cmd.slice(0, 120) + "…" : cmd;
     return `  ${FG_MAGENTA}❯${RESET} ${FG_WHITE}${BOLD}$ ${preview}${RESET}`;
   }
-  if (toolName === 'FileRead' || toolName === 'Read') {
-    const fp = 'file_path' in inp ? String(inp.file_path) : '';
+  if (toolName === "FileRead" || toolName === "Read") {
+    const fp = "file_path" in inp ? String(inp.file_path) : "";
     return `  ${FG_BLUE}📄${RESET} ${DIM}read${RESET}  ${FG_WHITE}${fp}${RESET}`;
   }
-  if (toolName === 'FileWrite' || toolName === 'Write') {
-    const fp = 'file_path' in inp ? String(inp.file_path) : '';
+  if (toolName === "FileWrite" || toolName === "Write") {
+    const fp = "file_path" in inp ? String(inp.file_path) : "";
     return `  ${FG_GREEN}✏️${RESET}  ${DIM}write${RESET} ${FG_WHITE}${fp}${RESET}`;
   }
-  if (toolName === 'FileEdit' || toolName === 'Edit') {
-    const fp = 'file_path' in inp ? String(inp.file_path) : '';
+  if (toolName === "FileEdit" || toolName === "Edit") {
+    const fp = "file_path" in inp ? String(inp.file_path) : "";
     return `  ${FG_YELLOW}✎${RESET}  ${DIM}edit${RESET}  ${FG_WHITE}${fp}${RESET}`;
   }
-  if (toolName === 'Grep' || toolName === 'GrepTool') {
-    const pattern = 'pattern' in inp ? String(inp.pattern) : '';
-    const fp = 'path' in inp ? ` ${DIM}in${RESET} ${String(inp.path)}` : '';
+  if (toolName === "Grep" || toolName === "GrepTool") {
+    const pattern = "pattern" in inp ? String(inp.pattern) : "";
+    const fp = "path" in inp ? ` ${DIM}in${RESET} ${String(inp.path)}` : "";
     return `  ${FG_CYAN}🔍${RESET} ${DIM}grep${RESET}  ${FG_WHITE}/${pattern}/${RESET}${fp}`;
   }
-  if (toolName === 'Glob' || toolName === 'GlobTool') {
-    const pattern = 'pattern' in inp ? String(inp.pattern) : '';
+  if (toolName === "Glob" || toolName === "GlobTool") {
+    const pattern = "pattern" in inp ? String(inp.pattern) : "";
     return `  ${FG_CYAN}📂${RESET} ${DIM}glob${RESET}  ${FG_WHITE}${pattern}${RESET}`;
   }
-  if (toolName === 'WebFetchTool' || toolName === 'WebFetch') {
-    const url = 'url' in inp ? String(inp.url) : '';
-    const short = url.length > 80 ? url.slice(0, 80) + '…' : url;
+  if (toolName === "WebFetchTool" || toolName === "WebFetch") {
+    const url = "url" in inp ? String(inp.url) : "";
+    const short = url.length > 80 ? url.slice(0, 80) + "…" : url;
     return `  ${FG_BLUE}🌐${RESET} ${DIM}fetch${RESET} ${FG_WHITE}${short}${RESET}`;
   }
-  if (toolName === 'WebSearchTool' || toolName === 'Search' || toolName === 'WebSearch') {
-    const q = 'query' in inp ? String(inp.query) : '';
+  if (
+    toolName === "WebSearchTool" ||
+    toolName === "Search" ||
+    toolName === "WebSearch"
+  ) {
+    const q = "query" in inp ? String(inp.query) : "";
     return `  ${FG_BLUE}🔎${RESET} ${DIM}search${RESET} ${FG_WHITE}${q}${RESET}`;
   }
-  if (toolName === 'TodoWriteTool' || toolName === 'TodoWrite') {
+  if (toolName === "TodoWriteTool" || toolName === "TodoWrite") {
     return `  ${FG_YELLOW}📝${RESET} ${DIM}todo${RESET}  ${FG_WHITE}updating todo list${RESET}`;
   }
-  if (toolName === 'AgentTool' || toolName === 'Agent') {
-    const prompt = 'prompt' in inp ? String(inp.prompt).slice(0, 80) : '';
-    return `  ${FG_ORANGE}🤖${RESET} ${DIM}agent${RESET} ${FG_WHITE}${prompt}${prompt.length >= 80 ? '…' : ''}${RESET}`;
+  if (toolName === "AgentTool" || toolName === "Agent") {
+    const prompt = "prompt" in inp ? String(inp.prompt).slice(0, 80) : "";
+    return `  ${FG_ORANGE}🤖${RESET} ${DIM}agent${RESET} ${FG_WHITE}${prompt}${prompt.length >= 80 ? "…" : ""}${RESET}`;
   }
 
   // MCP tools and other unknown tools — show name + compact params
   const paramKeys = Object.keys(inp);
-  const paramPreview = paramKeys.length > 0
-    ? paramKeys.slice(0, 3).map(k => {
-        const v = String(inp[k] ?? '');
-        return `${DIM}${k}=${RESET}${v.length > 40 ? v.slice(0, 40) + '…' : v}`;
-      }).join(' ')
-    : '';
+  const paramPreview =
+    paramKeys.length > 0
+      ? paramKeys
+          .slice(0, 3)
+          .map((k) => {
+            const v = String(inp[k] ?? "");
+            return `${DIM}${k}=${RESET}${v.length > 40 ? v.slice(0, 40) + "…" : v}`;
+          })
+          .join(" ")
+      : "";
   return `  ${FG_MAGENTA}⚡${RESET} ${FG_WHITE}${BOLD}${toolName}${RESET} ${paramPreview}`;
 }
 
-function formatToolResult(output: unknown, isError: boolean, toolName?: string, toolInput?: unknown): string {
+function formatToolResult(
+  output: unknown,
+  isError: boolean,
+  toolName?: string,
+  toolInput?: unknown,
+): string {
   const prefix = isError ? `${FG_RED}✗${RESET}` : `${FG_GREEN}✓${RESET}`;
 
-  if (typeof output === 'string') return formatResultText(output, isError, prefix);
-  if (typeof output !== 'object' || output === null) {
+  if (typeof output === "string")
+    return formatResultText(output, isError, prefix);
+  if (typeof output !== "object" || output === null) {
     return `  ${prefix} ${isError ? FG_RED : FG_GRAY}${String(output)}${RESET}`;
   }
 
   const o = output as Record<string, unknown>;
 
   // ── Bash ──
-  if (toolName === 'Bash') {
-    const text = typeof o.output === 'string' ? o.output : typeof o.stdout === 'string' ? o.stdout : '';
-    const exitCode = typeof o.exit_code === 'number' ? o.exit_code : null;
-    if (!text.trim() && !isError) return `  ${prefix} ${DIM}(no output)${RESET}`;
-    const exitSuffix = isError && exitCode !== null ? ` ${DIM}exit ${exitCode}${RESET}` : '';
+  if (toolName === "Bash") {
+    const text =
+      typeof o.output === "string"
+        ? o.output
+        : typeof o.stdout === "string"
+          ? o.stdout
+          : "";
+    const exitCode = typeof o.exit_code === "number" ? o.exit_code : null;
+    if (!text.trim() && !isError)
+      return `  ${prefix} ${DIM}(no output)${RESET}`;
+    const exitSuffix =
+      isError && exitCode !== null ? ` ${DIM}exit ${exitCode}${RESET}` : "";
     return formatResultText(text, isError, prefix) + exitSuffix;
   }
 
   // ── FileRead ──
-  if (toolName === 'FileRead' || toolName === 'Read') {
-    const linesRead = o.lines_read ?? o.total_lines ?? '';
-    return `  ${prefix} ${DIM}${linesRead} lines${o.file_path ? ' from ' + o.file_path : ''}${RESET}`;
+  if (toolName === "FileRead" || toolName === "Read") {
+    const linesRead = o.lines_read ?? o.total_lines ?? "";
+    return `  ${prefix} ${DIM}${linesRead} lines${o.file_path ? " from " + o.file_path : ""}${RESET}`;
   }
 
   // ── FileWrite ──
-  if (toolName === 'FileWrite' || toolName === 'Write') {
-    return `  ${prefix} ${DIM}${o.file_path ?? ''}${o.bytes_written ? ' (' + o.bytes_written + ' bytes)' : ''}${RESET}`;
+  if (toolName === "FileWrite" || toolName === "Write") {
+    return `  ${prefix} ${DIM}${o.file_path ?? ""}${o.bytes_written ? " (" + o.bytes_written + " bytes)" : ""}${RESET}`;
   }
 
   // ── FileEdit: git diff side-by-side ──
-  if (toolName === 'FileEdit' || toolName === 'Edit') {
-    if (isError && typeof o.error === 'string') return `  ${prefix} ${FG_RED}${o.error}${RESET}`;
-    const filePath = String(o.file_path ?? '');
-    const oldStr = String(o.old_string ?? '');
-    const newStr = String(o.new_string ?? '');
+  if (toolName === "FileEdit" || toolName === "Edit") {
+    if (isError && typeof o.error === "string")
+      return `  ${prefix} ${FG_RED}${o.error}${RESET}`;
+    const filePath = String(o.file_path ?? "");
+    const oldStr = String(o.old_string ?? "");
+    const newStr = String(o.new_string ?? "");
     if (!oldStr && !newStr) return `  ${prefix} ${DIM}${filePath}${RESET}`;
 
     // ── Side-by-side diff rendering ──
-    const oldLines = oldStr.split('\n');
-    const newLines = newStr.split('\n');
+    const oldLines = oldStr.split("\n");
+    const newLines = newStr.split("\n");
     const maxLines = Math.max(oldLines.length, newLines.length);
-    const halfWidth = Math.min(55, Math.floor((process.stdout.columns || 120) / 2) - 3);
+    const halfWidth = Math.min(
+      55,
+      Math.floor((process.stdout.columns || 120) / 2) - 3,
+    );
     const showLines = Math.min(maxLines, 20); // cap display
 
     let diffLines: string[] = [];
@@ -341,14 +407,16 @@ function formatToolResult(output: unknown, isError: boolean, toolName?: string, 
     const leftHeader = `${FG_RED}─ removed (old)${RESET}`;
     const rightHeader = `${FG_GREEN}─ added (new)${RESET}`;
     diffLines.push(`  ${leftHeader.padEnd(halfWidth + 10)} │ ${rightHeader}`);
-    diffLines.push(`  ${'─'.repeat(halfWidth)}─┼─${'─'.repeat(halfWidth)}`);
+    diffLines.push(`  ${"─".repeat(halfWidth)}─┼─${"─".repeat(halfWidth)}`);
 
     for (let i = 0; i < showLines; i++) {
-      const oLine = i < oldLines.length ? oldLines[i] : '';
-      const nLine = i < newLines.length ? newLines[i] : '';
+      const oLine = i < oldLines.length ? oldLines[i] : "";
+      const nLine = i < newLines.length ? newLines[i] : "";
 
-      const oPad = oLine.length > halfWidth ? oLine.slice(0, halfWidth - 1) + '…' : oLine;
-      const nPad = nLine.length > halfWidth ? nLine.slice(0, halfWidth - 1) + '…' : nLine;
+      const oPad =
+        oLine.length > halfWidth ? oLine.slice(0, halfWidth - 1) + "…" : oLine;
+      const nPad =
+        nLine.length > halfWidth ? nLine.slice(0, halfWidth - 1) + "…" : nLine;
 
       const hasOld = i < oldLines.length;
       const hasNew = i < newLines.length;
@@ -357,8 +425,8 @@ function formatToolResult(output: unknown, isError: boolean, toolName?: string, 
       let isChanged = oLine !== nLine;
       let leftColor = !hasOld ? DIM : isChanged ? FG_RED : DIM;
       let rightColor = !hasNew ? DIM : isChanged ? FG_GREEN : DIM;
-      let leftMarker = !hasOld ? ' ' : isChanged ? '-' : ' ';
-      let rightMarker = !hasNew ? ' ' : isChanged ? '+' : ' ';
+      let leftMarker = !hasOld ? " " : isChanged ? "-" : " ";
+      let rightMarker = !hasNew ? " " : isChanged ? "+" : " ";
 
       const left = `${leftColor}${leftMarker} ${oPad.padEnd(halfWidth)}${RESET}`;
       const right = `${rightColor}${rightMarker} ${nPad.padEnd(halfWidth)}${RESET}`;
@@ -366,107 +434,153 @@ function formatToolResult(output: unknown, isError: boolean, toolName?: string, 
     }
 
     if (maxLines > showLines) {
-      diffLines.push(`  ${DIM}  … (${maxLines - showLines} more lines)${RESET}`);
+      diffLines.push(
+        `  ${DIM}  … (${maxLines - showLines} more lines)${RESET}`,
+      );
     }
 
     // Stats
-    const removed = oldLines.filter((l, i) => i >= newLines.length || l !== newLines[i]).length;
-    const added = newLines.filter((l, i) => i >= oldLines.length || l !== oldLines[i]).length;
-    diffLines.push(`  ${FG_RED}-${removed}${RESET}  ${FG_GREEN}+${added}${RESET}`);
+    const removed = oldLines.filter(
+      (l, i) => i >= newLines.length || l !== newLines[i],
+    ).length;
+    const added = newLines.filter(
+      (l, i) => i >= oldLines.length || l !== oldLines[i],
+    ).length;
+    diffLines.push(
+      `  ${FG_RED}-${removed}${RESET}  ${FG_GREEN}+${added}${RESET}`,
+    );
 
-    return diffLines.join('\n');
+    return diffLines.join("\n");
   }
 
   // ── GrepTool ──
-  if (toolName === 'GrepTool' || toolName === 'Grep') {
+  if (toolName === "GrepTool" || toolName === "Grep") {
     const matches = Array.isArray(o.matches) ? o.matches : [];
-    const trunc = o.truncated ? ' (truncated)' : '';
+    const trunc = o.truncated ? " (truncated)" : "";
     if (matches.length === 0) return `  ${prefix} ${DIM}no matches${RESET}`;
-    return `  ${prefix} ${DIM}${matches.length} match${matches.length > 1 ? 'es' : ''}${trunc}${RESET}`;
+    return `  ${prefix} ${DIM}${matches.length} match${matches.length > 1 ? "es" : ""}${trunc}${RESET}`;
   }
 
   // ── GlobTool ──
-  if (toolName === 'GlobTool' || toolName === 'Glob') {
+  if (toolName === "GlobTool" || toolName === "Glob") {
     const files = Array.isArray(o.files) ? o.files : [];
     if (files.length === 0) return `  ${prefix} ${DIM}no files found${RESET}`;
-    const preview = files.slice(0, 4).map((f: unknown) => String(f)).join(', ');
-    const more = files.length > 4 ? ` +${files.length - 4} more` : '';
+    const preview = files
+      .slice(0, 4)
+      .map((f: unknown) => String(f))
+      .join(", ");
+    const more = files.length > 4 ? ` +${files.length - 4} more` : "";
     return `  ${prefix} ${DIM}${files.length} files: ${preview}${more}${RESET}`;
   }
 
   // ── WebFetchTool ──
-  if (toolName === 'WebFetchTool' || toolName === 'WebFetch') {
-    const content = typeof o.content === 'string' ? o.content : '';
+  if (toolName === "WebFetchTool" || toolName === "WebFetch") {
+    const content = typeof o.content === "string" ? o.content : "";
     if (!content) return `  ${prefix} ${DIM}(empty response)${RESET}`;
     return `  ${prefix} ${DIM}${content.length.toLocaleString()} chars fetched${RESET}`;
   }
 
   // ── WebSearchTool — show results with titles and URLs ──
-  if (toolName === 'WebSearchTool' || toolName === 'Search' || toolName === 'WebSearch') {
-    const results = Array.isArray(o.results) ? o.results as Record<string, unknown>[] : [];
+  if (
+    toolName === "WebSearchTool" ||
+    toolName === "Search" ||
+    toolName === "WebSearch"
+  ) {
+    const results = Array.isArray(o.results)
+      ? (o.results as Record<string, unknown>[])
+      : [];
     if (results.length === 0) return `  ${prefix} ${DIM}no results${RESET}`;
-    let out = `  ${prefix} ${DIM}${results.length} result${results.length !== 1 ? 's' : ''}${RESET}\n`;
+    let out = `  ${prefix} ${DIM}${results.length} result${results.length !== 1 ? "s" : ""}${RESET}\n`;
     for (const r of results.slice(0, 5)) {
-      const title = typeof r.title === 'string' ? r.title : '';
-      const url = typeof r.url === 'string' ? r.url : '';
-      const snippet = typeof r.snippet === 'string' ? r.snippet : '';
-      const shortTitle = title.length > 60 ? title.slice(0, 60) + '…' : title;
-      const shortSnippet = snippet.length > 80 ? snippet.slice(0, 80) + '…' : snippet;
+      const title = typeof r.title === "string" ? r.title : "";
+      const url = typeof r.url === "string" ? r.url : "";
+      const snippet = typeof r.snippet === "string" ? r.snippet : "";
+      const shortTitle = title.length > 60 ? title.slice(0, 60) + "…" : title;
+      const shortSnippet =
+        snippet.length > 80 ? snippet.slice(0, 80) + "…" : snippet;
       out += `    ${FG_WHITE}${shortTitle}${RESET}\n`;
       out += `    ${FG_BLUE}${UNDERLINE}${url}${RESET}\n`;
       if (shortSnippet) out += `    ${DIM}${shortSnippet}${RESET}\n`;
     }
-    if (results.length > 5) out += `    ${DIM}… +${results.length - 5} more${RESET}\n`;
+    if (results.length > 5)
+      out += `    ${DIM}… +${results.length - 5} more${RESET}\n`;
     return out.trimEnd();
   }
 
   // ── AgentTool — show result text with cost ──
-  if (toolName === 'AgentTool' || toolName === 'Agent') {
-    const text = typeof o.result === 'string' ? o.result : '';
-    const costVal = typeof o.cost_usd === 'number' ? o.cost_usd as number : 0;
-    const cost = costVal > 0 ? ` ${DIM}(` + '$' + `${costVal.toFixed(4)})${RESET}` : '';
+  if (toolName === "AgentTool" || toolName === "Agent") {
+    const text = typeof o.result === "string" ? o.result : "";
+    const costVal = typeof o.cost_usd === "number" ? (o.cost_usd as number) : 0;
+    const cost =
+      costVal > 0 ? ` ${DIM}(` + "$" + `${costVal.toFixed(4)})${RESET}` : "";
     if (text) return formatResultText(text, isError, prefix) + cost;
     return `  ${prefix} ${DIM}done${RESET}${cost}`;
   }
 
   // ── Simple confirmation tools ──
-  if (['TodoWriteTool', 'TodoWrite', 'MemoryTool', 'Memory',
-       'ProjectNoteTool', 'ProjectNote', 'SaveProjectRule',
-       'NotebookEditTool', 'NotebookEdit'].includes(toolName || '')) {
-    if (isError && typeof o.error === 'string') return `  ${prefix} ${FG_RED}${o.error}${RESET}`;
+  if (
+    [
+      "TodoWriteTool",
+      "TodoWrite",
+      "MemoryTool",
+      "Memory",
+      "ProjectNoteTool",
+      "ProjectNote",
+      "SaveProjectRule",
+      "NotebookEditTool",
+      "NotebookEdit",
+    ].includes(toolName || "")
+  ) {
+    if (isError && typeof o.error === "string")
+      return `  ${prefix} ${FG_RED}${o.error}${RESET}`;
     return `  ${prefix} ${DIM}done${RESET}`;
   }
 
   // ── ToolSearchTool ──
-  if (toolName === 'ToolSearchTool' || toolName === 'ToolSearch') {
+  if (toolName === "ToolSearchTool" || toolName === "ToolSearch") {
     const matches = Array.isArray(o.matches) ? o.matches : [];
-    if (matches.length === 0) return `  ${prefix} ${DIM}no matching tools${RESET}`;
-    const names = matches.slice(0, 5).map((m: any) => m?.name || m).join(', ');
-    const more = matches.length > 5 ? ` +${matches.length - 5}` : '';
+    if (matches.length === 0)
+      return `  ${prefix} ${DIM}no matching tools${RESET}`;
+    const names = matches
+      .slice(0, 5)
+      .map((m: any) => m?.name || m)
+      .join(", ");
+    const more = matches.length > 5 ? ` +${matches.length - 5}` : "";
     return `  ${prefix} ${DIM}${names}${more}${RESET}`;
   }
 
   // ── Evolve ──
-  if (toolName === 'Evolve' || toolName === 'EvolveTool') {
+  if (toolName === "Evolve" || toolName === "EvolveTool") {
     if (o.created) return `  ${prefix} ${DIM}skill created${RESET}`;
     if (o.improved) return `  ${prefix} ${DIM}skill improved${RESET}`;
     if (o.promoted) return `  ${prefix} ${DIM}skill promoted${RESET}`;
-    if (typeof o.exported === 'number') return `  ${prefix} ${DIM}${o.exported} skills exported${RESET}`;
-    if (Array.isArray(o.candidates)) return `  ${prefix} ${DIM}${(o.candidates as any[]).length} candidates${RESET}`;
+    if (typeof o.exported === "number")
+      return `  ${prefix} ${DIM}${o.exported} skills exported${RESET}`;
+    if (Array.isArray(o.candidates))
+      return `  ${prefix} ${DIM}${(o.candidates as any[]).length} candidates${RESET}`;
     return `  ${prefix} ${DIM}done${RESET}`;
   }
 
   // ── Generic fallback ──
   if (Array.isArray(o.content)) {
-    const textParts = (o.content as any[]).filter((c: any) => c?.type === 'text' && typeof c?.text === 'string').map((c: any) => c.text as string);
-    if (textParts.length > 0) return formatResultText(textParts.join('\n'), isError, prefix);
-    const imgCount = (o.content as any[]).filter((c: any) => c?.type === 'image').length;
-    if (imgCount > 0) return `  ${prefix} ${DIM}${imgCount} image${imgCount > 1 ? 's' : ''}${RESET}`;
+    const textParts = (o.content as any[])
+      .filter((c: any) => c?.type === "text" && typeof c?.text === "string")
+      .map((c: any) => c.text as string);
+    if (textParts.length > 0)
+      return formatResultText(textParts.join("\n"), isError, prefix);
+    const imgCount = (o.content as any[]).filter(
+      (c: any) => c?.type === "image",
+    ).length;
+    if (imgCount > 0)
+      return `  ${prefix} ${DIM}${imgCount} image${imgCount > 1 ? "s" : ""}${RESET}`;
   }
-  const textField = o.output ?? o.stdout ?? o.content ?? o.result ?? o.text ?? o.message;
-  if (typeof textField === 'string' && textField.trim()) return formatResultText(textField, isError, prefix);
+  const textField =
+    o.output ?? o.stdout ?? o.content ?? o.result ?? o.text ?? o.message;
+  if (typeof textField === "string" && textField.trim())
+    return formatResultText(textField, isError, prefix);
   for (const key of Object.keys(o)) {
-    if (Array.isArray(o[key])) return `  ${prefix} ${DIM}${(o[key] as unknown[]).length} ${key}${RESET}`;
+    if (Array.isArray(o[key]))
+      return `  ${prefix} ${DIM}${(o[key] as unknown[]).length} ${key}${RESET}`;
   }
   const compact = JSON.stringify(output);
   if (compact.length <= 100) return `  ${prefix} ${FG_GRAY}${compact}${RESET}`;
@@ -474,44 +588,68 @@ function formatToolResult(output: unknown, isError: boolean, toolName?: string, 
 }
 
 /** Format a text result with truncation and coloring */
-function formatResultText(text: string, isError: boolean, prefix: string): string {
-  text = text.replace(/[A-Za-z0-9+/=]{500,}/g, '[binary data]');
+function formatResultText(
+  text: string,
+  isError: boolean,
+  prefix: string,
+): string {
+  text = text.replace(/[A-Za-z0-9+/=]{500,}/g, "[binary data]");
   const color = isError ? FG_RED : FG_GRAY;
-  let lines = text.split('\n');
+  let lines = text.split("\n");
   while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
-  if (lines.length > 5) { const t = lines.length; lines = lines.slice(0, 5); lines.push(`${DIM}… (${t - 5} more lines)${RESET}`); }
-  let truncated = lines.join('\n');
-  if (truncated.length > 300) truncated = truncated.slice(0, 300) + `${DIM}…${RESET}`;
-  if (!truncated.includes('\n')) return `  ${prefix} ${color}${truncated}${RESET}`;
-  return `  ${prefix}\n${truncated.split('\n').map(l => `  ${color}  ${l}${RESET}`).join('\n')}`;
+  if (lines.length > 5) {
+    const t = lines.length;
+    lines = lines.slice(0, 5);
+    lines.push(`${DIM}… (${t - 5} more lines)${RESET}`);
+  }
+  let truncated = lines.join("\n");
+  if (truncated.length > 300)
+    truncated = truncated.slice(0, 300) + `${DIM}…${RESET}`;
+  if (!truncated.includes("\n"))
+    return `  ${prefix} ${color}${truncated}${RESET}`;
+  return `  ${prefix}\n${truncated
+    .split("\n")
+    .map((l) => `  ${color}  ${l}${RESET}`)
+    .join("\n")}`;
 }
 
 // Minimal IPC client (inline to avoid ESM import issues)
 // ═══════════════════════════════════════════════════════════════
 class IpcClient {
   private socket: net.Socket | null = null;
-  private buffer = '';
+  private buffer = "";
   private nextId = 1;
-  private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private pending = new Map<
+    number,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+  >();
   private notifHandlers = new Map<string, ((params: unknown) => void)[]>();
 
   async connect(socketPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const sock = net.createConnection(socketPath, () => { this.socket = sock; resolve(); });
-      sock.on('data', (d: Buffer) => this.onData(d));
-      sock.on('error', (e) => { if (!this.socket) reject(e); });
-      sock.on('close', () => this.onClose());
+      const sock = net.createConnection(socketPath, () => {
+        this.socket = sock;
+        resolve();
+      });
+      sock.on("data", (d: Buffer) => this.onData(d));
+      sock.on("error", (e) => {
+        if (!this.socket) reject(e);
+      });
+      sock.on("close", () => this.onClose());
     });
   }
 
   async request<T = unknown>(method: string, params?: unknown): Promise<T> {
-    if (!this.socket) throw new Error('Not connected');
+    if (!this.socket) throw new Error("Not connected");
     const id = this.nextId++;
-    const msg: Record<string, unknown> = { jsonrpc: '2.0', method, id };
+    const msg: Record<string, unknown> = { jsonrpc: "2.0", method, id };
     if (params !== undefined) msg.params = params;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-      this.socket!.write(JSON.stringify(msg) + '\n');
+      this.pending.set(id, {
+        resolve: resolve as (v: unknown) => void,
+        reject,
+      });
+      this.socket!.write(JSON.stringify(msg) + "\n");
     });
   }
 
@@ -522,13 +660,16 @@ class IpcClient {
   }
 
   async disconnect(): Promise<void> {
-    if (this.socket) { this.socket.end(); this.socket = null; }
+    if (this.socket) {
+      this.socket.end();
+      this.socket = null;
+    }
   }
 
   private onData(data: Buffer) {
-    this.buffer += data.toString('utf-8');
+    this.buffer += data.toString("utf-8");
     let idx: number;
-    while ((idx = this.buffer.indexOf('\n')) !== -1) {
+    while ((idx = this.buffer.indexOf("\n")) !== -1) {
       const line = this.buffer.slice(0, idx).trim();
       this.buffer = this.buffer.slice(idx + 1);
       if (line) this.handleLine(line);
@@ -537,24 +678,33 @@ class IpcClient {
 
   private handleLine(json: string) {
     let p: Record<string, unknown>;
-    try { p = JSON.parse(json); } catch { return; }
-    if ('id' in p && p.id != null) {
+    try {
+      p = JSON.parse(json);
+    } catch {
+      return;
+    }
+    if ("id" in p && p.id != null) {
       const req = this.pending.get(p.id as number);
       if (req) {
         this.pending.delete(p.id as number);
-        if ('error' in p) req.reject(new Error((p.error as { message: string }).message));
+        if ("error" in p)
+          req.reject(new Error((p.error as { message: string }).message));
         else req.resolve(p.result);
       }
       return;
     }
-    if ('method' in p) {
+    if ("method" in p) {
       const handlers = this.notifHandlers.get(p.method as string);
-      if (handlers) for (const h of handlers) try { h(p.params); } catch {}
+      if (handlers)
+        for (const h of handlers)
+          try {
+            h(p.params);
+          } catch {}
     }
   }
 
   private onClose() {
-    for (const [, p] of this.pending) p.reject(new Error('Connection closed'));
+    for (const [, p] of this.pending) p.reject(new Error("Connection closed"));
     this.pending.clear();
   }
 }
@@ -572,7 +722,7 @@ interface DaemonInfo {
 }
 
 function getSocketDir(): string {
-  return path.join(os.tmpdir(), 'baoclaw-sockets');
+  return path.join(os.tmpdir(), "baoclaw-sockets");
 }
 
 /**
@@ -585,15 +735,19 @@ function getSocketDir(): string {
 function hasApiKey(): boolean {
   if (process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY) return true;
   try {
-    const configPath = path.join(os.homedir(), '.baoclaw', 'config.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    const profileName = config.primary_profile ?? 'primary';
+    const configPath = path.join(os.homedir(), ".baoclaw", "config.json");
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const profileName = config.primary_profile ?? "primary";
     const profile = config.model_profiles?.[profileName];
-    if (profile && typeof profile.api_key === 'string' && profile.api_key.trim() !== '') {
+    if (
+      profile &&
+      typeof profile.api_key === "string" &&
+      profile.api_key.trim() !== ""
+    ) {
       return true;
     }
     // Legacy single-config form: top-level api_key
-    if (typeof config.api_key === 'string' && config.api_key.trim() !== '') {
+    if (typeof config.api_key === "string" && config.api_key.trim() !== "") {
       return true;
     }
   } catch {
@@ -601,7 +755,6 @@ function hasApiKey(): boolean {
   }
   return false;
 }
-
 
 /**
  * Preferred fixed socket path for machine-level single daemon (P3-1c).
@@ -611,23 +764,27 @@ function hasApiKey(): boolean {
  */
 function fixedSocketPath(): string | null {
   const platform = process.platform;
-  if (platform === 'linux') {
+  if (platform === "linux") {
     const xdg = process.env.XDG_RUNTIME_DIR;
     if (xdg && fs.existsSync(xdg)) {
-      return path.join(xdg, 'baoclaw.sock');
+      return path.join(xdg, "baoclaw.sock");
     }
     return null;
   }
   // macOS and others
-  const dir = path.join(os.tmpdir(), 'baoclaw-sockets');
-  return path.join(dir, 'baoclaw.sock');
+  const dir = path.join(os.tmpdir(), "baoclaw-sockets");
+  return path.join(dir, "baoclaw.sock");
 }
 
 /**
  * Cwd-hash socket path (P1-2 backward compat fallback).
  */
 function cwdHashSocketPath(cwd: string): string {
-  const hash = crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+  const hash = crypto
+    .createHash("sha256")
+    .update(cwd)
+    .digest("hex")
+    .slice(0, 16);
   return path.join(getSocketDir(), `baoclaw-cwd-${hash}.sock`);
 }
 
@@ -650,15 +807,23 @@ function discoverDaemons(): DaemonInfo[] {
 
   const daemons: DaemonInfo[] = [];
   for (const file of fs.readdirSync(dir)) {
-    if (!file.endsWith('.json')) continue;
+    if (!file.endsWith(".json")) continue;
     try {
-      const meta: DaemonInfo = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8'));
+      const meta: DaemonInfo = JSON.parse(
+        fs.readFileSync(path.join(dir, file), "utf-8"),
+      );
       // Check if the process is still alive
-      try { process.kill(meta.pid, 0); } catch { continue; } // dead process
+      try {
+        process.kill(meta.pid, 0);
+      } catch {
+        continue;
+      } // dead process
       // Check if socket file exists
       if (!fs.existsSync(meta.socket)) continue;
       daemons.push(meta);
-    } catch { /* skip invalid files */ }
+    } catch {
+      /* skip invalid files */
+    }
   }
   return daemons;
 }
@@ -667,32 +832,42 @@ function discoverDaemons(): DaemonInfo[] {
 async function selectDaemon(daemons: DaemonInfo[]): Promise<DaemonInfo | null> {
   return new Promise((resolve) => {
     console.log(`\n${FG_ORANGE}${BOLD}Running BaoClaw instances:${RESET}\n`);
-    console.log(`  ${FG_WHITE}${BOLD}0${RESET}  ${FG_GREEN}Start new instance${RESET}`);
+    console.log(
+      `  ${FG_WHITE}${BOLD}0${RESET}  ${FG_GREEN}Start new instance${RESET}`,
+    );
     for (let i = 0; i < daemons.length; i++) {
       const d = daemons[i];
       const age = timeSince(d.started_at);
-      const dir = d.cwd.length > 40 ? '…' + d.cwd.slice(-39) : d.cwd;
-      console.log(`  ${FG_WHITE}${BOLD}${i + 1}${RESET}  ${FG_WHITE}${dir}${RESET}  ${DIM}pid=${d.pid} · ${age} · ${d.session_id.slice(0, 8)}${RESET}`);
+      const dir = d.cwd.length > 40 ? "…" + d.cwd.slice(-39) : d.cwd;
+      console.log(
+        `  ${FG_WHITE}${BOLD}${i + 1}${RESET}  ${FG_WHITE}${dir}${RESET}  ${DIM}pid=${d.pid} · ${age} · ${d.session_id.slice(0, 8)}${RESET}`,
+      );
     }
     console.log();
 
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(`${FG_ORANGE}Select [0-${daemons.length}]:${RESET} `, (answer) => {
-      rl.close();
-      const idx = parseInt(answer.trim(), 10);
-      if (isNaN(idx) || idx === 0 || idx > daemons.length) {
-        resolve(null); // start new
-      } else {
-        resolve(daemons[idx - 1]);
-      }
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
     });
+    rl.question(
+      `${FG_ORANGE}Select [0-${daemons.length}]:${RESET} `,
+      (answer) => {
+        rl.close();
+        const idx = parseInt(answer.trim(), 10);
+        if (isNaN(idx) || idx === 0 || idx > daemons.length) {
+          resolve(null); // start new
+        } else {
+          resolve(daemons[idx - 1]);
+        }
+      },
+    );
   });
 }
 
 function timeSince(isoDate: string): string {
   const ms = Date.now() - new Date(isoDate).getTime();
   const mins = Math.floor(ms / 60000);
-  if (mins < 1) return 'just now';
+  if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
@@ -704,48 +879,61 @@ function timeSince(isoDate: string): string {
 // ═══════════════════════════════════════════════════════════════
 async function showHistory(client: IpcClient, count: number) {
   try {
-    const result = await client.request<{ messages: any[]; count: number; total: number }>('talkTail', { count });
+    const result = await client.request<{
+      messages: any[];
+      count: number;
+      total: number;
+    }>("talkTail", { count });
     if (result.count === 0) return;
-    console.log(`\n${FG_ORANGE}${BOLD}━━━ History ━━━${RESET} ${DIM}(${result.count} of ${result.total} messages)${RESET}\n`);
+    console.log(
+      `\n${FG_ORANGE}${BOLD}━━━ History ━━━${RESET} ${DIM}(${result.count} of ${result.total} messages)${RESET}\n`,
+    );
 
     // Track turn numbers for display
     for (let i = 0; i < result.messages.length; i++) {
       const m = result.messages[i];
       // Skip pure tool-result user messages (they're shown inline under assistant tools)
-      if (m.role === 'user' && m.is_tool_result) continue;
+      if (m.role === "user" && m.is_tool_result) continue;
 
-      const ts = m.timestamp ? `${DIM}${m.timestamp.slice(11, 19)}${RESET}` : '';
-      const turnLabel = m.turn ? `${DIM}#${m.turn}${RESET} ` : '';
+      const ts = m.timestamp
+        ? `${DIM}${m.timestamp.slice(11, 19)}${RESET}`
+        : "";
+      const turnLabel = m.turn ? `${DIM}#${m.turn}${RESET} ` : "";
 
-      if (m.role === 'user') {
-        const text = m.text || '';
+      if (m.role === "user") {
+        const text = m.text || "";
         console.log(`${turnLabel}${ts} ${FG_BRIGHT_WHITE}${BOLD}You${RESET}`);
         // Show full text, indented, wrapped at terminal width
-        const lines = text.split('\n');
+        const lines = text.split("\n");
         for (const line of lines) {
           if (line.trim()) {
             console.log(`    ${FG_WHITE}${line}${RESET}`);
           }
         }
-      } else if (m.role === 'assistant') {
-        const text = m.text || '';
-        const cost = m.cost_usd ? `$${Number(m.cost_usd).toFixed(4)}` : '';
-        const dur = m.duration_ms ? `${(m.duration_ms / 1000).toFixed(1)}s` : '';
+      } else if (m.role === "assistant") {
+        const text = m.text || "";
+        const cost = m.cost_usd ? `$${Number(m.cost_usd).toFixed(4)}` : "";
+        const dur = m.duration_ms
+          ? `${(m.duration_ms / 1000).toFixed(1)}s`
+          : "";
         const usage = m.usage;
         const tokenInfo = usage
-          ? `${FG_CYAN}${usage.input_tokens || 0}in/${usage.output_tokens || 0}out${usage.cache_read_input_tokens ? ` (${usage.cache_read_input_tokens}cache)` : ''}${RESET}`
-          : '';
-        const stats = [cost, dur, tokenInfo].filter(Boolean).join(' · ');
+          ? `${FG_CYAN}${usage.input_tokens || 0}in/${usage.output_tokens || 0}out${usage.cache_read_input_tokens ? ` (${usage.cache_read_input_tokens}cache)` : ""}${RESET}`
+          : "";
+        const stats = [cost, dur, tokenInfo].filter(Boolean).join(" · ");
 
-        const toolBadge = m.tools && m.tools.length > 0
-          ? ` ${FG_MAGENTA}[${m.tools.length} tool${m.tools.length > 1 ? 's' : ''}]${RESET}`
-          : '';
+        const toolBadge =
+          m.tools && m.tools.length > 0
+            ? ` ${FG_MAGENTA}[${m.tools.length} tool${m.tools.length > 1 ? "s" : ""}]${RESET}`
+            : "";
 
-        console.log(`${turnLabel}${ts} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge} ${stats ? `${DIM}${stats}${RESET}` : ''}`);
+        console.log(
+          `${turnLabel}${ts} ${FG_ORANGE}${BOLD}BC${RESET}${toolBadge} ${stats ? `${DIM}${stats}${RESET}` : ""}`,
+        );
 
         // Show full assistant text, indented
         if (text.trim()) {
-          const lines = text.split('\n');
+          const lines = text.split("\n");
           for (const line of lines) {
             console.log(`    ${line}`);
           }
@@ -754,23 +942,33 @@ async function showHistory(client: IpcClient, count: number) {
         // Show tool call details with results
         if (m.tools && m.tools.length > 0) {
           for (const t of m.tools) {
-            const toolName = t.name || '';
-            const detail = t.detail || '';
-            console.log(`    ${FG_MAGENTA}├─ ${toolName}${RESET}${detail ? ` ${DIM}${detail}${RESET}` : ''}`);
+            const toolName = t.name || "";
+            const detail = t.detail || "";
+            console.log(
+              `    ${FG_MAGENTA}├─ ${toolName}${RESET}${detail ? ` ${DIM}${detail}${RESET}` : ""}`,
+            );
             // Show tool result if available (truncated to ~500 chars for readability)
             if (t.result) {
-              const resultStr = typeof t.result === 'string' ? t.result : JSON.stringify(t.result, null, 2);
-              const resultLines = resultStr.split('\n').slice(0, 15); // Max 15 lines
+              const resultStr =
+                typeof t.result === "string"
+                  ? t.result
+                  : JSON.stringify(t.result, null, 2);
+              const resultLines = resultStr.split("\n").slice(0, 15); // Max 15 lines
               for (const rl of resultLines) {
                 console.log(`    ${FG_GRAY}│  ${rl.slice(0, 120)}${RESET}`);
               }
-              if (resultStr.split('\n').length > 15 || resultStr.length > 1800) {
-                console.log(`    ${FG_GRAY}│  ... (${resultStr.length} chars total)${RESET}`);
+              if (
+                resultStr.split("\n").length > 15 ||
+                resultStr.length > 1800
+              ) {
+                console.log(
+                  `    ${FG_GRAY}│  ... (${resultStr.length} chars total)${RESET}`,
+                );
               }
             }
           }
         }
-      } else if (m.role === 'system') {
+      } else if (m.role === "system") {
         console.log(`  ${ts} ${DIM}[system]${RESET}`);
       }
 
@@ -779,27 +977,32 @@ async function showHistory(client: IpcClient, count: number) {
         console.log();
       }
     }
-    console.log(`\n${DIM}${'─'.repeat(50)}${RESET}\n`);
-  } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+    console.log(`\n${DIM}${"─".repeat(50)}${RESET}\n`);
+  } catch (err) {
+    console.error(`${FG_RED}${err}${RESET}`);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Daemon launcher
 // ═══════════════════════════════════════════════════════════════
-async function startNewDaemon(binaryPath: string, sandboxMode?: string): Promise<string> {
-  startSpinner('Starting BaoClaw engine...');
+async function startNewDaemon(
+  binaryPath: string,
+  sandboxMode?: string,
+): Promise<string> {
+  startSpinner("Starting BaoClaw engine...");
 
   // Build daemon args: always include --daemon and --cwd; forward --sandbox if set
-  const daemonArgs: string[] = ['--daemon', '--cwd', process.cwd()];
+  const daemonArgs: string[] = ["--daemon", "--cwd", process.cwd()];
   if (sandboxMode) {
-    daemonArgs.push('--sandbox', sandboxMode);
+    daemonArgs.push("--sandbox", sandboxMode);
   }
 
   const child = spawn(binaryPath, daemonArgs, {
     cwd: process.cwd(),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
-    detached: true,  // Survives parent exit
+    detached: true, // Survives parent exit
   });
 
   // Don't let the child keep the parent alive
@@ -808,32 +1011,37 @@ async function startNewDaemon(binaryPath: string, sandboxMode?: string): Promise
   // Prevent zombie: ensure daemon child is reaped even after we unref'd.
   // Without this, if the daemon crashes, its zombie persists because
   // we removed all listeners and the parent never waitpid()'s it.
-  child.on('exit', () => {});
+  child.on("exit", () => {});
 
-  let stderr = '';
-  child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+  let stderr = "";
+  child.stderr?.on("data", (d: Buffer) => {
+    stderr += d.toString();
+  });
 
   const socketPath = await new Promise<string>((resolve, reject) => {
-    let buf = '';
+    let buf = "";
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`Timeout waiting for engine startup.\n${stderr}`));
     }, 60000);
 
-    child.stdout?.on('data', (data: Buffer) => {
+    child.stdout?.on("data", (data: Buffer) => {
       buf += data.toString();
-      for (const line of buf.split('\n')) {
-        if (line.startsWith('SOCKET:')) {
+      for (const line of buf.split("\n")) {
+        if (line.startsWith("SOCKET:")) {
           clearTimeout(timer);
           // Detach stdout after getting socket path
           child.stdout?.removeAllListeners();
           child.stderr?.removeAllListeners();
-          resolve(line.slice('SOCKET:'.length).trim());
+          resolve(line.slice("SOCKET:".length).trim());
           return;
         }
       }
     });
-    child.on('error', (e) => { clearTimeout(timer); reject(e); });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
   });
 
   stopSpinner();
@@ -844,12 +1052,39 @@ async function startNewDaemon(binaryPath: string, sandboxMode?: string): Promise
 // Autocomplete
 // ═══════════════════════════════════════════════════════════════
 const COMMANDS = [
-  '/tools', '/mcp', '/skills', '/plugins', '/help', '/quit',
-  '/shutdown', '/compact', '/think', '/model', '/commit', '/diff', '/git',
-  '/clear', '/abort', '/task', '/voice', '/telemetry', '/telegram', '/memory', '/debug',
-  '/projects', '/cron', '/history', '/doc', '/team',
-  '/template', '/permission', '/permissions',
-  '/tokens', '/cost', '/session', '/config',
+  "/tools",
+  "/mcp",
+  "/skills",
+  "/plugins",
+  "/help",
+  "/quit",
+  "/shutdown",
+  "/compact",
+  "/think",
+  "/model",
+  "/commit",
+  "/diff",
+  "/git",
+  "/clear",
+  "/abort",
+  "/task",
+  "/voice",
+  "/telemetry",
+  "/telegram",
+  "/memory",
+  "/debug",
+  "/projects",
+  "/cron",
+  "/history",
+  "/doc",
+  "/team",
+  "/template",
+  "/permission",
+  "/permissions",
+  "/tokens",
+  "/cost",
+  "/session",
+  "/config",
 ];
 
 /**
@@ -857,12 +1092,8 @@ const COMMANDS = [
  */
 function getFileCompletions(partial: string): string[] {
   try {
-    const dir = partial.includes('/')
-      ? path.dirname(partial)
-      : '.';
-    const prefix = partial.includes('/')
-      ? path.basename(partial)
-      : partial;
+    const dir = partial.includes("/") ? path.dirname(partial) : ".";
+    const prefix = partial.includes("/") ? path.basename(partial) : partial;
 
     const dirPath = path.resolve(process.cwd(), dir);
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -870,8 +1101,8 @@ function getFileCompletions(partial: string): string[] {
 
     for (const entry of entries) {
       if (entry.name.startsWith(prefix)) {
-        const full = dir === '.' ? entry.name : path.join(dir, entry.name);
-        matches.push(entry.isDirectory() ? full + '/' : full);
+        const full = dir === "." ? entry.name : path.join(dir, entry.name);
+        matches.push(entry.isDirectory() ? full + "/" : full);
       }
     }
     return matches;
@@ -885,23 +1116,23 @@ function getFileCompletions(partial: string): string[] {
  */
 function completer(line: string): [string[], string] {
   // Command completion
-  if (line.startsWith('/')) {
-    const matches = COMMANDS.filter(c => c.startsWith(line));
+  if (line.startsWith("/")) {
+    const matches = COMMANDS.filter((c) => c.startsWith(line));
     return [matches, line];
   }
 
   // File path completion on the last whitespace-separated token
   const tokens = line.split(/\s+/);
-  const last = tokens[tokens.length - 1] || '';
+  const last = tokens[tokens.length - 1] || "";
 
   // @file completion for attachments
-  if (last.startsWith('@')) {
+  if (last.startsWith("@")) {
     const partial = last.slice(1);
-    const matches = getFileCompletions(partial).map(m => '@' + m);
+    const matches = getFileCompletions(partial).map((m) => "@" + m);
     return [matches.length > 0 ? matches : [last], last];
   }
 
-  if (last.includes('/') || last.includes('.')) {
+  if (last.includes("/") || last.includes(".")) {
     const matches = getFileCompletions(last);
     return [matches.length > 0 ? matches : [last], last];
   }
@@ -913,48 +1144,54 @@ function completer(line: string): [string[], string] {
 // Main
 // ═══════════════════════════════════════════════════════════════
 async function main() {
-  const defaultBin = path.resolve(process.cwd(), 'baoclaw-core', 'target', 'release', 'baoclaw-core');
+  const defaultBin = path.resolve(
+    process.cwd(),
+    "baoclaw-core",
+    "target",
+    "release",
+    "baoclaw-core",
+  );
   const binaryPath = path.resolve(process.env.BAOCLAW_CORE_BIN ?? defaultBin);
 
   // Parse CLI flags
   const args = process.argv.slice(2);
   let thinkingEnabled = false;
   let thinkingBudget = 10240;
-  const vimMode = args.includes('--vim') || process.env.BAOCLAW_VIM === '1';
+  const vimMode = args.includes("--vim") || process.env.BAOCLAW_VIM === "1";
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--think') {
+    if (args[i] === "--think") {
       thinkingEnabled = true;
       // Check if next arg is a number (budget)
       if (i + 1 < args.length && /^\d+$/.test(args[i + 1])) {
         thinkingBudget = parseInt(args[i + 1], 10);
         i++;
       }
-    } else if (args[i]?.startsWith('--think=')) {
+    } else if (args[i]?.startsWith("--think=")) {
       thinkingEnabled = true;
-      const val = args[i].split('=')[1];
+      const val = args[i].split("=")[1];
       if (val && /^\d+$/.test(val)) {
         thinkingBudget = parseInt(val, 10);
       }
     }
   }
   // --debug flag: enable timing instrumentation for the first query
-  const cliDebugMode = args.includes('--debug');
+  const cliDebugMode = args.includes("--debug");
 
   // --sandbox flag: forward to daemon for sandboxed bash execution
   let sandboxMode: string | undefined;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--sandbox') {
-      if (i + 1 < args.length && !args[i + 1]?.startsWith('--')) {
+    if (args[i] === "--sandbox") {
+      if (i + 1 < args.length && !args[i + 1]?.startsWith("--")) {
         sandboxMode = args[i + 1]; // e.g. --sandbox docker
         i++;
       } else {
-        sandboxMode = 'auto'; // just --sandbox → auto-detect
+        sandboxMode = "auto"; // just --sandbox → auto-detect
       }
-    } else if (args[i]?.startsWith('--sandbox=')) {
-      sandboxMode = args[i].split('=')[1]; // e.g. --sandbox=bwrap
+    } else if (args[i]?.startsWith("--sandbox=")) {
+      sandboxMode = args[i].split("=")[1]; // e.g. --sandbox=bwrap
     }
   }
-  if (sandboxMode === 'auto') {
+  if (sandboxMode === "auto") {
     sandboxMode = undefined; // let baoclaw-core auto-detect (no value = just --sandbox)
   }
 
@@ -963,9 +1200,15 @@ async function main() {
   // this gate only needs to ensure at least one source is available.
   if (!hasApiKey()) {
     console.error(`${FG_RED}${BOLD}Error:${RESET} No API key found.`);
-    console.error(`${DIM}Option 1 — env:${RESET} export ANTHROPIC_API_KEY=sk-ant-...`);
-    console.error(`${DIM}Option 2 — config:${RESET} set \`api_key\` in ~/.baoclaw/config.json →`);
-    console.error(`${DIM}  { "model_profiles": { "primary": { "api_key": "...", ... } },`);
+    console.error(
+      `${DIM}Option 1 — env:${RESET} export ANTHROPIC_API_KEY=sk-ant-...`,
+    );
+    console.error(
+      `${DIM}Option 2 — config:${RESET} set \`api_key\` in ~/.baoclaw/config.json →`,
+    );
+    console.error(
+      `${DIM}  { "model_profiles": { "primary": { "api_key": "...", ... } },`,
+    );
     console.error(`${DIM}      "primary_profile": "primary" }${RESET}`);
     process.exit(1);
   }
@@ -1003,58 +1246,89 @@ async function main() {
 
   // Connect IPC
   const client = new IpcClient();
-  startSpinner('Connecting to engine (loading MCP servers)...');
+  startSpinner("Connecting to engine (loading MCP servers)...");
   await client.connect(socketPath);
 
   // Initialize
   const thinkingSettings = thinkingEnabled
-    ? { thinking: { mode: 'enabled', budget_tokens: thinkingBudget } }
+    ? { thinking: { mode: "enabled", budget_tokens: thinkingBudget } }
     : {};
-  const initResult = await client.request<{ capabilities: Record<string, unknown>; session_id: string; reconnected?: boolean; message_count?: number; shared?: boolean }>(
-    'initialize',
-    { cwd: effectiveCwd, settings: { ...thinkingSettings }, shared_session_id: 'default' }
-  );
+  const initResult = await client.request<{
+    capabilities: Record<string, unknown>;
+    session_id: string;
+    reconnected?: boolean;
+    message_count?: number;
+    shared?: boolean;
+  }>("initialize", {
+    cwd: effectiveCwd,
+    settings: { ...thinkingSettings },
+    shared_session_id: "default",
+  });
 
   stopSpinner();
 
   if (initResult.reconnected) {
-    console.log(`\n${FG_GREEN}${BOLD}Reconnected${RESET} ${DIM}to session ${initResult.session_id} (${initResult.message_count} messages in history)${RESET}\n`);
+    console.log(
+      `\n${FG_GREEN}${BOLD}Reconnected${RESET} ${DIM}to session ${initResult.session_id} (${initResult.message_count} messages in history)${RESET}\n`,
+    );
   }
-  const activeModel = process.env.ANTHROPIC_MODEL || (() => {
-    try {
-      const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.baoclaw', 'config.json'), 'utf-8'));
-      // Prefer the active model profile (matches core's resolve order), then legacy fields.
-      const profileName = cfg.primary_profile ?? 'primary';
-      const profileModel = cfg.model_profiles?.[profileName]?.model;
-      return profileModel || cfg.model || 'claude-sonnet-4-20250514';
-    } catch { return 'claude-sonnet-4-20250514'; }
-  })();
+  const activeModel =
+    process.env.ANTHROPIC_MODEL ||
+    (() => {
+      try {
+        const cfg = JSON.parse(
+          fs.readFileSync(
+            path.join(os.homedir(), ".baoclaw", "config.json"),
+            "utf-8",
+          ),
+        );
+        // Prefer the active model profile (matches core's resolve order), then legacy fields.
+        const profileName = cfg.primary_profile ?? "primary";
+        const profileModel = cfg.model_profiles?.[profileName]?.model;
+        return profileModel || cfg.model || "claude-sonnet-4-20250514";
+      } catch {
+        return "claude-sonnet-4-20250514";
+      }
+    })();
   printWelcome(initResult.session_id, activeModel, effectiveCwd);
 
   // ── Auto-register project and prompt for description if new ──
   try {
-    const projCheck = await client.request<{ projects: any[] }>('projectsList');
-    const existing = projCheck.projects.find((p: any) => p.cwd === effectiveCwd);
+    const projCheck = await client.request<{ projects: any[] }>("projectsList");
+    const existing = projCheck.projects.find(
+      (p: any) => p.cwd === effectiveCwd,
+    );
     if (!existing) {
       const defaultDesc = path.basename(effectiveCwd);
-      const descRl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      const desc = await new Promise<string>((resolve) => {
-        descRl.question(`${FG_ORANGE}Project description${RESET} ${DIM}[${defaultDesc}]${RESET}: `, (answer) => {
-          descRl.close();
-          resolve(answer.trim() || defaultDesc);
-        });
+      const descRl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
       });
-      await client.request('projectsNew', { cwd: effectiveCwd, description: desc });
+      const desc = await new Promise<string>((resolve) => {
+        descRl.question(
+          `${FG_ORANGE}Project description${RESET} ${DIM}[${defaultDesc}]${RESET}: `,
+          (answer) => {
+            descRl.close();
+            resolve(answer.trim() || defaultDesc);
+          },
+        );
+      });
+      await client.request("projectsNew", {
+        cwd: effectiveCwd,
+        description: desc,
+      });
       console.log(`${DIM}  Registered project: ${desc}${RESET}\n`);
     }
-  } catch { /* ignore registration errors */ }
+  } catch {
+    /* ignore registration errors */
+  }
 
   // ── Auto-display recent history (last 5 messages) if session has history ──
   await showHistory(client, 5);
 
   // ── Stream event handling ──
   let isStreaming = false;
-  let currentText = '';
+  let currentText = "";
   let toolCount = 0;
   let queryStartTime = 0;
   // Track tool_use_id → tool_name for smart result formatting
@@ -1067,11 +1341,14 @@ async function main() {
   let debugMode = cliDebugMode;
   let firstQueryDone = false; // only instrument the very first query per session
   // Sub-step timestamps for the current query
-  let debugSubmitTime = 0;        // when submitMessage was sent
-  let debugFirstEventTime = 0;    // TTFB: first stream event (thinking_chunk / assistant_chunk)
+  let debugSubmitTime = 0; // when submitMessage was sent
+  let debugFirstEventTime = 0; // TTFB: first stream event (thinking_chunk / assistant_chunk)
   let debugThinkingStartTime = 0; // when first thinking_chunk arrived
-  let debugThinkingEndTime = 0;   // when first assistant_chunk arrived (or tool_use if no assistant_chunk)
-  let debugToolTimes = new Map<string, { name: string; start: number; end: number }>();
+  let debugThinkingEndTime = 0; // when first assistant_chunk arrived (or tool_use if no assistant_chunk)
+  let debugToolTimes = new Map<
+    string,
+    { name: string; start: number; end: number }
+  >();
 
   function resetDebugTimers() {
     debugSubmitTime = 0;
@@ -1087,12 +1364,19 @@ async function main() {
   }
 
   // ── Turn stack for nested rendering ──
-  type TurnInfo = { id: number; parent: number | null; label: string | null; start: number };
+  type TurnInfo = {
+    id: number;
+    parent: number | null;
+    label: string | null;
+    start: number;
+  };
   const turnStack: TurnInfo[] = [];
-  function turnDepth(): number { return turnStack.length; }
+  function turnDepth(): number {
+    return turnStack.length;
+  }
   function turnPrefix(): string {
-    if (turnStack.length === 0) return '';
-    return turnStack.map(() => '│ ').join('');
+    if (turnStack.length === 0) return "";
+    return turnStack.map(() => "│ ").join("");
   }
   function formatTokens(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -1106,12 +1390,12 @@ async function main() {
   let cumulativeCostUsd = 0;
   const CONTEXT_WINDOW = 200_000;
 
-  client.onNotification('stream/event', (params: unknown) => {
+  client.onNotification("stream/event", (params: unknown) => {
     const event = params as Record<string, unknown>;
-    if (!event || typeof event !== 'object') return;
+    if (!event || typeof event !== "object") return;
 
     switch (event.type) {
-      case 'assistant_chunk': {
+      case "assistant_chunk": {
         stopSpinner();
         const content = (event as { content: string }).content;
         if (!isStreaming) {
@@ -1129,7 +1413,7 @@ async function main() {
         break;
       }
 
-      case 'thinking_chunk': {
+      case "thinking_chunk": {
         stopSpinner();
         const content = (event as { content: string }).content;
         if (!isStreaming) {
@@ -1146,40 +1430,68 @@ async function main() {
         break;
       }
 
-      case 'tool_use': {
+      case "tool_use": {
         stopSpinner();
         if (isStreaming) {
           // Debug: if thinking was ongoing, mark end of thinking at tool_use
-          if (debugMode && !firstQueryDone && debugThinkingStartTime > 0 && !debugThinkingEndTime) {
+          if (
+            debugMode &&
+            !firstQueryDone &&
+            debugThinkingStartTime > 0 &&
+            !debugThinkingEndTime
+          ) {
             debugThinkingEndTime = Date.now();
           }
           // Flush accumulated text before showing tool use
           if (currentText.trim()) {
-            process.stdout.write(`\n${turnPrefix()}${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
-            const renderedLines = renderMarkdown(currentText).split('\n');
-            process.stdout.write(renderedLines.map(l => turnPrefix() + l).join('\n'));
-            process.stdout.write('\n');
-            currentText = '';
+            process.stdout.write(
+              `\n${turnPrefix()}${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`,
+            );
+            const renderedLines = renderMarkdown(currentText).split("\n");
+            process.stdout.write(
+              renderedLines.map((l) => turnPrefix() + l).join("\n"),
+            );
+            process.stdout.write("\n");
+            currentText = "";
           }
           isStreaming = false;
         }
         toolCount++;
-        const tu = event as { tool_name: string; input: unknown; tool_use_id: string };
-        pendingTools.set(tu.tool_use_id, { name: tu.tool_name, input: tu.input });
+        const tu = event as {
+          tool_name: string;
+          input: unknown;
+          tool_use_id: string;
+        };
+        pendingTools.set(tu.tool_use_id, {
+          name: tu.tool_name,
+          input: tu.input,
+        });
         // Debug: record tool start time
         if (debugMode && !firstQueryDone) {
-          debugToolTimes.set(tu.tool_use_id, { name: tu.tool_name, start: Date.now(), end: 0 });
+          debugToolTimes.set(tu.tool_use_id, {
+            name: tu.tool_name,
+            start: Date.now(),
+            end: 0,
+          });
         }
         console.log(turnPrefix() + formatToolUse(tu.tool_name, tu.input));
         startSpinner(`${tu.tool_name}…`);
         break;
       }
 
-      case 'tool_result': {
+      case "tool_result": {
         stopSpinner();
-        const tr = event as { tool_use_id: string; output: unknown; is_error: boolean };
+        const tr = event as {
+          tool_use_id: string;
+          output: unknown;
+          is_error: boolean;
+        };
         // Debug: record tool end time
-        if (debugMode && !firstQueryDone && debugToolTimes.has(tr.tool_use_id)) {
+        if (
+          debugMode &&
+          !firstQueryDone &&
+          debugToolTimes.has(tr.tool_use_id)
+        ) {
           const entry = debugToolTimes.get(tr.tool_use_id)!;
           entry.end = Date.now();
         }
@@ -1187,150 +1499,245 @@ async function main() {
         pendingTools.delete(tr.tool_use_id);
         // Extract & save any image content blocks from tool output
         extractAndSaveImages(tr.output);
-        const logLevel = (globalThis as any).__baoclaw_log_level ?? 'verbose';
+        const logLevel = (globalThis as any).__baoclaw_log_level ?? "verbose";
         // quiet: skip all tool results; normal: skip success results
-        if (logLevel === 'quiet') break;
-        if (logLevel === 'normal' && !tr.is_error) break;
-        console.log(turnPrefix() + formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input));
+        if (logLevel === "quiet") break;
+        if (logLevel === "normal" && !tr.is_error) break;
+        console.log(
+          turnPrefix() +
+            formatToolResult(
+              tr.output,
+              tr.is_error,
+              toolInfo?.name,
+              toolInfo?.input,
+            ),
+        );
         break;
       }
 
-      case 'turn_start': {
-        const t = event as { turn_id: number; parent_turn_id: number | null; agent_label: string | null };
-        turnStack.push({ id: t.turn_id, parent: t.parent_turn_id ?? null, label: t.agent_label ?? null, start: Date.now() });
-        const depthBar = turnStack.length > 1 ? turnStack.slice(0, -1).map(() => '│ ').join('') : '';
-        const which = t.parent_turn_id != null ? `Subagent Turn ${t.turn_id}` : `Turn ${t.turn_id}`;
-        const labelText = t.agent_label ? ` ${FG_GRAY}${t.agent_label}${RESET}` : '';
+      case "turn_start": {
+        const t = event as {
+          turn_id: number;
+          parent_turn_id: number | null;
+          agent_label: string | null;
+        };
+        turnStack.push({
+          id: t.turn_id,
+          parent: t.parent_turn_id ?? null,
+          label: t.agent_label ?? null,
+          start: Date.now(),
+        });
+        const depthBar =
+          turnStack.length > 1
+            ? turnStack
+                .slice(0, -1)
+                .map(() => "│ ")
+                .join("")
+            : "";
+        const which =
+          t.parent_turn_id != null
+            ? `Subagent Turn ${t.turn_id}`
+            : `Turn ${t.turn_id}`;
+        const labelText = t.agent_label
+          ? ` ${FG_GRAY}${t.agent_label}${RESET}`
+          : "";
         console.log(`${depthBar}${FG_ORANGE}┌─ ${which}${labelText}${RESET}`);
         break;
       }
 
-      case 'turn_end': {
-        const t = event as { turn_id: number; duration_ms: number; tool_count: number; input_tokens: number; output_tokens: number };
+      case "turn_end": {
+        const t = event as {
+          turn_id: number;
+          duration_ms: number;
+          tool_count: number;
+          input_tokens: number;
+          output_tokens: number;
+        };
         const info = turnStack.pop();
-        const depthBar = turnStack.map(() => '│ ').join('');
+        const depthBar = turnStack.map(() => "│ ").join("");
         const seconds = (t.duration_ms / 1000).toFixed(1);
         const totalTok = t.input_tokens + t.output_tokens;
         cumulativeInputTokens += t.input_tokens;
         cumulativeOutputTokens += t.output_tokens;
         console.log(
-          `${depthBar}${FG_ORANGE}└─ Turn ${t.turn_id} done${RESET} ${DIM}${t.tool_count} tools, ${seconds}s, ${formatTokens(totalTok)} tokens${RESET}`
+          `${depthBar}${FG_ORANGE}└─ Turn ${t.turn_id} done${RESET} ${DIM}${t.tool_count} tools, ${seconds}s, ${formatTokens(totalTok)} tokens${RESET}`,
         );
         break;
       }
 
-      case 'progress': {
-        const pg = event as { tool_use_id: string; data: Record<string, unknown> };
-        const msg = String(pg.data?.message ?? '');
+      case "progress": {
+        const pg = event as {
+          tool_use_id: string;
+          data: Record<string, unknown>;
+        };
+        const msg = String(pg.data?.message ?? "");
         // Highlight compaction events prominently
-        if (msg.toLowerCase().includes('compact')) {
+        if (msg.toLowerCase().includes("compact")) {
           stopSpinner();
-          console.log('');
+          console.log("");
           console.log(`${FG_CYAN}━━━━━ 📦 ${msg} ━━━━━${RESET}`);
-          console.log('');
+          console.log("");
           break;
         }
-        const info = pg.data?.sub_agent_tool || pg.data?.percent || msg || '';
+        const info = pg.data?.sub_agent_tool || pg.data?.percent || msg || "";
         if (spinnerInterval) {
           spinnerMessage = `${info}`;
         }
         break;
       }
 
-      case 'permission_request': {
+      case "permission_request": {
         stopSpinner();
-        if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
-        const pr = event as { tool_name: string; input: Record<string, unknown>; tool_use_id: string };
+        if (isStreaming) {
+          process.stdout.write("\n");
+          isStreaming = false;
+        }
+        const pr = event as {
+          tool_name: string;
+          input: Record<string, unknown>;
+          tool_use_id: string;
+        };
 
         // Show a compact permission prompt
         const inp = pr.input || {};
-        const paramPreview = Object.keys(inp).slice(0, 2).map(k => {
-          const v = String(inp[k] ?? '');
-          return `${k}=${v.length > 30 ? v.slice(0, 30) + '…' : v}`;
-        }).join(', ');
+        const paramPreview = Object.keys(inp)
+          .slice(0, 2)
+          .map((k) => {
+            const v = String(inp[k] ?? "");
+            return `${k}=${v.length > 30 ? v.slice(0, 30) + "…" : v}`;
+          })
+          .join(", ");
 
-        console.log(`\n  ${FG_YELLOW}⚠ Permission${RESET}  ${FG_WHITE}${BOLD}${pr.tool_name}${RESET}  ${DIM}${paramPreview}${RESET}`);
-        console.log(`    ${FG_GREEN}[y]${RESET} Allow  ${FG_GREEN}[a]${RESET} Always  ${FG_RED}[n]${RESET} Deny`);
+        console.log(
+          `\n  ${FG_YELLOW}⚠ Permission${RESET}  ${FG_WHITE}${BOLD}${pr.tool_name}${RESET}  ${DIM}${paramPreview}${RESET}`,
+        );
+        console.log(
+          `    ${FG_GREEN}[y]${RESET} Allow  ${FG_GREEN}[a]${RESET} Always  ${FG_RED}[n]${RESET} Deny`,
+        );
 
-        const permRl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const permRl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
         permRl.question(`  ${FG_ORANGE}> ${RESET}`, async (answer: string) => {
           permRl.close();
           let decision: string;
           let rule: string | undefined;
           switch (answer.trim().toLowerCase()) {
-            case 'y': decision = 'allow'; break;
-            case 'a': decision = 'allow_always'; rule = pr.tool_name; break;
-            case 'n': default: decision = 'deny'; break;
+            case "y":
+              decision = "allow";
+              break;
+            case "a":
+              decision = "allow_always";
+              rule = pr.tool_name;
+              break;
+            case "n":
+            default:
+              decision = "deny";
+              break;
           }
           try {
-            await client.request('permissionResponse', {
+            await client.request("permissionResponse", {
               tool_use_id: pr.tool_use_id,
               decision,
               rule,
             });
           } catch (err) {
-            console.error(`${FG_RED}Failed to send permission response: ${err}${RESET}`);
+            console.error(
+              `${FG_RED}Failed to send permission response: ${err}${RESET}`,
+            );
           }
-          if (decision !== 'deny') {
+          if (decision !== "deny") {
             startSpinner(`Running ${pr.tool_name}...`);
           }
         });
         break;
       }
 
-      case 'result': {
+      case "result": {
         stopSpinner();
         if (isStreaming) {
           // Render accumulated assistant text through Markdown renderer
           process.stdout.write(`\n${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
           process.stdout.write(renderMarkdown(currentText));
-          process.stdout.write('\n');
+          process.stdout.write("\n");
           isStreaming = false;
-        } else if (queryStartTime > 0 && !currentText.trim() && toolCount === 0) {
+        } else if (
+          queryStartTime > 0 &&
+          !currentText.trim() &&
+          toolCount === 0
+        ) {
           // AI returned without any text or tool use — show a hint
           const r = event as { status?: string };
-          if (r.status === 'complete') {
-            console.log(`\n${DIM}  (empty response — try rephrasing or providing more context)${RESET}\n`);
+          if (r.status === "complete") {
+            console.log(
+              `\n${DIM}  (empty response — try rephrasing or providing more context)${RESET}\n`,
+            );
           }
         }
         // Only show stats bar for actual queries (skip stale/duplicate events)
         if (queryStartTime > 0) {
-          const result = event as { status: string; num_turns: number; duration_ms: number; usage?: { input_tokens: number; output_tokens: number }; total_cost_usd?: number };
+          const result = event as {
+            status: string;
+            num_turns: number;
+            duration_ms: number;
+            usage?: { input_tokens: number; output_tokens: number };
+            total_cost_usd?: number;
+          };
           const elapsed = Date.now() - queryStartTime;
-          const elapsedStr = elapsed >= 60000
-            ? `${(elapsed / 60000).toFixed(1)}m`
-            : `${(elapsed / 1000).toFixed(1)}s`;
-  
+          const elapsedStr =
+            elapsed >= 60000
+              ? `${(elapsed / 60000).toFixed(1)}m`
+              : `${(elapsed / 1000).toFixed(1)}s`;
+
           // Build a clean stats line with separators
           const statParts: string[] = [];
           if (toolCount > 0) {
-            statParts.push(`${FG_MAGENTA}⚡ ${toolCount} tool${toolCount > 1 ? 's' : ''}${RESET}`);
+            statParts.push(
+              `${FG_MAGENTA}⚡ ${toolCount} tool${toolCount > 1 ? "s" : ""}${RESET}`,
+            );
           }
-          if (result.usage && (result.usage.input_tokens > 0 || result.usage.output_tokens > 0)) {
-            const inp = result.usage.input_tokens >= 1000
-              ? `${(result.usage.input_tokens / 1000).toFixed(1)}k`
-              : `${result.usage.input_tokens}`;
-            const out = result.usage.output_tokens >= 1000
-              ? `${(result.usage.output_tokens / 1000).toFixed(1)}k`
-              : `${result.usage.output_tokens}`;
+          if (
+            result.usage &&
+            (result.usage.input_tokens > 0 || result.usage.output_tokens > 0)
+          ) {
+            const inp =
+              result.usage.input_tokens >= 1000
+                ? `${(result.usage.input_tokens / 1000).toFixed(1)}k`
+                : `${result.usage.input_tokens}`;
+            const out =
+              result.usage.output_tokens >= 1000
+                ? `${(result.usage.output_tokens / 1000).toFixed(1)}k`
+                : `${result.usage.output_tokens}`;
             statParts.push(`${FG_CYAN}↑${inp} ↓${out}${RESET}`);
           }
           if (result.total_cost_usd && result.total_cost_usd > 0) {
-            statParts.push(`${FG_YELLOW}$${result.total_cost_usd.toFixed(4)}${RESET}`);
+            statParts.push(
+              `${FG_YELLOW}$${result.total_cost_usd.toFixed(4)}${RESET}`,
+            );
           }
           statParts.push(`${FG_GRAY}${elapsedStr}${RESET}`);
-  
+
           const statsLine = statParts.join(`${FG_GRAY} │ ${RESET}`);
-          console.log(`\n${FG_GRAY}  ─${RESET} ${statsLine} ${FG_GRAY}─${RESET}\n`);
+          console.log(
+            `\n${FG_GRAY}  ─${RESET} ${statsLine} ${FG_GRAY}─${RESET}\n`,
+          );
 
           // Token/cost status footer
           if (result.total_cost_usd && result.total_cost_usd > 0) {
             cumulativeCostUsd = result.total_cost_usd;
           }
-          const pct = ((cumulativeInputTokens / CONTEXT_WINDOW) * 100).toFixed(0);
-          const costStr = cumulativeCostUsd > 0 ? `  💰 $${cumulativeCostUsd.toFixed(4)}` : '';
+          const pct = ((cumulativeInputTokens / CONTEXT_WINDOW) * 100).toFixed(
+            0,
+          );
+          const costStr =
+            cumulativeCostUsd > 0
+              ? `  💰 $${cumulativeCostUsd.toFixed(4)}`
+              : "";
           if (cumulativeInputTokens > 0) {
-            console.log(`${DIM}┃ 🔤 ${formatTokens(cumulativeInputTokens)} / ${formatTokens(CONTEXT_WINDOW)} (${pct}%)${costStr}${RESET}`);
+            console.log(
+              `${DIM}┃ 🔤 ${formatTokens(cumulativeInputTokens)} / ${formatTokens(CONTEXT_WINDOW)} (${pct}%)${costStr}${RESET}`,
+            );
           }
         }
         // ── Debug timing report (first query only) ──
@@ -1338,12 +1745,18 @@ async function main() {
           firstQueryDone = true;
           const now = Date.now();
           const totalWall = now - debugSubmitTime;
-          const ttfb = debugFirstEventTime ? fmtMs(debugFirstEventTime - debugSubmitTime) : 'n/a';
-          const thinkingDur = (debugThinkingStartTime > 0 && debugThinkingEndTime > 0)
-            ? fmtMs(debugThinkingEndTime - debugThinkingStartTime) : 'n/a';
-          const firstTokenLatency = debugFirstEventTime ? fmtMs(debugFirstEventTime - debugSubmitTime) : 'n/a';
+          const ttfb = debugFirstEventTime
+            ? fmtMs(debugFirstEventTime - debugSubmitTime)
+            : "n/a";
+          const thinkingDur =
+            debugThinkingStartTime > 0 && debugThinkingEndTime > 0
+              ? fmtMs(debugThinkingEndTime - debugThinkingStartTime)
+              : "n/a";
+          const firstTokenLatency = debugFirstEventTime
+            ? fmtMs(debugFirstEventTime - debugSubmitTime)
+            : "n/a";
 
-          let toolBreakdown = '';
+          let toolBreakdown = "";
           let toolTotal = 0;
           for (const [id, t] of debugToolTimes) {
             if (t.end > 0) {
@@ -1353,82 +1766,116 @@ async function main() {
             }
           }
 
-          console.log(`\n  ${FG_YELLOW}${BOLD}⏱ Debug Timing (first query)${RESET}`);
-          console.log(`    ${FG_WHITE}Total wall time:${RESET}    ${FG_CYAN}${fmtMs(totalWall)}${RESET}`);
-          console.log(`    ${FG_WHITE}TTFB (first byte):${RESET}  ${FG_CYAN}${ttfb}${RESET}`);
+          console.log(
+            `\n  ${FG_YELLOW}${BOLD}⏱ Debug Timing (first query)${RESET}`,
+          );
+          console.log(
+            `    ${FG_WHITE}Total wall time:${RESET}    ${FG_CYAN}${fmtMs(totalWall)}${RESET}`,
+          );
+          console.log(
+            `    ${FG_WHITE}TTFB (first byte):${RESET}  ${FG_CYAN}${ttfb}${RESET}`,
+          );
           if (debugThinkingStartTime > 0) {
-            console.log(`    ${FG_WHITE}Thinking:${RESET}           ${FG_CYAN}${thinkingDur}${RESET}`);
+            console.log(
+              `    ${FG_WHITE}Thinking:${RESET}           ${FG_CYAN}${thinkingDur}${RESET}`,
+            );
           }
           if (debugThinkingEndTime > 0) {
             const genStart = debugThinkingEndTime;
             const genDur = now - genStart;
-            console.log(`    ${FG_WHITE}Generation:${RESET}         ${FG_CYAN}${fmtMs(genDur)}${RESET}`);
+            console.log(
+              `    ${FG_WHITE}Generation:${RESET}         ${FG_CYAN}${fmtMs(genDur)}${RESET}`,
+            );
           }
           if (toolBreakdown) {
-            console.log(`    ${FG_WHITE}Tools total:${RESET}        ${FG_CYAN}${fmtMs(toolTotal)}${RESET}`);
+            console.log(
+              `    ${FG_WHITE}Tools total:${RESET}        ${FG_CYAN}${fmtMs(toolTotal)}${RESET}`,
+            );
             console.log(toolBreakdown);
           }
-          console.log('');
+          console.log("");
           resetDebugTimers();
         }
         // Always reset state
-        currentText = '';
+        currentText = "";
         toolCount = 0;
         queryStartTime = 0;
         break;
       }
 
-      case 'model_fallback': {
+      case "model_fallback": {
         stopSpinner();
-        if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+        if (isStreaming) {
+          process.stdout.write("\n");
+          isStreaming = false;
+        }
         const fb = event as { from_model: string; to_model: string };
-        console.log('');
-        console.log(`${FG_YELLOW}🔀 Model fallback: ${fb.from_model} → ${fb.to_model}${RESET}`);
-        console.log('');
-        startSpinner(fb.to_model + '…');
+        console.log("");
+        console.log(
+          `${FG_YELLOW}🔀 Model fallback: ${fb.from_model} → ${fb.to_model}${RESET}`,
+        );
+        console.log("");
+        startSpinner(fb.to_model + "…");
         break;
       }
 
-      case 'error': {
+      case "error": {
         stopSpinner();
-        if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+        if (isStreaming) {
+          process.stdout.write("\n");
+          isStreaming = false;
+        }
         const err = event as { code: string; message: string };
-        console.log(`\n  ${FG_RED}✗ ${BOLD}${err.code || 'Error'}${RESET}${FG_RED}: ${err.message}${RESET}\n`);
+        console.log(
+          `\n  ${FG_RED}✗ ${BOLD}${err.code || "Error"}${RESET}${FG_RED}: ${err.message}${RESET}\n`,
+        );
         // Fully reset all streaming state to prevent stale echo on next input
-        currentText = '';
+        currentText = "";
         toolCount = 0;
         queryStartTime = 0; // mark idle
         break;
       }
-      case 'cron_result': {
-        const cr = event as { job_id: string; job_name: string; text: string; timestamp: string };
-        console.log(`\n${FG_CYAN}${BOLD}\u23F0 Cron: ${cr.job_name}${RESET} ${DIM}[${cr.job_id}]${RESET}`);
-        const preview = cr.text.length > 500 ? cr.text.slice(0, 500) + '...' : cr.text;
+      case "cron_result": {
+        const cr = event as {
+          job_id: string;
+          job_name: string;
+          text: string;
+          timestamp: string;
+        };
+        console.log(
+          `\n${FG_CYAN}${BOLD}\u23F0 Cron: ${cr.job_name}${RESET} ${DIM}[${cr.job_id}]${RESET}`,
+        );
+        const preview =
+          cr.text.length > 500 ? cr.text.slice(0, 500) + "..." : cr.text;
         console.log(preview);
         console.log();
         rl.prompt();
         break;
       }
-      case 'state_update': {
+      case "state_update": {
         // Track context token usage for display
         const patch = (event as { patch: Record<string, unknown> }).patch;
         if (patch?.usage) {
-          const u = patch.usage as { input_tokens?: number; output_tokens?: number };
+          const u = patch.usage as {
+            input_tokens?: number;
+            output_tokens?: number;
+          };
           const total = (u.input_tokens || 0) + (u.output_tokens || 0);
           if (total > 600000) {
-            console.log(`\n${FG_YELLOW}⚠ Context: ${(total/1000).toFixed(0)}k tokens — consider /compact${RESET}`);
+            console.log(
+              `\n${FG_YELLOW}⚠ Context: ${(total / 1000).toFixed(0)}k tokens — consider /compact${RESET}`,
+            );
           }
         }
         break;
       }
     }
-
   });
 
   // ── REPL ──
   if (vimMode) {
     // Node 22+ supports vi mode via this env var
-    process.env.NODE_READLINE_VI_MODE = '1';
+    process.env.NODE_READLINE_VI_MODE = "1";
   }
   const rl = readline.createInterface({
     input: process.stdin,
@@ -1442,18 +1889,18 @@ async function main() {
   let ctrlCCount = 0;
   // Track whether we are inside handleLine to allow SIGINT to break out
   let abortRequested = false;
-  rl.on('SIGINT', async () => {
+  rl.on("SIGINT", async () => {
     if (queryStartTime > 0) {
       // Task in progress — reset ALL state immediately, fire-and-forget abort
       stopSpinner();
       // Clear any partial streaming output on the current line
       readline.clearLine(process.stdout, 0);
-      process.stdout.write('\r');
+      process.stdout.write("\r");
       console.log(`${FG_YELLOW}⚠ Aborted${RESET}\n`);
       // Fire-and-forget: don't await the abort RPC (it may hang if daemon is stuck)
-      client.request('abort').catch(() => {});
+      client.request("abort").catch(() => {});
       // Reset state immediately — don't wait for daemon's result event
-      currentText = '';
+      currentText = "";
       isStreaming = false;
       toolCount = 0;
       queryStartTime = 0;
@@ -1470,7 +1917,9 @@ async function main() {
       }
       console.log(`\n${DIM}Press Ctrl+C again to quit, or type /quit${RESET}`);
       rl.prompt();
-      setTimeout(() => { ctrlCCount = 0; }, 2000);
+      setTimeout(() => {
+        ctrlCCount = 0;
+      }, 2000);
     }
   });
 
@@ -1491,7 +1940,7 @@ async function main() {
     }
   }
 
-  rl.on('line', (line: string) => {
+  rl.on("line", (line: string) => {
     pasteBuffer.push(line);
     if (pasteTimer) clearTimeout(pasteTimer);
     pasteTimer = setTimeout(async () => {
@@ -1499,10 +1948,10 @@ async function main() {
       // When pasting multi-line content, the last line often stays in readline's
       // internal buffer without triggering a 'line' event (no trailing \n).
       const pendingLine = (rl as any).line;
-      if (typeof pendingLine === 'string' && pendingLine.length > 0) {
+      if (typeof pendingLine === "string" && pendingLine.length > 0) {
         pasteBuffer.push(pendingLine);
         // Clear readline's internal buffer and refresh the prompt line
-        (rl as any).line = '';
+        (rl as any).line = "";
         (rl as any).cursor = 0;
         readline.moveCursor(process.stdout, 0, 0);
         readline.clearLine(process.stdout, 0);
@@ -1515,11 +1964,14 @@ async function main() {
       // If single line, process normally
       if (lines.length === 1) {
         const input = lines[0].trim();
-        if (!input) { rl.prompt(); return; }
+        if (!input) {
+          rl.prompt();
+          return;
+        }
         // Clear readline's native echo to avoid double-display
         readline.moveCursor(process.stdout, 0, -1);
         readline.clearLine(process.stdout, 0);
-        process.stdout.write('\r');
+        process.stdout.write("\r");
         await handleInput(input);
         return;
       }
@@ -1532,55 +1984,104 @@ async function main() {
         readline.moveCursor(process.stdout, 0, -1);
       }
       readline.moveCursor(process.stdout, 0, 1);
-      process.stdout.write('\r');
+      process.stdout.write("\r");
 
-      const combined = lines.join('\n').trim();
-      if (!combined) { rl.prompt(); return; }
+      const combined = lines.join("\n").trim();
+      if (!combined) {
+        rl.prompt();
+        return;
+      }
 
       // ── Threshold for summarizing paste (≥5 lines or ≥2KB) ──
       const PASTE_LINE_THRESHOLD = 5;
       const PASTE_SIZE_THRESHOLD = 2048;
 
-      if (lines.length >= PASTE_LINE_THRESHOLD || combined.length >= PASTE_SIZE_THRESHOLD) {
+      if (
+        lines.length >= PASTE_LINE_THRESHOLD ||
+        combined.length >= PASTE_SIZE_THRESHOLD
+      ) {
         const totalLines = lines.length;
-        const totalBytes = Buffer.byteLength(combined, 'utf-8');
-        const sizeStr = totalBytes >= 1024 ? `${(totalBytes / 1024).toFixed(1)}KB` : `${totalBytes}B`;
+        const totalBytes = Buffer.byteLength(combined, "utf-8");
+        const sizeStr =
+          totalBytes >= 1024
+            ? `${(totalBytes / 1024).toFixed(1)}KB`
+            : `${totalBytes}B`;
 
         // Detect content type for better summary
         const firstLine = lines[0].trim();
-        let contentType = 'text';
-        if (firstLine.startsWith('{') || firstLine.startsWith('[')) contentType = 'JSON';
-        else if (firstLine.startsWith('<') || firstLine.startsWith('<?xml') || firstLine.startsWith('<!DOCTYPE')) contentType = 'XML/HTML';
-        else if (firstLine.startsWith('#!') || firstLine.startsWith('import ') || firstLine.startsWith('use ') || firstLine.startsWith('fn ') || firstLine.startsWith('function ') || firstLine.startsWith('const ') || firstLine.startsWith('pub ')) contentType = 'code';
-        else if (firstLine.startsWith('diff --git') || firstLine.startsWith('---') || firstLine.startsWith('+++')) contentType = 'git diff';
-        else if (firstLine.startsWith('commit ') || firstLine.startsWith('Author:')) contentType = 'git log';
-        else if (lines.some(l => l.trim().startsWith('error') || l.trim().startsWith('Error') || l.trim().startsWith('panic'))) contentType = 'error log';
-        else if (lines.some(l => /^\s*\d{4}-\d{2}-\d{2}/.test(l.trim()))) contentType = 'log';
+        let contentType = "text";
+        if (firstLine.startsWith("{") || firstLine.startsWith("["))
+          contentType = "JSON";
+        else if (
+          firstLine.startsWith("<") ||
+          firstLine.startsWith("<?xml") ||
+          firstLine.startsWith("<!DOCTYPE")
+        )
+          contentType = "XML/HTML";
+        else if (
+          firstLine.startsWith("#!") ||
+          firstLine.startsWith("import ") ||
+          firstLine.startsWith("use ") ||
+          firstLine.startsWith("fn ") ||
+          firstLine.startsWith("function ") ||
+          firstLine.startsWith("const ") ||
+          firstLine.startsWith("pub ")
+        )
+          contentType = "code";
+        else if (
+          firstLine.startsWith("diff --git") ||
+          firstLine.startsWith("---") ||
+          firstLine.startsWith("+++")
+        )
+          contentType = "git diff";
+        else if (
+          firstLine.startsWith("commit ") ||
+          firstLine.startsWith("Author:")
+        )
+          contentType = "git log";
+        else if (
+          lines.some(
+            (l) =>
+              l.trim().startsWith("error") ||
+              l.trim().startsWith("Error") ||
+              l.trim().startsWith("panic"),
+          )
+        )
+          contentType = "error log";
+        else if (lines.some((l) => /^\s*\d{4}-\d{2}-\d{2}/.test(l.trim())))
+          contentType = "log";
 
-        const head = lines.slice(0, 2).join('\n');
-        const tail = lines.slice(-1).join('\n');
-        const headPreview = head.length > 80 ? head.slice(0, 80) + '…' : head;
-        const tailPreview = totalLines > 3 && tail.length > 60 ? '…\n' + tail.slice(0, 60) + '…' : '';
+        const head = lines.slice(0, 2).join("\n");
+        const tail = lines.slice(-1).join("\n");
+        const headPreview = head.length > 80 ? head.slice(0, 80) + "…" : head;
+        const tailPreview =
+          totalLines > 3 && tail.length > 60
+            ? "…\n" + tail.slice(0, 60) + "…"
+            : "";
 
         // Show paste summary
-        console.log('');
-        console.log(`  ${FG_YELLOW}📋 Pasted ${totalLines} lines (${sizeStr}) of ${contentType}${RESET}`);
+        console.log("");
+        console.log(
+          `  ${FG_YELLOW}📋 Pasted ${totalLines} lines (${sizeStr}) of ${contentType}${RESET}`,
+        );
         if (headPreview) console.log(`  ${DIM}${headPreview}${RESET}`);
         if (tailPreview) console.log(`  ${DIM}${tailPreview}${RESET}`);
-        console.log(`  ${DIM}─── Enter additional instructions (or press Enter to send as-is) ───${RESET}`);
+        console.log(
+          `  ${DIM}─── Enter additional instructions (or press Enter to send as-is) ───${RESET}`,
+        );
 
         // Pause readline, let user type additional instructions
         // Use a separate interface with terminal: false to avoid echo conflicts
         rl.pause();
-        const { createInterface } = await import('readline');
-        const mlRl = createInterface({ 
-          input: process.stdin, 
+        const { createInterface } = await import("readline");
+        const mlRl = createInterface({
+          input: process.stdin,
           output: process.stdout,
-          terminal: false,  // Disable terminal mode to avoid echo conflicts
+          terminal: false, // Disable terminal mode to avoid echo conflicts
         });
-        const extraInput: string = await new Promise(resolve => {
+        const extraInput: string = await new Promise((resolve) => {
           process.stdout.write(`  ${FG_CYAN}➤${RESET} `);
-          mlRl.once('line', (answer: string) => {
+          mlRl.once("line", (answer: string) => {
             mlRl.close();
             resolve(answer.trim());
           });
@@ -1591,11 +2092,13 @@ async function main() {
         let finalMessage = `[User pasted ${totalLines} lines (${sizeStr}) of ${contentType}]\n\n${combined}`;
         if (extraInput) {
           finalMessage += `\n\n[User's additional instruction: ${extraInput}]`;
-          console.log(`  ${DIM}✓ Appended instruction: "${extraInput.slice(0, 80)}${extraInput.length > 80 ? '…' : ''}"${RESET}`);
+          console.log(
+            `  ${DIM}✓ Appended instruction: "${extraInput.slice(0, 80)}${extraInput.length > 80 ? "…" : ""}"${RESET}`,
+          );
         } else {
           console.log(`  ${DIM}✓ Sending paste content as-is${RESET}`);
         }
-        console.log('');
+        console.log("");
         await handleInput(finalMessage);
       } else {
         // Short paste: just join and send
@@ -1605,47 +2108,60 @@ async function main() {
   });
 
   async function handleLine(input: string) {
-
-    if (input === '/quit' || input === '/exit' || input === '/q') {
+    if (input === "/quit" || input === "/exit" || input === "/q") {
       console.log(`\n${DIM}Disconnecting (daemon stays running)...${RESET}`);
       await client.disconnect();
       process.exit(0);
     }
 
-    if (input === '/shutdown') {
+    if (input === "/shutdown") {
       console.log(`\n${DIM}Shutting down daemon...${RESET}`);
       // Get daemon PID from the .json metadata next to the socket
       let daemonPid: number | null = null;
       try {
-        const socketDir = path.join(os.tmpdir(), 'baoclaw-sockets');
+        const socketDir = path.join(os.tmpdir(), "baoclaw-sockets");
         for (const file of fs.readdirSync(socketDir)) {
-          if (!file.endsWith('.json')) continue;
+          if (!file.endsWith(".json")) continue;
           try {
-            const meta = JSON.parse(fs.readFileSync(path.join(socketDir, file), 'utf-8'));
-            if (meta.socket === socketPath) { daemonPid = meta.pid; break; }
+            const meta = JSON.parse(
+              fs.readFileSync(path.join(socketDir, file), "utf-8"),
+            );
+            if (meta.socket === socketPath) {
+              daemonPid = meta.pid;
+              break;
+            }
           } catch {}
         }
       } catch {}
-      try { await client.request('shutdown'); } catch {}
+      try {
+        await client.request("shutdown");
+      } catch {}
       await client.disconnect();
       // Wait for daemon to exit gracefully, then force-kill if needed
       if (daemonPid) {
         const deadline = Date.now() + 3000;
         while (Date.now() < deadline) {
-          try { process.kill(daemonPid, 0); } catch { break; } // process gone
-          await new Promise(r => setTimeout(r, 200));
+          try {
+            process.kill(daemonPid, 0);
+          } catch {
+            break;
+          } // process gone
+          await new Promise((r) => setTimeout(r, 200));
         }
-        try { process.kill(daemonPid, 0); // still alive?
-          process.kill(daemonPid, 'SIGKILL');
+        try {
+          process.kill(daemonPid, 0); // still alive?
+          process.kill(daemonPid, "SIGKILL");
         } catch {}
       }
       process.exit(0);
     }
 
-    if (input === '/abort') {
+    if (input === "/abort") {
       stopSpinner();
-      try { await client.request('abort'); } catch {}
-      currentText = '';
+      try {
+        await client.request("abort");
+      } catch {}
+      currentText = "";
       isStreaming = false;
       toolCount = 0;
       queryStartTime = 0;
@@ -1654,11 +2170,11 @@ async function main() {
       return;
     }
 
-    if (input.startsWith('/verbose')) {
-      const arg = input.slice('/verbose'.length).trim();
-      type LogLevel = 'quiet' | 'normal' | 'verbose';
-      const levels: LogLevel[] = ['quiet', 'normal', 'verbose'];
-      if (arg === '' || arg === 'help') {
+    if (input.startsWith("/verbose")) {
+      const arg = input.slice("/verbose".length).trim();
+      type LogLevel = "quiet" | "normal" | "verbose";
+      const levels: LogLevel[] = ["quiet", "normal", "verbose"];
+      if (arg === "" || arg === "help") {
         console.log(`${DIM}Levels: quiet | normal | verbose${RESET}`);
         console.log(`${DIM}Usage: /verbose <level>${RESET}`);
       } else if (levels.includes(arg as LogLevel)) {
@@ -1671,33 +2187,47 @@ async function main() {
       return;
     }
 
-    if (input === '/clear') {
+    if (input === "/clear") {
       process.stdout.write(`${ESC}2J${ESC}H`);
       rl.prompt();
       return;
     }
 
-    if (input === '/tools') {
+    if (input === "/tools") {
       try {
-        const result = await client.request<{ tools: Array<{ name: string; description: string; type: string }>; count: number }>('listTools');
-        console.log(`\n${FG_ORANGE}${BOLD}Registered Tools${RESET} ${DIM}(${result.count})${RESET}\n`);
+        const result = await client.request<{
+          tools: Array<{ name: string; description: string; type: string }>;
+          count: number;
+        }>("listTools");
+        console.log(
+          `\n${FG_ORANGE}${BOLD}Registered Tools${RESET} ${DIM}(${result.count})${RESET}\n`,
+        );
 
         // Group by type
         const groups: Record<string, typeof result.tools> = {};
         for (const tool of result.tools) {
-          const t = tool.type || 'other';
+          const t = tool.type || "other";
           if (!groups[t]) groups[t] = [];
           groups[t].push(tool);
         }
 
         for (const [type, tools] of Object.entries(groups)) {
-          const badge = type === 'builtin' ? `${FG_GREEN}${type}${RESET}` : `${FG_BLUE}${type}${RESET}`;
-          console.log(`  ${FG_GRAY}── ${badge} ${FG_GRAY}(${tools.length}) ──${RESET}`);
+          const badge =
+            type === "builtin"
+              ? `${FG_GREEN}${type}${RESET}`
+              : `${FG_BLUE}${type}${RESET}`;
+          console.log(
+            `  ${FG_GRAY}── ${badge} ${FG_GRAY}(${tools.length}) ──${RESET}`,
+          );
           for (const tool of tools) {
             const desc = tool.description
-              ? (tool.description.length > 60 ? tool.description.slice(0, 60) + '…' : tool.description)
-              : '';
-            console.log(`  ${FG_WHITE}${tool.name}${RESET}  ${DIM}${desc}${RESET}`);
+              ? tool.description.length > 60
+                ? tool.description.slice(0, 60) + "…"
+                : tool.description
+              : "";
+            console.log(
+              `  ${FG_WHITE}${tool.name}${RESET}  ${DIM}${desc}${RESET}`,
+            );
           }
           console.log();
         }
@@ -1708,22 +2238,42 @@ async function main() {
       return;
     }
 
-    if (input === '/mcp') {
+    if (input === "/mcp") {
       try {
-        const result = await client.request<{ servers: Array<{ name: string; command?: string; args?: string[]; server_type: string; url?: string; disabled: boolean; source: string; config_path: string }>; count: number }>('listMcpServers');
+        const result = await client.request<{
+          servers: Array<{
+            name: string;
+            command?: string;
+            args?: string[];
+            server_type: string;
+            url?: string;
+            disabled: boolean;
+            source: string;
+            config_path: string;
+          }>;
+          count: number;
+        }>("listMcpServers");
         if (result.count === 0) {
           console.log(`\n${DIM}No MCP servers configured.${RESET}`);
-          console.log(`${DIM}Add servers to .baoclaw/mcp.json or ~/.baoclaw/mcp.json${RESET}\n`);
+          console.log(
+            `${DIM}Add servers to .baoclaw/mcp.json or ~/.baoclaw/mcp.json${RESET}\n`,
+          );
         } else {
-          console.log(`\n${FG_ORANGE}${BOLD}MCP Servers${RESET} ${DIM}(${result.count})${RESET}\n`);
+          console.log(
+            `\n${FG_ORANGE}${BOLD}MCP Servers${RESET} ${DIM}(${result.count})${RESET}\n`,
+          );
           for (const srv of result.servers) {
-            const statusIcon = srv.disabled ? `${FG_RED}●${RESET}` : `${FG_GREEN}●${RESET}`;
+            const statusIcon = srv.disabled
+              ? `${FG_RED}●${RESET}`
+              : `${FG_GREEN}●${RESET}`;
             const source = `${DIM}[${srv.source}]${RESET}`;
-            console.log(`  ${statusIcon} ${FG_WHITE}${BOLD}${srv.name}${RESET} ${source}`);
+            console.log(
+              `  ${statusIcon} ${FG_WHITE}${BOLD}${srv.name}${RESET} ${source}`,
+            );
             if (srv.command) {
-              const args = srv.args?.join(' ') || '';
+              const args = srv.args?.join(" ") || "";
               const cmd = `${srv.command} ${args}`.trim();
-              const short = cmd.length > 60 ? cmd.slice(0, 60) + '…' : cmd;
+              const short = cmd.length > 60 ? cmd.slice(0, 60) + "…" : cmd;
               console.log(`    ${DIM}${srv.server_type}: ${short}${RESET}`);
             } else if (srv.url) {
               console.log(`    ${DIM}${srv.server_type}: ${srv.url}${RESET}`);
@@ -1738,14 +2288,26 @@ async function main() {
       return;
     }
 
-    if (input === '/skills') {
+    if (input === "/skills") {
       try {
-        const result = await client.request<{ skills: Array<{ name: string; path: string; source: string; description?: string }>; count: number }>('listSkills');
+        const result = await client.request<{
+          skills: Array<{
+            name: string;
+            path: string;
+            source: string;
+            description?: string;
+          }>;
+          count: number;
+        }>("listSkills");
         if (result.count === 0) {
           console.log(`\n${DIM}No skills found.${RESET}`);
-          console.log(`${DIM}Add skills to .baoclaw/skills/ or ~/.baoclaw/skills/${RESET}\n`);
+          console.log(
+            `${DIM}Add skills to .baoclaw/skills/ or ~/.baoclaw/skills/${RESET}\n`,
+          );
         } else {
-          console.log(`\n${FG_ORANGE}${BOLD}Skills${RESET} ${DIM}(${result.count})${RESET}\n`);
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Skills${RESET} ${DIM}(${result.count})${RESET}\n`,
+          );
           for (const skill of result.skills) {
             const source = `${DIM}[${skill.source}]${RESET}`;
             console.log(`  ${FG_WHITE}${BOLD}${skill.name}${RESET} ${source}`);
@@ -1763,23 +2325,46 @@ async function main() {
       return;
     }
 
-    if (input === '/plugins') {
+    if (input === "/plugins") {
       try {
-        const result = await client.request<{ plugins: Array<{ name: string; version?: string; description?: string; path: string; source: string; has_tools: boolean; has_skills: boolean; has_mcp: boolean }>; count: number }>('listPlugins');
+        const result = await client.request<{
+          plugins: Array<{
+            name: string;
+            version?: string;
+            description?: string;
+            path: string;
+            source: string;
+            has_tools: boolean;
+            has_skills: boolean;
+            has_mcp: boolean;
+          }>;
+          count: number;
+        }>("listPlugins");
         if (result.count === 0) {
           console.log(`\n${DIM}No plugins found.${RESET}`);
-          console.log(`${DIM}Add plugins to .baoclaw/plugins/ or ~/.baoclaw/plugins/${RESET}\n`);
+          console.log(
+            `${DIM}Add plugins to .baoclaw/plugins/ or ~/.baoclaw/plugins/${RESET}\n`,
+          );
         } else {
-          console.log(`\n${FG_ORANGE}${BOLD}Plugins${RESET} ${DIM}(${result.count})${RESET}\n`);
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Plugins${RESET} ${DIM}(${result.count})${RESET}\n`,
+          );
           for (const plugin of result.plugins) {
-            const ver = plugin.version ? ` ${DIM}v${plugin.version}${RESET}` : '';
+            const ver = plugin.version
+              ? ` ${DIM}v${plugin.version}${RESET}`
+              : "";
             const source = `${DIM}[${plugin.source}]${RESET}`;
             const features: string[] = [];
-            if (plugin.has_tools) features.push('tools');
-            if (plugin.has_skills) features.push('skills');
-            if (plugin.has_mcp) features.push('mcp');
-            const featureStr = features.length > 0 ? ` ${DIM}(${features.join(', ')})${RESET}` : '';
-            console.log(`  ${FG_WHITE}${BOLD}${plugin.name}${RESET}${ver} ${source}${featureStr}`);
+            if (plugin.has_tools) features.push("tools");
+            if (plugin.has_skills) features.push("skills");
+            if (plugin.has_mcp) features.push("mcp");
+            const featureStr =
+              features.length > 0
+                ? ` ${DIM}(${features.join(", ")})${RESET}`
+                : "";
+            console.log(
+              `  ${FG_WHITE}${BOLD}${plugin.name}${RESET}${ver} ${source}${featureStr}`,
+            );
             if (plugin.description) {
               console.log(`    ${DIM}${plugin.description}${RESET}`);
             }
@@ -1793,27 +2378,34 @@ async function main() {
       return;
     }
 
-    if (input === '/model' || input.startsWith('/model ')) {
-      const modelArg = input.slice('/model'.length).trim();
+    if (input === "/model" || input.startsWith("/model ")) {
+      const modelArg = input.slice("/model".length).trim();
       if (!modelArg) {
         // Show current model, fallback chain, and config
-        const configPath = path.join(os.homedir(), '.baoclaw', 'config.json');
+        const configPath = path.join(os.homedir(), ".baoclaw", "config.json");
         let fallbackModels: string[] = [];
         let maxRetries = 2;
-        let configModel = 'claude-sonnet-4-20250514';
+        let configModel = "claude-sonnet-4-20250514";
         try {
-          const raw = fs.readFileSync(configPath, 'utf-8');
+          const raw = fs.readFileSync(configPath, "utf-8");
           const cfg = JSON.parse(raw);
-          const profileName = cfg.primary_profile ?? 'primary';
-          configModel = cfg.model_profiles?.[profileName]?.model || cfg.model || configModel;
+          const profileName = cfg.primary_profile ?? "primary";
+          configModel =
+            cfg.model_profiles?.[profileName]?.model ||
+            cfg.model ||
+            configModel;
           fallbackModels = cfg.fallback_models || [];
           maxRetries = cfg.max_retries_per_model ?? 2;
-        } catch { /* use defaults */ }
+        } catch {
+          /* use defaults */
+        }
 
         const activeModel = process.env.ANTHROPIC_MODEL || configModel;
 
         console.log(`\n${FG_ORANGE}${BOLD}Model${RESET}\n`);
-        console.log(`  ${FG_WHITE}Active:${RESET}   ${FG_GREEN}${activeModel}${RESET}`);
+        console.log(
+          `  ${FG_WHITE}Active:${RESET}   ${FG_GREEN}${activeModel}${RESET}`,
+        );
         if (process.env.ANTHROPIC_MODEL) {
           console.log(`  ${DIM}(env override, config: ${configModel})${RESET}`);
         }
@@ -1822,42 +2414,71 @@ async function main() {
         if (fallbackModels.length > 0) {
           console.log();
           console.log(`  ${FG_GRAY}── Fallback Chain ──${RESET}`);
-          console.log(`  ${FG_CYAN}0${RESET}  ${FG_GREEN}${activeModel}${RESET}  ${DIM}primary${RESET}`);
+          console.log(
+            `  ${FG_CYAN}0${RESET}  ${FG_GREEN}${activeModel}${RESET}  ${DIM}primary${RESET}`,
+          );
           fallbackModels.forEach((m: string, i: number) => {
-            console.log(`  ${FG_CYAN}${i + 1}${RESET}  ${FG_YELLOW}${m}${RESET}`);
+            console.log(
+              `  ${FG_CYAN}${i + 1}${RESET}  ${FG_YELLOW}${m}${RESET}`,
+            );
           });
         } else {
-          console.log(`\n  ${DIM}No fallback models. Edit ~/.baoclaw/config.json${RESET}`);
+          console.log(
+            `\n  ${DIM}No fallback models. Edit ~/.baoclaw/config.json${RESET}`,
+          );
         }
 
         // P2-2: Also fetch richer model config from daemon IPC (key masked)
         try {
-          const mc = await client.request<any>('config.model', {});
+          const mc = await client.request<any>("config.model", {});
           const maskKey = (k: any) => {
-            if (!k || typeof k !== 'string') return '(未配置)';
-            return k.length > 8 ? `${k.slice(0, 4)}****${k.slice(-4)}` : '****';
+            if (!k || typeof k !== "string") return "(未配置)";
+            return k.length > 8 ? `${k.slice(0, 4)}****${k.slice(-4)}` : "****";
           };
           const p = mc.primary ?? {};
           console.log(`  ${FG_GRAY}── 模型详情 (config.model) ──${RESET}`);
-          console.log(`  ${FG_WHITE}主模型:${RESET}       ${FG_GREEN}${p.model ?? '?'}${RESET} ${DIM}(${p.api_type ?? '?'})${RESET}`);
-          console.log(`  ${FG_WHITE}  窗口:${RESET}       ${((p.context_window ?? 0) as number).toLocaleString()} tokens`);
-          console.log(`  ${FG_WHITE}  压缩阈值:${RESET}   ${(((p.auto_compact_threshold_ratio ?? 0) as number) * 100).toFixed(0)}%`);
-          console.log(`  ${FG_WHITE}  Base URL:${RESET}   ${p.base_url ?? '(default)'}`);
-          console.log(`  ${FG_WHITE}  Key:${RESET}          ${maskKey(p.api_key)}`);
-          if (mc.fallbacks && Array.isArray(mc.fallbacks) && mc.fallbacks.length > 0) {
+          console.log(
+            `  ${FG_WHITE}主模型:${RESET}       ${FG_GREEN}${p.model ?? "?"}${RESET} ${DIM}(${p.api_type ?? "?"})${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}  窗口:${RESET}       ${((p.context_window ?? 0) as number).toLocaleString()} tokens`,
+          );
+          console.log(
+            `  ${FG_WHITE}  压缩阈值:${RESET}   ${(((p.auto_compact_threshold_ratio ?? 0) as number) * 100).toFixed(0)}%`,
+          );
+          console.log(
+            `  ${FG_WHITE}  Base URL:${RESET}   ${p.base_url ?? "(default)"}`,
+          );
+          console.log(
+            `  ${FG_WHITE}  Key:${RESET}          ${maskKey(p.api_key)}`,
+          );
+          if (
+            mc.fallbacks &&
+            Array.isArray(mc.fallbacks) &&
+            mc.fallbacks.length > 0
+          ) {
             console.log(`  ${FG_GRAY}── 退坡链 ──${RESET}`);
             mc.fallbacks.forEach((f: any, i: number) => {
-              console.log(`  ${FG_CYAN}${i + 1}.${RESET} ${f.model ?? '?'} ${DIM}(${f.api_type ?? '?'})${RESET} — 窗口 ${((f.context_window ?? 0) as number).toLocaleString()}`);
+              console.log(
+                `  ${FG_CYAN}${i + 1}.${RESET} ${f.model ?? "?"} ${DIM}(${f.api_type ?? "?"})${RESET} — 窗口 ${((f.context_window ?? 0) as number).toLocaleString()}`,
+              );
             });
           }
-        } catch { /* daemon may not support config.model yet — silent fallback */ }
+        } catch {
+          /* daemon may not support config.model yet — silent fallback */
+        }
 
         console.log(`\n  ${DIM}Switch: /model <name>${RESET}\n`);
       } else {
         // Switch model
         try {
-          const result = await client.request<{ model: string }>('switchModel', { model: modelArg });
-          console.log(`\n${FG_GREEN}${BOLD}Switched to ${result.model}${RESET}\n`);
+          const result = await client.request<{ model: string }>(
+            "switchModel",
+            { model: modelArg },
+          );
+          console.log(
+            `\n${FG_GREEN}${BOLD}Switched to ${result.model}${RESET}\n`,
+          );
         } catch (err) {
           console.error(`${FG_RED}Failed to switch model: ${err}${RESET}`);
         }
@@ -1866,58 +2487,87 @@ async function main() {
       return;
     }
 
-    if (input === '/think') {
+    if (input === "/think") {
       thinkingEnabled = !thinkingEnabled;
       const settings = thinkingEnabled
-        ? { thinking: { mode: 'enabled', budget_tokens: thinkingBudget } }
-        : { thinking: { mode: 'disabled' } };
+        ? { thinking: { mode: "enabled", budget_tokens: thinkingBudget } }
+        : { thinking: { mode: "disabled" } };
       try {
-        await client.request('updateSettings', { settings });
+        await client.request("updateSettings", { settings });
         if (thinkingEnabled) {
-          console.log(`\n${FG_GREEN}${BOLD}Extended thinking enabled${RESET} ${DIM}(budget: ${thinkingBudget} tokens)${RESET}\n`);
+          console.log(
+            `\n${FG_GREEN}${BOLD}Extended thinking enabled${RESET} ${DIM}(budget: ${thinkingBudget} tokens)${RESET}\n`,
+          );
         } else {
           console.log(`\n${FG_YELLOW}Extended thinking disabled${RESET}\n`);
         }
       } catch (err) {
-        console.error(`${FG_RED}Failed to update thinking settings: ${err}${RESET}`);
+        console.error(
+          `${FG_RED}Failed to update thinking settings: ${err}${RESET}`,
+        );
       }
       rl.prompt();
       return;
     }
 
-    if (input.startsWith('/projects')) {
-      const projArgs = input.slice('/projects'.length).trim();
+    if (input.startsWith("/projects")) {
+      const projArgs = input.slice("/projects".length).trim();
 
-      if (!projArgs || projArgs === 'list') {
+      if (!projArgs || projArgs === "list") {
         try {
-          const result = await client.request<{ projects: any[]; count: number }>('projectsList');
+          const result = await client.request<{
+            projects: any[];
+            count: number;
+          }>("projectsList");
           if (result.count === 0) {
-            console.log(`\n${DIM}No projects registered. Use /projects new <path> [description]${RESET}\n`);
+            console.log(
+              `\n${DIM}No projects registered. Use /projects new <path> [description]${RESET}\n`,
+            );
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Projects${RESET} ${DIM}(${result.count})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Projects${RESET} ${DIM}(${result.count})${RESET}\n`,
+            );
             // Calculate column widths
-            const idWidth = Math.max(4, ...result.projects.map((p: any) => (p.id || '').length));
-            const descWidth = Math.max(8, ...result.projects.map((p: any) => (p.description || '').length));
+            const idWidth = Math.max(
+              4,
+              ...result.projects.map((p: any) => (p.id || "").length),
+            );
+            const descWidth = Math.max(
+              8,
+              ...result.projects.map((p: any) => (p.description || "").length),
+            );
             const clampedDesc = Math.min(descWidth, 30);
 
             for (const p of result.projects) {
-              const id = (p.id || '').padEnd(idWidth);
-              const desc = (p.description || '').slice(0, 30).padEnd(clampedDesc);
-              const last = p.last_accessed ? timeSince(p.last_accessed) : 'never';
-              const sid = p.session_id ? `${DIM}session:${p.session_id}${RESET}` : '';
-              console.log(`  ${FG_CYAN}${id}${RESET}  ${FG_WHITE}${BOLD}${desc}${RESET}  ${DIM}${last}${RESET}  ${sid}`);
-              console.log(`  ${' '.repeat(idWidth)}  ${DIM}${p.cwd}${RESET}`);
+              const id = (p.id || "").padEnd(idWidth);
+              const desc = (p.description || "")
+                .slice(0, 30)
+                .padEnd(clampedDesc);
+              const last = p.last_accessed
+                ? timeSince(p.last_accessed)
+                : "never";
+              const sid = p.session_id
+                ? `${DIM}session:${p.session_id}${RESET}`
+                : "";
+              console.log(
+                `  ${FG_CYAN}${id}${RESET}  ${FG_WHITE}${BOLD}${desc}${RESET}  ${DIM}${last}${RESET}  ${sid}`,
+              );
+              console.log(`  ${" ".repeat(idWidth)}  ${DIM}${p.cwd}${RESET}`);
             }
-            console.log(`\n  ${DIM}Switch: /projects <id>  ·  New: /projects new <path> [desc]${RESET}\n`);
+            console.log(
+              `\n  ${DIM}Switch: /projects <id>  ·  New: /projects new <path> [desc]${RESET}\n`,
+            );
           }
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (projArgs.startsWith('new ')) {
+      if (projArgs.startsWith("new ")) {
         const rest = projArgs.slice(4).trim();
-        const spaceIdx = rest.indexOf(' ');
+        const spaceIdx = rest.indexOf(" ");
         let targetPath: string;
         let desc: string | undefined;
         if (spaceIdx > 0) {
@@ -1927,37 +2577,59 @@ async function main() {
           targetPath = rest;
         }
         if (!targetPath) {
-          console.log(`\n${FG_YELLOW}Usage: /projects new <path> [description]${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /projects new <path> [description]${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
         try {
           const params: Record<string, unknown> = { cwd: targetPath };
           if (desc) params.description = desc;
-          const result = await client.request<{ project: any; switched: boolean }>('projectsNew', params);
-          try { process.chdir(result.project.cwd); } catch {}
-          console.log(`\n${FG_GREEN}${BOLD}Created & switched to${RESET} ${result.project.description}`);
-          console.log(`${DIM}  [${result.project.id}] ${result.project.cwd}${RESET}`);
-          currentText = ''; isStreaming = false; toolCount = 0;
+          const result = await client.request<{
+            project: any;
+            switched: boolean;
+          }>("projectsNew", params);
+          try {
+            process.chdir(result.project.cwd);
+          } catch {}
+          console.log(
+            `\n${FG_GREEN}${BOLD}Created & switched to${RESET} ${result.project.description}`,
+          );
+          console.log(
+            `${DIM}  [${result.project.id}] ${result.project.cwd}${RESET}`,
+          );
+          currentText = "";
+          isStreaming = false;
+          toolCount = 0;
           console.log();
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (projArgs.startsWith('desc ')) {
+      if (projArgs.startsWith("desc ")) {
         const parts = projArgs.slice(5).trim().split(/\s+/);
         const idPrefix = parts[0];
-        const newDesc = parts.slice(1).join(' ');
+        const newDesc = parts.slice(1).join(" ");
         if (!idPrefix || !newDesc) {
-          console.log(`\n${FG_YELLOW}Usage: /projects desc <id> <description>${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /projects desc <id> <description>${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
         try {
-          await client.request('projectsUpdateDesc', { id_prefix: idPrefix, description: newDesc });
+          await client.request("projectsUpdateDesc", {
+            id_prefix: idPrefix,
+            description: newDesc,
+          });
           console.log(`\n${FG_GREEN}✓ Description updated${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
@@ -1965,87 +2637,159 @@ async function main() {
       // /projects <id_prefix> — switch
       const idPrefix = projArgs;
       try {
-        const result = await client.request<{ project: any; message_count: number }>('projectsSwitch', { id_prefix: idPrefix });
-        try { process.chdir(result.project.cwd); } catch {}
-        console.log(`\n${FG_GREEN}${BOLD}Switched to${RESET} ${result.project.description}`);
-        console.log(`${DIM}  [${result.project.id}] ${result.project.cwd}${RESET}`);
+        const result = await client.request<{
+          project: any;
+          message_count: number;
+        }>("projectsSwitch", { id_prefix: idPrefix });
+        try {
+          process.chdir(result.project.cwd);
+        } catch {}
+        console.log(
+          `\n${FG_GREEN}${BOLD}Switched to${RESET} ${result.project.description}`,
+        );
+        console.log(
+          `${DIM}  [${result.project.id}] ${result.project.cwd}${RESET}`,
+        );
         if (result.message_count > 0) {
-          console.log(`${DIM}  Resumed session (${result.message_count} messages)${RESET}`);
+          console.log(
+            `${DIM}  Resumed session (${result.message_count} messages)${RESET}`,
+          );
         } else {
           console.log(`${DIM}  Fresh session${RESET}`);
         }
-        currentText = ''; isStreaming = false; toolCount = 0;
+        currentText = "";
+        isStreaming = false;
+        toolCount = 0;
         console.log();
-      } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      rl.prompt();
-      return;
-    }
-
-    if (input.startsWith('/cron')) {
-      const cronArgs = input.slice('/cron'.length).trim();
-      const parts = cronArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
-
-      if (subCmd === 'add') {
-        // /cron add "name" "every 1h" prompt text here
-        const nameMatch = cronArgs.match(/add\s+"([^"]+)"\s+"([^"]+)"\s+(.+)/);
-        if (!nameMatch) {
-          console.log(`\n${FG_YELLOW}Usage: /cron add "job name" "every 1h" <prompt>${RESET}`);
-          console.log(`${DIM}  Schedules: every 30m, every 2h, daily 09:00, weekly mon 09:00${RESET}\n`);
-          rl.prompt();
-          return;
-        }
-        try {
-          const result = await client.request<{ job: any }>('cronAdd', {
-            name: nameMatch[1], schedule: nameMatch[2], prompt: nameMatch[3],
-          });
-          console.log(`\n${FG_GREEN}\u2713 Cron job created${RESET} ${DIM}[${result.job.id}] ${result.job.name} (${result.job.schedule})${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else if (subCmd === 'list' || subCmd === '') {
-        try {
-          const result = await client.request<{ jobs: any[]; count: number }>('cronList');
-          if (result.count === 0) {
-            console.log(`\n${DIM}No cron jobs. Use /cron add to create one.${RESET}\n`);
-          } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Cron Jobs${RESET} ${DIM}(${result.count})${RESET}\n`);
-            for (const j of result.jobs) {
-              const statusIcon = j.enabled ? `${FG_GREEN}●${RESET}` : `${FG_RED}●${RESET}`;
-              const last = j.last_run ? timeSince(j.last_run) : 'never';
-              const prompt = j.prompt.length > 60 ? j.prompt.slice(0, 60) + '…' : j.prompt;
-              console.log(`  ${statusIcon} ${FG_WHITE}${j.id}${RESET}  ${j.name}  ${DIM}${j.schedule}${RESET}  ${DIM}last: ${last}${RESET}`);
-              console.log(`    ${DIM}${prompt}${RESET}`);
-            }
-            console.log();
-          }
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else if (subCmd === 'remove' || subCmd === 'rm') {
-        const jobId = parts[1];
-        if (!jobId) { console.log(`${FG_YELLOW}Usage: /cron remove <id>${RESET}`); rl.prompt(); return; }
-        try {
-          const result = await client.request<{ removed: boolean }>('cronRemove', { id: jobId });
-          console.log(result.removed ? `\n${FG_GREEN}\u2713 Removed${RESET}\n` : `\n${FG_YELLOW}Not found${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else if (subCmd === 'toggle') {
-        const jobId = parts[1];
-        if (!jobId) { console.log(`${FG_YELLOW}Usage: /cron toggle <id>${RESET}`); rl.prompt(); return; }
-        try {
-          const result = await client.request<{ enabled: boolean }>('cronToggle', { id: jobId });
-          console.log(`\n${result.enabled ? FG_GREEN + 'Enabled' : FG_YELLOW + 'Disabled'}${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else {
-        console.log(`\n${FG_ORANGE}${BOLD}Cron Commands${RESET}\n`);
-        console.log(`  ${FG_WHITE}/cron list${RESET}                              ${DIM}List all jobs${RESET}`);
-        console.log(`  ${FG_WHITE}/cron add "name" "schedule" prompt${RESET}     ${DIM}Create a job${RESET}`);
-        console.log(`  ${FG_WHITE}/cron remove <id>${RESET}                      ${DIM}Delete a job${RESET}`);
-        console.log(`  ${FG_WHITE}/cron toggle <id>${RESET}                      ${DIM}Enable/disable${RESET}`);
-        console.log(`\n${DIM}  Schedules: every 30m, every 2h, daily 09:00, weekly mon 09:00${RESET}\n`);
+      } catch (err) {
+        console.error(`${FG_RED}${err}${RESET}`);
       }
       rl.prompt();
       return;
     }
 
-    if (input.startsWith('/history')) {
-      const arg = input.slice('/history'.length).trim();
+    if (input.startsWith("/cron")) {
+      const cronArgs = input.slice("/cron".length).trim();
+      const parts = cronArgs.split(/\s+/);
+      const subCmd = parts[0] || "";
+
+      if (subCmd === "add") {
+        // /cron add "name" "every 1h" prompt text here
+        const nameMatch = cronArgs.match(/add\s+"([^"]+)"\s+"([^"]+)"\s+(.+)/);
+        if (!nameMatch) {
+          console.log(
+            `\n${FG_YELLOW}Usage: /cron add "job name" "every 1h" <prompt>${RESET}`,
+          );
+          console.log(
+            `${DIM}  Schedules: every 30m, every 2h, daily 09:00, weekly mon 09:00${RESET}\n`,
+          );
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ job: any }>("cronAdd", {
+            name: nameMatch[1],
+            schedule: nameMatch[2],
+            prompt: nameMatch[3],
+          });
+          console.log(
+            `\n${FG_GREEN}\u2713 Cron job created${RESET} ${DIM}[${result.job.id}] ${result.job.name} (${result.job.schedule})${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else if (subCmd === "list" || subCmd === "") {
+        try {
+          const result = await client.request<{ jobs: any[]; count: number }>(
+            "cronList",
+          );
+          if (result.count === 0) {
+            console.log(
+              `\n${DIM}No cron jobs. Use /cron add to create one.${RESET}\n`,
+            );
+          } else {
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Cron Jobs${RESET} ${DIM}(${result.count})${RESET}\n`,
+            );
+            for (const j of result.jobs) {
+              const statusIcon = j.enabled
+                ? `${FG_GREEN}●${RESET}`
+                : `${FG_RED}●${RESET}`;
+              const last = j.last_run ? timeSince(j.last_run) : "never";
+              const prompt =
+                j.prompt.length > 60 ? j.prompt.slice(0, 60) + "…" : j.prompt;
+              console.log(
+                `  ${statusIcon} ${FG_WHITE}${j.id}${RESET}  ${j.name}  ${DIM}${j.schedule}${RESET}  ${DIM}last: ${last}${RESET}`,
+              );
+              console.log(`    ${DIM}${prompt}${RESET}`);
+            }
+            console.log();
+          }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else if (subCmd === "remove" || subCmd === "rm") {
+        const jobId = parts[1];
+        if (!jobId) {
+          console.log(`${FG_YELLOW}Usage: /cron remove <id>${RESET}`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ removed: boolean }>(
+            "cronRemove",
+            { id: jobId },
+          );
+          console.log(
+            result.removed
+              ? `\n${FG_GREEN}\u2713 Removed${RESET}\n`
+              : `\n${FG_YELLOW}Not found${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else if (subCmd === "toggle") {
+        const jobId = parts[1];
+        if (!jobId) {
+          console.log(`${FG_YELLOW}Usage: /cron toggle <id>${RESET}`);
+          rl.prompt();
+          return;
+        }
+        try {
+          const result = await client.request<{ enabled: boolean }>(
+            "cronToggle",
+            { id: jobId },
+          );
+          console.log(
+            `\n${result.enabled ? FG_GREEN + "Enabled" : FG_YELLOW + "Disabled"}${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else {
+        console.log(`\n${FG_ORANGE}${BOLD}Cron Commands${RESET}\n`);
+        console.log(
+          `  ${FG_WHITE}/cron list${RESET}                              ${DIM}List all jobs${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/cron add "name" "schedule" prompt${RESET}     ${DIM}Create a job${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/cron remove <id>${RESET}                      ${DIM}Delete a job${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/cron toggle <id>${RESET}                      ${DIM}Enable/disable${RESET}`,
+        );
+        console.log(
+          `\n${DIM}  Schedules: every 30m, every 2h, daily 09:00, weekly mon 09:00${RESET}\n`,
+        );
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (input.startsWith("/history")) {
+      const arg = input.slice("/history".length).trim();
       const count = parseInt(arg, 10) || 10;
       await showHistory(client, count);
       rl.prompt();
@@ -2053,21 +2797,28 @@ async function main() {
     }
 
     // ── /doc <filepath> — attach document for next message ──
-    if (input.startsWith('/doc')) {
-      const filePath = input.slice('/doc'.length).trim();
+    if (input.startsWith("/doc")) {
+      const filePath = input.slice("/doc".length).trim();
       if (!filePath) {
         console.log(`\n${FG_ORANGE}${BOLD}Usage:${RESET} /doc <filepath>`);
-        console.log(`  ${DIM}Attach a PDF or DOCX file to the next message.${RESET}`);
+        console.log(
+          `  ${DIM}Attach a PDF or DOCX file to the next message.${RESET}`,
+        );
         console.log(`  ${DIM}Supported formats: .pdf, .docx${RESET}`);
         console.log(`  ${DIM}Max file size: 10MB${RESET}\n`);
         rl.prompt();
         return;
       }
       try {
-        const result = await client.request<{ attachment: Record<string, unknown>; file_path: string }>('docUpload', { file_path: filePath });
+        const result = await client.request<{
+          attachment: Record<string, unknown>;
+          file_path: string;
+        }>("docUpload", { file_path: filePath });
         pendingAttachments.push(result.attachment);
-        const basename = filePath.split('/').pop() || filePath;
-        console.log(`\n${FG_GREEN}📎 Attached:${RESET} ${basename} ${DIM}(will be sent with next message)${RESET}\n`);
+        const basename = filePath.split("/").pop() || filePath;
+        console.log(
+          `\n${FG_GREEN}📎 Attached:${RESET} ${basename} ${DIM}(will be sent with next message)${RESET}\n`,
+        );
       } catch (err: any) {
         const msg = err?.message || String(err);
         console.log(`\n${FG_RED}❌ ${msg}${RESET}\n`);
@@ -2076,31 +2827,49 @@ async function main() {
       return;
     }
 
-    if (input === '/debug') {
+    if (input === "/debug") {
       debugMode = !debugMode;
       if (debugMode) {
         firstQueryDone = false;
         resetDebugTimers();
       }
-      console.log(`\n${debugMode ? FG_GREEN + BOLD + 'Debug timing ON' + RESET + DIM + ' (will show detailed sub-step timing for the next query)' : FG_YELLOW + 'Debug timing OFF' + RESET}\n`);
+      console.log(
+        `\n${debugMode ? FG_GREEN + BOLD + "Debug timing ON" + RESET + DIM + " (will show detailed sub-step timing for the next query)" : FG_YELLOW + "Debug timing OFF" + RESET}\n`,
+      );
       rl.prompt();
       return;
     }
 
-    if (input === '/compact') {
-      startSpinner('Compacting conversation...');
+    if (input === "/compact") {
+      startSpinner("Compacting conversation...");
       try {
-        const result = await client.request<{ tokens_saved: number; summary_tokens: number; tokens_before: number; tokens_after: number }>('compact');
+        const result = await client.request<{
+          tokens_saved: number;
+          summary_tokens: number;
+          tokens_before: number;
+          tokens_after: number;
+        }>("compact");
         stopSpinner();
         if (result.tokens_saved === 0) {
           console.log(`\n${DIM}Not enough messages to compact.${RESET}\n`);
         } else {
-          const pct = ((result.tokens_saved / result.tokens_before) * 100).toFixed(0);
+          const pct = (
+            (result.tokens_saved / result.tokens_before) *
+            100
+          ).toFixed(0);
           console.log(`\n${FG_GREEN}${BOLD}Compacted${RESET}`);
-          console.log(`  ${FG_WHITE}Before:${RESET}  ${result.tokens_before.toLocaleString()} tokens`);
-          console.log(`  ${FG_WHITE}After:${RESET}   ${result.tokens_after.toLocaleString()} tokens`);
-          console.log(`  ${FG_WHITE}Saved:${RESET}   ${FG_GREEN}${result.tokens_saved.toLocaleString()} tokens (${pct}%)${RESET}`);
-          console.log(`  ${FG_WHITE}Summary:${RESET} ${result.summary_tokens.toLocaleString()} tokens`);
+          console.log(
+            `  ${FG_WHITE}Before:${RESET}  ${result.tokens_before.toLocaleString()} tokens`,
+          );
+          console.log(
+            `  ${FG_WHITE}After:${RESET}   ${result.tokens_after.toLocaleString()} tokens`,
+          );
+          console.log(
+            `  ${FG_WHITE}Saved:${RESET}   ${FG_GREEN}${result.tokens_saved.toLocaleString()} tokens (${pct}%)${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Summary:${RESET} ${result.summary_tokens.toLocaleString()} tokens`,
+          );
           console.log();
         }
       } catch (err) {
@@ -2111,163 +2880,271 @@ async function main() {
       return;
     }
 
-    if (input.startsWith('/memory')) {
-      const memArgs = input.slice('/memory'.length).trim();
-      const subCmd = memArgs.split(/\s+/)[0] || '';
+    if (input.startsWith("/memory")) {
+      const memArgs = input.slice("/memory".length).trim();
+      const subCmd = memArgs.split(/\s+/)[0] || "";
       const rest = memArgs.slice(subCmd.length).trim();
 
-      if (subCmd === 'list' || subCmd === 'ls') {
+      if (subCmd === "list" || subCmd === "ls") {
         try {
-          const result = await client.request<{ memories: any[]; count: number }>('memoryList');
+          const result = await client.request<{
+            memories: any[];
+            count: number;
+          }>("memoryList");
           if (result.count === 0) {
             console.log(`\n${DIM}No memories stored.${RESET}\n`);
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Long-term Memory${RESET} ${DIM}(${result.count})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Long-term Memory${RESET} ${DIM}(${result.count})${RESET}\n`,
+            );
             for (const m of result.memories) {
-              const catColor = m.category === 'preference' ? FG_MAGENTA
-                : m.category === 'decision' ? FG_YELLOW
-                : FG_CYAN;
-              const content = m.content.length > 80 ? m.content.slice(0, 80) + '…' : m.content;
-              console.log(`  ${catColor}${m.category.padEnd(10)}${RESET} ${FG_WHITE}${content}${RESET}  ${DIM}[${m.id}]${RESET}`);
+              const catColor =
+                m.category === "preference"
+                  ? FG_MAGENTA
+                  : m.category === "decision"
+                    ? FG_YELLOW
+                    : FG_CYAN;
+              const content =
+                m.content.length > 80
+                  ? m.content.slice(0, 80) + "…"
+                  : m.content;
+              console.log(
+                `  ${catColor}${m.category.padEnd(10)}${RESET} ${FG_WHITE}${content}${RESET}  ${DIM}[${m.id}]${RESET}`,
+              );
             }
             console.log();
           }
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else if (subCmd === 'add') {
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else if (subCmd === "add") {
         // /memory add [category] content
         const parts = rest.split(/\s+/);
-        let category = 'fact';
+        let category = "fact";
         let content = rest;
-        if (parts[0] && ['fact', 'preference', 'pref', 'decision', 'dec'].includes(parts[0])) {
+        if (
+          parts[0] &&
+          ["fact", "preference", "pref", "decision", "dec"].includes(parts[0])
+        ) {
           category = parts[0];
-          content = parts.slice(1).join(' ');
+          content = parts.slice(1).join(" ");
         }
         if (!content) {
-          console.log(`\n${FG_YELLOW}Usage: /memory add [fact|preference|decision] <content>${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /memory add [fact|preference|decision] <content>${RESET}\n`,
+          );
         } else {
           try {
-            const result = await client.request<{ memory: any }>('memoryAdd', { content, category });
-            console.log(`\n${FG_GREEN}✓ Memory added${RESET} ${DIM}[${result.memory.id}] ${result.memory.content}${RESET}\n`);
-          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+            const result = await client.request<{ memory: any }>("memoryAdd", {
+              content,
+              category,
+            });
+            console.log(
+              `\n${FG_GREEN}✓ Memory added${RESET} ${DIM}[${result.memory.id}] ${result.memory.content}${RESET}\n`,
+            );
+          } catch (err) {
+            console.error(`${FG_RED}${err}${RESET}`);
+          }
         }
-      } else if (subCmd === 'delete' || subCmd === 'del' || subCmd === 'rm') {
+      } else if (subCmd === "delete" || subCmd === "del" || subCmd === "rm") {
         if (!rest) {
           console.log(`\n${FG_YELLOW}Usage: /memory delete <id>${RESET}\n`);
         } else {
           try {
-            const result = await client.request<{ deleted: boolean }>('memoryDelete', { id: rest });
+            const result = await client.request<{ deleted: boolean }>(
+              "memoryDelete",
+              { id: rest },
+            );
             if (result.deleted) {
               console.log(`\n${FG_GREEN}✓ Memory deleted${RESET}\n`);
             } else {
               console.log(`\n${FG_YELLOW}Memory not found: ${rest}${RESET}\n`);
             }
-          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+          } catch (err) {
+            console.error(`${FG_RED}${err}${RESET}`);
+          }
         }
-      } else if (subCmd === 'clear') {
+      } else if (subCmd === "clear") {
         try {
-          const result = await client.request<{ cleared: number }>('memoryClear');
-          console.log(`\n${FG_GREEN}✓ Cleared ${result.cleared} memories${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else if (subCmd === 'stats') {
+          const result = await client.request<{ cleared: number }>(
+            "memoryClear",
+          );
+          console.log(
+            `\n${FG_GREEN}✓ Cleared ${result.cleared} memories${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else if (subCmd === "stats") {
         try {
-          const stats = await client.request<any>('memoryStats');
+          const stats = await client.request<any>("memoryStats");
           console.log(`\n${FG_ORANGE}${BOLD}Memory Statistics${RESET}\n`);
           for (const [k, v] of Object.entries(stats)) {
-            console.log(`  ${FG_WHITE}${String(k).padEnd(24)}${RESET} ${FG_CYAN}${typeof v === 'number' && !Number.isInteger(v) ? (v as number).toFixed(3) : v}${RESET}`);
+            console.log(
+              `  ${FG_WHITE}${String(k).padEnd(24)}${RESET} ${FG_CYAN}${typeof v === "number" && !Number.isInteger(v) ? (v as number).toFixed(3) : v}${RESET}`,
+            );
           }
           console.log();
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else if (subCmd === 'archive') {
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else if (subCmd === "archive") {
         if (!rest) {
           console.log(`\n${FG_YELLOW}Usage: /memory archive <id>${RESET}\n`);
         } else {
           try {
-            const result = await client.request<{ archived: any }>('memoryArchive', { id: rest });
-            console.log(`\n${FG_GREEN}✓ Archived${RESET} ${DIM}[${result.archived.id}] ${result.archived.content}${RESET}\n`);
-          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+            const result = await client.request<{ archived: any }>(
+              "memoryArchive",
+              { id: rest },
+            );
+            console.log(
+              `\n${FG_GREEN}✓ Archived${RESET} ${DIM}[${result.archived.id}] ${result.archived.content}${RESET}\n`,
+            );
+          } catch (err) {
+            console.error(`${FG_RED}${err}${RESET}`);
+          }
         }
-      } else if (subCmd === 'restore') {
+      } else if (subCmd === "restore") {
         if (!rest) {
           console.log(`\n${FG_YELLOW}Usage: /memory restore <id>${RESET}\n`);
         } else {
           try {
-            const result = await client.request<{ restored: any }>('memoryRestore', { id: rest });
-            console.log(`\n${FG_GREEN}✓ Restored${RESET} ${DIM}[${result.restored.id}] ${result.restored.content}${RESET}\n`);
-          } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+            const result = await client.request<{ restored: any }>(
+              "memoryRestore",
+              { id: rest },
+            );
+            console.log(
+              `\n${FG_GREEN}✓ Restored${RESET} ${DIM}[${result.restored.id}] ${result.restored.content}${RESET}\n`,
+            );
+          } catch (err) {
+            console.error(`${FG_RED}${err}${RESET}`);
+          }
         }
-      } else if (subCmd === 'archives' || subCmd === 'archived') {
+      } else if (subCmd === "archives" || subCmd === "archived") {
         try {
-          const result = await client.request<{ archived: any[]; count: number }>('memoryArchiveList');
+          const result = await client.request<{
+            archived: any[];
+            count: number;
+          }>("memoryArchiveList");
           if (!result.count) {
             console.log(`\n${DIM}No archived memories.${RESET}\n`);
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Archived Memories${RESET} ${DIM}(${result.count})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Archived Memories${RESET} ${DIM}(${result.count})${RESET}\n`,
+            );
             for (const m of result.archived) {
-              const content = m.content.length > 80 ? m.content.slice(0, 80) + '…' : m.content;
-              console.log(`  ${FG_CYAN}${(m.category || 'fact').padEnd(10)}${RESET} ${FG_WHITE}${content}${RESET}  ${DIM}[${m.id}] imp=${(m.importance ?? 0).toFixed?.(2) ?? m.importance}${RESET}`);
+              const content =
+                m.content.length > 80
+                  ? m.content.slice(0, 80) + "…"
+                  : m.content;
+              console.log(
+                `  ${FG_CYAN}${(m.category || "fact").padEnd(10)}${RESET} ${FG_WHITE}${content}${RESET}  ${DIM}[${m.id}] imp=${(m.importance ?? 0).toFixed?.(2) ?? m.importance}${RESET}`,
+              );
             }
             console.log();
           }
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
-      } else if (subCmd === 'cleanup') {
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
+      } else if (subCmd === "cleanup") {
         try {
-          const result = await client.request<any>('memoryCleanup');
-          console.log(`\n${FG_GREEN}✓ Cleanup complete${RESET} ${DIM}archived=${result.archived_count ?? 0} deleted=${result.deleted_count ?? 0} (${result.duration_ms ?? 0}ms)${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+          const result = await client.request<any>("memoryCleanup");
+          console.log(
+            `\n${FG_GREEN}✓ Cleanup complete${RESET} ${DIM}archived=${result.archived_count ?? 0} deleted=${result.deleted_count ?? 0} (${result.duration_ms ?? 0}ms)${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
       } else {
         // P2-2: Static memory system description
         console.log(`\n${FG_ORANGE}${BOLD}📖 BaoClaw 记忆系统${RESET}`);
         console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-        console.log(`  ${FG_WHITE}【工作记忆】${RESET}${DIM}(Context Window)${RESET}`);
+        console.log(
+          `  ${FG_WHITE}【工作记忆】${RESET}${DIM}(Context Window)${RESET}`,
+        );
         console.log(`  ${DIM}  存储位置: 内存（daemon 进程）${RESET}`);
         console.log(`  ${DIM}  压缩策略: 超过 85% 阈值时自动摘要${RESET}`);
         console.log(`  ${DIM}  压缩保留: 最近 4 条消息原文，其余摘要${RESET}`);
         console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-        console.log(`  ${FG_WHITE}【长期记忆】${RESET}${DIM}(Long-term Memory)${RESET}`);
+        console.log(
+          `  ${FG_WHITE}【长期记忆】${RESET}${DIM}(Long-term Memory)${RESET}`,
+        );
         console.log(`  ${DIM}  存储位置: ~/.baoclaw/memories/${RESET}`);
         console.log(`  ${DIM}  格式: JSONL（每行一条记忆）${RESET}`);
         console.log(`  ${DIM}  分类: fact / preference / decision${RESET}`);
         console.log(`  ${DIM}  衰减: 90 天未访问自动归档${RESET}`);
         console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-        console.log(`  ${FG_WHITE}【会话记忆】${RESET}${DIM}(Session Memory)${RESET}`);
-        console.log(`  ${DIM}  存储位置: ~/.baoclaw/sessions/<id>.json${RESET}`);
+        console.log(
+          `  ${FG_WHITE}【会话记忆】${RESET}${DIM}(Session Memory)${RESET}`,
+        );
+        console.log(
+          `  ${DIM}  存储位置: ~/.baoclaw/sessions/<id>.json${RESET}`,
+        );
         console.log(`  ${DIM}  触发时机: 每轮对话结束自动持久化${RESET}`);
         console.log(`  ${DIM}  崩溃恢复: daemon 重启后自动加载${RESET}`);
         console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
         // Also try to call memory.list for current entries
         try {
-          const memResult = await client.request<{ memories: any[]; count: number }>('memoryList');
+          const memResult = await client.request<{
+            memories: any[];
+            count: number;
+          }>("memoryList");
           if (memResult.count > 0) {
-            console.log(`\n${FG_CYAN}记忆条目${RESET} ${DIM}(${memResult.count} 条)${RESET}`);
+            console.log(
+              `\n${FG_CYAN}记忆条目${RESET} ${DIM}(${memResult.count} 条)${RESET}`,
+            );
             for (const m of memResult.memories) {
-              const content = m.content.length > 60 ? m.content.slice(0, 60) + '…' : m.content;
+              const content =
+                m.content.length > 60
+                  ? m.content.slice(0, 60) + "…"
+                  : m.content;
               console.log(`  ${FG_WHITE}[${m.category}]${RESET} ${content}`);
             }
           } else {
             console.log(`\n${DIM}（暂无长期记忆条目）${RESET}`);
           }
-        } catch { /* daemon may not support memoryList yet */ }
+        } catch {
+          /* daemon may not support memoryList yet */
+        }
 
         console.log(`\n  ${FG_ORANGE}${BOLD}Memory Commands${RESET}\n`);
-        console.log(`  ${FG_WHITE}/memory list${RESET}                    ${DIM}List all memories${RESET}`);
-        console.log(`  ${FG_WHITE}/memory add [category] <text>${RESET}  ${DIM}Add a memory (fact/preference/decision)${RESET}`);
-        console.log(`  ${FG_WHITE}/memory delete <id>${RESET}            ${DIM}Delete a memory${RESET}`);
-        console.log(`  ${FG_WHITE}/memory clear${RESET}                  ${DIM}Clear all memories${RESET}`);
-        console.log(`  ${FG_WHITE}/memory stats${RESET}                  ${DIM}Memory statistics${RESET}`);
-        console.log(`  ${FG_WHITE}/memory archive <id>${RESET}           ${DIM}Archive a memory${RESET}`);
-        console.log(`  ${FG_WHITE}/memory restore <id>${RESET}           ${DIM}Restore an archived memory${RESET}`);
-        console.log(`  ${FG_WHITE}/memory archives${RESET}               ${DIM}List archived memories${RESET}`);
-        console.log(`  ${FG_WHITE}/memory cleanup${RESET}                ${DIM}Run decay & archive cleanup now${RESET}`);
+        console.log(
+          `  ${FG_WHITE}/memory list${RESET}                    ${DIM}List all memories${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory add [category] <text>${RESET}  ${DIM}Add a memory (fact/preference/decision)${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory delete <id>${RESET}            ${DIM}Delete a memory${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory clear${RESET}                  ${DIM}Clear all memories${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory stats${RESET}                  ${DIM}Memory statistics${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory archive <id>${RESET}           ${DIM}Archive a memory${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory restore <id>${RESET}           ${DIM}Restore an archived memory${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory archives${RESET}               ${DIM}List archived memories${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/memory cleanup${RESET}                ${DIM}Run decay & archive cleanup now${RESET}`,
+        );
         console.log();
       }
       rl.prompt();
       return;
     }
 
-    if (input === '/diff') {
-      startSpinner('Running git diff...');
+    if (input === "/diff") {
+      startSpinner("Running git diff...");
       try {
-        const result = await client.request<{ diff: string }>('gitDiff');
+        const result = await client.request<{ diff: string }>("gitDiff");
         stopSpinner();
         console.log(`\n${FG_ORANGE}${BOLD}Git Diff${RESET}\n`);
         console.log(result.diff);
@@ -2280,18 +3157,23 @@ async function main() {
       return;
     }
 
-    if (input.startsWith('/commit')) {
-      const message = input.slice('/commit'.length).trim();
+    if (input.startsWith("/commit")) {
+      const message = input.slice("/commit".length).trim();
       if (!message) {
         console.log(`\n${FG_YELLOW}Usage: /commit <message>${RESET}\n`);
         rl.prompt();
         return;
       }
-      startSpinner('Committing...');
+      startSpinner("Committing...");
       try {
-        const result = await client.request<{ hash: string; message: string }>('gitCommit', { message });
+        const result = await client.request<{ hash: string; message: string }>(
+          "gitCommit",
+          { message },
+        );
         stopSpinner();
-        console.log(`\n${FG_GREEN}${BOLD}Committed${RESET} ${DIM}${result.hash}${RESET} ${result.message}\n`);
+        console.log(
+          `\n${FG_GREEN}${BOLD}Committed${RESET} ${DIM}${result.hash}${RESET} ${result.message}\n`,
+        );
       } catch (err) {
         stopSpinner();
         console.error(`${FG_RED}${err}${RESET}`);
@@ -2300,8 +3182,8 @@ async function main() {
       return;
     }
 
-    if (input === '/git') {
-      startSpinner('Getting git status...');
+    if (input === "/git") {
+      startSpinner("Getting git status...");
       try {
         const result = await client.request<{
           branch: string | null;
@@ -2309,7 +3191,7 @@ async function main() {
           staged_files: string[];
           modified_files: string[];
           untracked_files: string[];
-        }>('gitStatus');
+        }>("gitStatus");
         stopSpinner();
         console.log(`\n${FG_ORANGE}${BOLD}Git Status${RESET}\n`);
         if (result.branch) {
@@ -2347,26 +3229,34 @@ async function main() {
     }
 
     // ── /task commands ──
-    if (input.startsWith('/task')) {
-      const taskArgs = input.slice('/task'.length).trim();
+    if (input.startsWith("/task")) {
+      const taskArgs = input.slice("/task".length).trim();
       const parts = taskArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
+      const subCmd = parts[0] || "";
 
-      if (subCmd === 'run') {
-        const desc = taskArgs.slice('run'.length).trim().replace(/^["']|["']$/g, '');
+      if (subCmd === "run") {
+        const desc = taskArgs
+          .slice("run".length)
+          .trim()
+          .replace(/^["']|["']$/g, "");
         if (!desc) {
           console.log(`\n${FG_YELLOW}Usage: /task run "description"${RESET}\n`);
           rl.prompt();
           return;
         }
-        startSpinner('Creating background task...');
+        startSpinner("Creating background task...");
         try {
-          const result = await client.request<{ task_id: string }>('taskCreate', {
-            description: desc,
-            prompt: desc,
-          });
+          const result = await client.request<{ task_id: string }>(
+            "taskCreate",
+            {
+              description: desc,
+              prompt: desc,
+            },
+          );
           stopSpinner();
-          console.log(`\n${FG_GREEN}${BOLD}Task created${RESET} ${DIM}id=${result.task_id}${RESET}\n`);
+          console.log(
+            `\n${FG_GREEN}${BOLD}Task created${RESET} ${DIM}id=${result.task_id}${RESET}\n`,
+          );
         } catch (err) {
           stopSpinner();
           console.error(`${FG_RED}Failed to create task: ${err}${RESET}`);
@@ -2375,22 +3265,49 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'list' || subCmd === '') {
+      if (subCmd === "list" || subCmd === "") {
         try {
-          const result = await client.request<{ tasks: Array<{ id: string; description: string; status: string | { Failed: string }; created_at: string; completed_at: string | null; result: string | null }>; count: number }>('taskList');
+          const result = await client.request<{
+            tasks: Array<{
+              id: string;
+              description: string;
+              status: string | { Failed: string };
+              created_at: string;
+              completed_at: string | null;
+              result: string | null;
+            }>;
+            count: number;
+          }>("taskList");
           if (result.count === 0) {
             console.log(`\n${DIM}No background tasks.${RESET}\n`);
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Background Tasks${RESET} ${DIM}(${result.count})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Background Tasks${RESET} ${DIM}(${result.count})${RESET}\n`,
+            );
             for (const t of result.tasks) {
-              const statusStr = typeof t.status === 'string' ? t.status
-                : t.status && typeof t.status === 'object' && 'Failed' in t.status ? `Failed: ${t.status.Failed}` : JSON.stringify(t.status);
-              const statusIcon = statusStr === 'Running' ? `${FG_YELLOW}●${RESET}`
-                : statusStr === 'Completed' ? `${FG_GREEN}●${RESET}`
-                : statusStr === 'Aborted' ? `${FG_GRAY}●${RESET}`
-                : `${FG_RED}●${RESET}`;
-              const desc = t.description.length > 50 ? t.description.slice(0, 50) + '…' : t.description;
-              console.log(`  ${statusIcon} ${FG_WHITE}${t.id}${RESET}  ${desc}  ${DIM}${statusStr}${RESET}`);
+              const statusStr =
+                typeof t.status === "string"
+                  ? t.status
+                  : t.status &&
+                      typeof t.status === "object" &&
+                      "Failed" in t.status
+                    ? `Failed: ${t.status.Failed}`
+                    : JSON.stringify(t.status);
+              const statusIcon =
+                statusStr === "Running"
+                  ? `${FG_YELLOW}●${RESET}`
+                  : statusStr === "Completed"
+                    ? `${FG_GREEN}●${RESET}`
+                    : statusStr === "Aborted"
+                      ? `${FG_GRAY}●${RESET}`
+                      : `${FG_RED}●${RESET}`;
+              const desc =
+                t.description.length > 50
+                  ? t.description.slice(0, 50) + "…"
+                  : t.description;
+              console.log(
+                `  ${statusIcon} ${FG_WHITE}${t.id}${RESET}  ${desc}  ${DIM}${statusStr}${RESET}`,
+              );
             }
             console.log();
           }
@@ -2401,28 +3318,56 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'status') {
-        const taskId = parts[1] || '';
+      if (subCmd === "status") {
+        const taskId = parts[1] || "";
         if (!taskId) {
           console.log(`\n${FG_YELLOW}Usage: /task status <id>${RESET}\n`);
           rl.prompt();
           return;
         }
         try {
-          const t = await client.request<{ id: string; description: string; status: string | { Failed: string }; created_at: string; completed_at: string | null; result: string | null }>('taskStatus', { task_id: taskId });
-          const statusStr = typeof t.status === 'string' ? t.status
-            : t.status && typeof t.status === 'object' && 'Failed' in t.status ? `Failed: ${t.status.Failed}` : JSON.stringify(t.status);
-          const statusColor = statusStr === 'Running' ? FG_YELLOW
-            : statusStr === 'Completed' ? FG_GREEN
-            : statusStr.startsWith('Failed') ? FG_RED : FG_GRAY;
-          console.log(`\n${FG_ORANGE}${BOLD}Task${RESET} ${FG_WHITE}${t.id}${RESET}`);
-          console.log(`  ${FG_WHITE}Status:${RESET}  ${statusColor}${statusStr}${RESET}`);
+          const t = await client.request<{
+            id: string;
+            description: string;
+            status: string | { Failed: string };
+            created_at: string;
+            completed_at: string | null;
+            result: string | null;
+          }>("taskStatus", { task_id: taskId });
+          const statusStr =
+            typeof t.status === "string"
+              ? t.status
+              : t.status && typeof t.status === "object" && "Failed" in t.status
+                ? `Failed: ${t.status.Failed}`
+                : JSON.stringify(t.status);
+          const statusColor =
+            statusStr === "Running"
+              ? FG_YELLOW
+              : statusStr === "Completed"
+                ? FG_GREEN
+                : statusStr.startsWith("Failed")
+                  ? FG_RED
+                  : FG_GRAY;
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Task${RESET} ${FG_WHITE}${t.id}${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Status:${RESET}  ${statusColor}${statusStr}${RESET}`,
+          );
           console.log(`  ${FG_WHITE}Desc:${RESET}    ${t.description}`);
-          console.log(`  ${FG_WHITE}Created:${RESET} ${DIM}${t.created_at}${RESET}`);
-          if (t.completed_at) console.log(`  ${FG_WHITE}Done:${RESET}    ${DIM}${t.completed_at}${RESET}`);
+          console.log(
+            `  ${FG_WHITE}Created:${RESET} ${DIM}${t.created_at}${RESET}`,
+          );
+          if (t.completed_at)
+            console.log(
+              `  ${FG_WHITE}Done:${RESET}    ${DIM}${t.completed_at}${RESET}`,
+            );
           if (t.result) {
-            const preview = t.result.length > 150 ? t.result.slice(0, 150) + '…' : t.result;
-            console.log(`  ${FG_WHITE}Result:${RESET}  ${DIM}${preview}${RESET}`);
+            const preview =
+              t.result.length > 150 ? t.result.slice(0, 150) + "…" : t.result;
+            console.log(
+              `  ${FG_WHITE}Result:${RESET}  ${DIM}${preview}${RESET}`,
+            );
           }
           console.log();
         } catch (err) {
@@ -2432,19 +3377,24 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'stop') {
-        const taskId = parts[1] || '';
+      if (subCmd === "stop") {
+        const taskId = parts[1] || "";
         if (!taskId) {
           console.log(`\n${FG_YELLOW}Usage: /task stop <id>${RESET}\n`);
           rl.prompt();
           return;
         }
         try {
-          const result = await client.request<{ stopped: boolean }>('taskStop', { task_id: taskId });
+          const result = await client.request<{ stopped: boolean }>(
+            "taskStop",
+            { task_id: taskId },
+          );
           if (result.stopped) {
             console.log(`\n${FG_GREEN}Task ${taskId} stopped.${RESET}\n`);
           } else {
-            console.log(`\n${FG_YELLOW}Task ${taskId} was not running or not found.${RESET}\n`);
+            console.log(
+              `\n${FG_YELLOW}Task ${taskId} was not running or not found.${RESET}\n`,
+            );
           }
         } catch (err) {
           console.error(`${FG_RED}${err}${RESET}`);
@@ -2454,23 +3404,33 @@ async function main() {
       }
 
       // Unknown /task subcommand
-      console.log(`\n${FG_YELLOW}Usage: /task run "desc" | /task list | /task status <id> | /task stop <id>${RESET}\n`);
+      console.log(
+        `\n${FG_YELLOW}Usage: /task run "desc" | /task list | /task status <id> | /task stop <id>${RESET}\n`,
+      );
       rl.prompt();
       return;
     }
 
-    if (input === '/voice') {
+    if (input === "/voice") {
       // Voice input: record audio via arecord, transcribe via whisper-cli
-      const whisperBin = process.env.WHISPER_CLI || 'whisper-cli';
-      const whisperModel = process.env.WHISPER_MODEL || path.join(os.homedir(), '.baoclaw', 'models', 'ggml-base.bin');
+      const whisperBin = process.env.WHISPER_CLI || "whisper-cli";
+      const whisperModel =
+        process.env.WHISPER_MODEL ||
+        path.join(os.homedir(), ".baoclaw", "models", "ggml-base.bin");
 
       // Check if whisper-cli is available
       try {
-        require('child_process').execSync(`which ${whisperBin}`, { stdio: 'ignore' });
+        require("child_process").execSync(`which ${whisperBin}`, {
+          stdio: "ignore",
+        });
       } catch {
         console.log(`\n${FG_YELLOW}whisper-cli not found.${RESET}`);
-        console.log(`${DIM}Install whisper.cpp and ensure 'whisper-cli' is in PATH.${RESET}`);
-        console.log(`${DIM}Or set WHISPER_CLI env var to the binary path.${RESET}`);
+        console.log(
+          `${DIM}Install whisper.cpp and ensure 'whisper-cli' is in PATH.${RESET}`,
+        );
+        console.log(
+          `${DIM}Or set WHISPER_CLI env var to the binary path.${RESET}`,
+        );
         console.log(`${DIM}Model path: ${whisperModel}${RESET}`);
         console.log(`${DIM}  Set WHISPER_MODEL env var to override.${RESET}\n`);
         rl.prompt();
@@ -2479,35 +3439,55 @@ async function main() {
 
       // Check if model file exists
       if (!fs.existsSync(whisperModel)) {
-        console.log(`\n${FG_YELLOW}Whisper model not found at: ${whisperModel}${RESET}`);
+        console.log(
+          `\n${FG_YELLOW}Whisper model not found at: ${whisperModel}${RESET}`,
+        );
         console.log(`${DIM}Download a model:${RESET}`);
         console.log(`${DIM}  mkdir -p ~/.baoclaw/models${RESET}`);
-        console.log(`${DIM}  curl -L -o ~/.baoclaw/models/ggml-base.bin \\${RESET}`);
-        console.log(`${DIM}    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin${RESET}`);
-        console.log(`${DIM}Or set WHISPER_MODEL env var to your model path.${RESET}\n`);
+        console.log(
+          `${DIM}  curl -L -o ~/.baoclaw/models/ggml-base.bin \\${RESET}`,
+        );
+        console.log(
+          `${DIM}    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin${RESET}`,
+        );
+        console.log(
+          `${DIM}Or set WHISPER_MODEL env var to your model path.${RESET}\n`,
+        );
         rl.prompt();
         return;
       }
 
       const tmpWav = path.join(os.tmpdir(), `baoclaw-voice-${Date.now()}.wav`);
 
-      console.log(`\n${FG_ORANGE}${BOLD}🎤 Recording...${RESET} ${DIM}Press Enter to stop.${RESET}`);
+      console.log(
+        `\n${FG_ORANGE}${BOLD}🎤 Recording...${RESET} ${DIM}Press Enter to stop.${RESET}`,
+      );
 
       // Start recording with arecord (Linux) or sox (cross-platform fallback)
       let recProc: ChildProcess;
       try {
         // Try arecord first (ALSA, common on Linux)
-        recProc = spawn('arecord', ['-f', 'S16_LE', '-r', '16000', '-c', '1', '-t', 'wav', tmpWav], {
-          stdio: ['pipe', 'ignore', 'ignore'],
-        });
+        recProc = spawn(
+          "arecord",
+          ["-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "wav", tmpWav],
+          {
+            stdio: ["pipe", "ignore", "ignore"],
+          },
+        );
       } catch {
         try {
           // Fallback to sox/rec
-          recProc = spawn('rec', ['-r', '16000', '-c', '1', '-b', '16', tmpWav], {
-            stdio: ['pipe', 'ignore', 'ignore'],
-          });
+          recProc = spawn(
+            "rec",
+            ["-r", "16000", "-c", "1", "-b", "16", tmpWav],
+            {
+              stdio: ["pipe", "ignore", "ignore"],
+            },
+          );
         } catch {
-          console.log(`${FG_RED}No audio recorder found. Install arecord (alsa-utils) or sox.${RESET}\n`);
+          console.log(
+            `${FG_RED}No audio recorder found. Install arecord (alsa-utils) or sox.${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
@@ -2515,43 +3495,55 @@ async function main() {
 
       // Wait for Enter to stop recording
       await new Promise<void>((resolve) => {
-        const stopRl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        stopRl.once('line', () => {
+        const stopRl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        stopRl.once("line", () => {
           stopRl.close();
-          recProc.kill('SIGTERM');
+          recProc.kill("SIGTERM");
           resolve();
         });
       });
 
       // Wait for process to exit
       await new Promise<void>((resolve) => {
-        recProc.on('close', () => resolve());
-        setTimeout(() => { recProc.kill('SIGKILL'); resolve(); }, 2000);
+        recProc.on("close", () => resolve());
+        setTimeout(() => {
+          recProc.kill("SIGKILL");
+          resolve();
+        }, 2000);
       });
 
       if (!fs.existsSync(tmpWav) || fs.statSync(tmpWav).size < 100) {
         console.log(`${FG_YELLOW}Recording too short or failed.${RESET}\n`);
-        try { fs.unlinkSync(tmpWav); } catch {}
+        try {
+          fs.unlinkSync(tmpWav);
+        } catch {}
         rl.prompt();
         return;
       }
 
       // Transcribe with whisper-cli
-      startSpinner('Transcribing...');
+      startSpinner("Transcribing...");
       try {
-        const result = require('child_process').execSync(
-          `${whisperBin} -m "${whisperModel}" -f "${tmpWav}" -l auto --no-timestamps -otxt 2>/dev/null`,
-          { encoding: 'utf-8', timeout: 30000 }
-        ).trim();
+        const result = require("child_process")
+          .execSync(
+            `${whisperBin} -m "${whisperModel}" -f "${tmpWav}" -l auto --no-timestamps -otxt 2>/dev/null`,
+            { encoding: "utf-8", timeout: 30000 },
+          )
+          .trim();
 
         stopSpinner();
 
         // Also check for .txt output file (whisper-cli sometimes writes to file)
         let transcript = result;
-        const txtFile = tmpWav + '.txt';
+        const txtFile = tmpWav + ".txt";
         if ((!transcript || transcript.length < 2) && fs.existsSync(txtFile)) {
-          transcript = fs.readFileSync(txtFile, 'utf-8').trim();
-          try { fs.unlinkSync(txtFile); } catch {}
+          transcript = fs.readFileSync(txtFile, "utf-8").trim();
+          try {
+            fs.unlinkSync(txtFile);
+          } catch {}
         }
 
         if (!transcript || transcript.length < 2) {
@@ -2561,18 +3553,18 @@ async function main() {
 
           // Submit the transcribed text as a message
           console.log(`${FG_BRIGHT_WHITE}${BOLD}You${RESET} ${transcript}`);
-          currentText = '';
+          currentText = "";
           isStreaming = false;
           toolCount = 0;
           queryStartTime = Date.now();
-          startSpinner('Thinking...');
+          startSpinner("Thinking...");
           // Debug: record submit time
           if (debugMode && !firstQueryDone) {
             resetDebugTimers();
             debugSubmitTime = Date.now();
           }
           try {
-            await client.request('submitMessage', { prompt: transcript });
+            await client.request("submitMessage", { prompt: transcript });
           } catch (err) {
             stopSpinner();
             console.error(`${FG_RED}Request failed: ${err}${RESET}`);
@@ -2584,92 +3576,154 @@ async function main() {
       }
 
       // Cleanup
-      try { fs.unlinkSync(tmpWav); } catch {}
+      try {
+        fs.unlinkSync(tmpWav);
+      } catch {}
 
       rl.prompt();
       return;
     }
 
-    if (input.startsWith('/telegram')) {
-      const telegramArgs = input.slice('/telegram'.length).trim();
-      const subCmd = telegramArgs.split(/\s+/)[0] || '';
-      const baoclawHome = process.env.BAOCLAW_HOME || path.join(os.homedir(), '.baoclaw');
-      const tgPidFile = path.join(os.homedir(), '.baoclaw', 'telegram-gateway.pid');
-      const tgLogFile = path.join(os.homedir(), '.baoclaw', 'telegram-gateway.log');
-      const gatewayScript = path.join(baoclawHome, 'baoclaw-telegram', 'src', 'gateway.ts');
+    if (input.startsWith("/telegram")) {
+      const telegramArgs = input.slice("/telegram".length).trim();
+      const subCmd = telegramArgs.split(/\s+/)[0] || "";
+      const baoclawHome =
+        process.env.BAOCLAW_HOME || path.join(os.homedir(), ".baoclaw");
+      const tgPidFile = path.join(
+        os.homedir(),
+        ".baoclaw",
+        "telegram-gateway.pid",
+      );
+      const tgLogFile = path.join(
+        os.homedir(),
+        ".baoclaw",
+        "telegram-gateway.log",
+      );
+      const gatewayScript = path.join(
+        baoclawHome,
+        "baoclaw-telegram",
+        "src",
+        "gateway.ts",
+      );
 
-      if (subCmd === 'start') {
+      if (subCmd === "start") {
         // Check if already running
         if (fs.existsSync(tgPidFile)) {
           try {
-            const pidData = JSON.parse(fs.readFileSync(tgPidFile, 'utf-8'));
+            const pidData = JSON.parse(fs.readFileSync(tgPidFile, "utf-8"));
             try {
               process.kill(pidData.pid, 0);
-              console.log(`\n${FG_YELLOW}Telegram gateway already running (pid=${pidData.pid}, @${pidData.bot_username || '?'}).${RESET}\n`);
+              console.log(
+                `\n${FG_YELLOW}Telegram gateway already running (pid=${pidData.pid}, @${pidData.bot_username || "?"}).${RESET}\n`,
+              );
               rl.prompt();
               return;
-            } catch { /* dead process, continue */ }
-          } catch { /* invalid pid file, continue */ }
+            } catch {
+              /* dead process, continue */
+            }
+          } catch {
+            /* invalid pid file, continue */
+          }
         }
 
         // Find tsx binary from the telegram gateway's node_modules
-        const tsxBin = path.join(baoclawHome, 'baoclaw-telegram', 'node_modules', '.bin', 'tsx');
-        const tsxPath = fs.existsSync(tsxBin) ? tsxBin : path.join(path.dirname(process.execPath), 'tsx');
+        const tsxBin = path.join(
+          baoclawHome,
+          "baoclaw-telegram",
+          "node_modules",
+          ".bin",
+          "tsx",
+        );
+        const tsxPath = fs.existsSync(tsxBin)
+          ? tsxBin
+          : path.join(path.dirname(process.execPath), "tsx");
 
         // Spawn gateway as detached background process
-        const logFd = fs.openSync(tgLogFile, 'a');
+        const logFd = fs.openSync(tgLogFile, "a");
         try {
           const child = spawn(process.execPath, [tsxPath, gatewayScript], {
             cwd: process.cwd(),
-            stdio: ['ignore', logFd, logFd],
+            stdio: ["ignore", logFd, logFd],
             env: { ...process.env, BAOCLAW_TELEGRAM_CWD: process.cwd() },
             detached: true,
           });
-          child.on('error', (err) => {
-            console.error(`${FG_RED}Failed to spawn gateway: ${err.message}${RESET}`);
+          child.on("error", (err) => {
+            console.error(
+              `${FG_RED}Failed to spawn gateway: ${err.message}${RESET}`,
+            );
           });
           child.unref();
-          console.log(`\n${FG_GREEN}${BOLD}Telegram gateway starting...${RESET}`);
+          console.log(
+            `\n${FG_GREEN}${BOLD}Telegram gateway starting...${RESET}`,
+          );
           console.log(`${DIM}  Log: ${tgLogFile}${RESET}`);
           console.log(`${DIM}  PID file: ${tgPidFile}${RESET}\n`);
         } finally {
           fs.closeSync(logFd);
         }
-      } else if (subCmd === 'stop') {
+      } else if (subCmd === "stop") {
         if (!fs.existsSync(tgPidFile)) {
-          console.log(`\n${FG_YELLOW}Telegram gateway is not running (no PID file).${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Telegram gateway is not running (no PID file).${RESET}\n`,
+          );
         } else {
           try {
-            const pidData = JSON.parse(fs.readFileSync(tgPidFile, 'utf-8'));
+            const pidData = JSON.parse(fs.readFileSync(tgPidFile, "utf-8"));
             try {
-              process.kill(pidData.pid, 'SIGTERM');
-              console.log(`\n${FG_GREEN}Sent SIGTERM to Telegram gateway (pid=${pidData.pid}).${RESET}\n`);
+              process.kill(pidData.pid, "SIGTERM");
+              console.log(
+                `\n${FG_GREEN}Sent SIGTERM to Telegram gateway (pid=${pidData.pid}).${RESET}\n`,
+              );
             } catch {
-              console.log(`\n${FG_YELLOW}Process ${pidData.pid} not found. Cleaning up PID file.${RESET}\n`);
-              try { fs.unlinkSync(tgPidFile); } catch {}
+              console.log(
+                `\n${FG_YELLOW}Process ${pidData.pid} not found. Cleaning up PID file.${RESET}\n`,
+              );
+              try {
+                fs.unlinkSync(tgPidFile);
+              } catch {}
             }
           } catch {
             console.log(`\n${FG_RED}Invalid PID file.${RESET}\n`);
           }
         }
-      } else if (subCmd === 'status') {
+      } else if (subCmd === "status") {
         if (!fs.existsSync(tgPidFile)) {
-          console.log(`\n${FG_YELLOW}Telegram gateway is not running.${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Telegram gateway is not running.${RESET}\n`,
+          );
         } else {
           try {
-            const pidData = JSON.parse(fs.readFileSync(tgPidFile, 'utf-8'));
+            const pidData = JSON.parse(fs.readFileSync(tgPidFile, "utf-8"));
             let alive = false;
-            try { process.kill(pidData.pid, 0); alive = true; } catch {}
+            try {
+              process.kill(pidData.pid, 0);
+              alive = true;
+            } catch {}
             if (alive) {
-              console.log(`\n${FG_GREEN}${BOLD}Telegram gateway is running${RESET}`);
+              console.log(
+                `\n${FG_GREEN}${BOLD}Telegram gateway is running${RESET}`,
+              );
               console.log(`  ${FG_WHITE}PID:${RESET}      ${pidData.pid}`);
-              if (pidData.bot_username) console.log(`  ${FG_WHITE}Bot:${RESET}      @${pidData.bot_username}`);
-              if (pidData.daemon_pid) console.log(`  ${FG_WHITE}Daemon:${RESET}   pid=${pidData.daemon_pid}`);
-              if (pidData.started_at) console.log(`  ${FG_WHITE}Started:${RESET}  ${pidData.started_at}`);
+              if (pidData.bot_username)
+                console.log(
+                  `  ${FG_WHITE}Bot:${RESET}      @${pidData.bot_username}`,
+                );
+              if (pidData.daemon_pid)
+                console.log(
+                  `  ${FG_WHITE}Daemon:${RESET}   pid=${pidData.daemon_pid}`,
+                );
+              if (pidData.started_at)
+                console.log(
+                  `  ${FG_WHITE}Started:${RESET}  ${pidData.started_at}`,
+                );
               console.log();
             } else {
-              console.log(`\n${FG_YELLOW}Telegram gateway is not running (stale PID file).${RESET}\n`);
-              try { fs.unlinkSync(tgPidFile); } catch {}
+              console.log(
+                `\n${FG_YELLOW}Telegram gateway is not running (stale PID file).${RESET}\n`,
+              );
+              try {
+                fs.unlinkSync(tgPidFile);
+              } catch {}
             }
           } catch {
             console.log(`\n${FG_RED}Invalid PID file.${RESET}\n`);
@@ -2677,9 +3731,15 @@ async function main() {
         }
       } else {
         console.log(`\n${FG_ORANGE}${BOLD}Telegram Gateway${RESET}\n`);
-        console.log(`  ${FG_WHITE}/telegram start${RESET}   ${DIM}Start the Telegram gateway${RESET}`);
-        console.log(`  ${FG_WHITE}/telegram stop${RESET}    ${DIM}Stop the Telegram gateway${RESET}`);
-        console.log(`  ${FG_WHITE}/telegram status${RESET}  ${DIM}Check gateway status${RESET}`);
+        console.log(
+          `  ${FG_WHITE}/telegram start${RESET}   ${DIM}Start the Telegram gateway${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/telegram stop${RESET}    ${DIM}Stop the Telegram gateway${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}/telegram status${RESET}  ${DIM}Check gateway status${RESET}`,
+        );
         console.log();
         console.log(`  ${DIM}Config in ~/.baoclaw/config.json:${RESET}`);
         console.log(`  ${DIM}{${RESET}`);
@@ -2697,12 +3757,12 @@ async function main() {
     }
 
     // ── /team commands ──
-    if (input.startsWith('/team')) {
-      const teamArgs = input.slice('/team'.length).trim();
+    if (input.startsWith("/team")) {
+      const teamArgs = input.slice("/team".length).trim();
       const parts = teamArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
+      const subCmd = parts[0] || "";
 
-      if (subCmd === 'spawn') {
+      if (subCmd === "spawn") {
         // Parse: /team spawn [n] --parallel|--sequence|--dag "task"
         // Examples:
         //   /team spawn 3 --parallel "Analyze codebase"
@@ -2710,24 +3770,24 @@ async function main() {
         //   /team spawn --dag "Check code style and tests, then generate report"
 
         let count: number | undefined;
-        let mode: 'parallel' | 'sequence' | 'dag' = 'parallel';
-        let task: string = '';
+        let mode: "parallel" | "sequence" | "dag" = "parallel";
+        let task: string = "";
 
         // Parse the remaining arguments
-        const rest = teamArgs.slice('spawn'.length).trim();
+        const rest = teamArgs.slice("spawn".length).trim();
 
         // Check for --parallel, --sequence, --dag
-        if (rest.includes('--parallel')) {
-          mode = 'parallel';
+        if (rest.includes("--parallel")) {
+          mode = "parallel";
           // Check if there's a number before --parallel
           const numMatch = rest.match(/^(\d+)\s+--parallel/);
           if (numMatch) {
             count = parseInt(numMatch[1], 10);
           }
-        } else if (rest.includes('--sequence')) {
-          mode = 'sequence';
-        } else if (rest.includes('--dag')) {
-          mode = 'dag';
+        } else if (rest.includes("--sequence")) {
+          mode = "sequence";
+        } else if (rest.includes("--dag")) {
+          mode = "dag";
         }
 
         // Extract task from quotes
@@ -2737,25 +3797,40 @@ async function main() {
         }
 
         if (!task) {
-          console.log(`\n${FG_YELLOW}Usage: /team spawn [n] --parallel|--sequence|--dag "task"${RESET}`);
-          console.log(`${DIM}  /team spawn 3 --parallel "Analyze codebase"${RESET}`);
-          console.log(`${DIM}  /team spawn --sequence "First analyze, then implement"${RESET}`);
-          console.log(`${DIM}  /team spawn --dag "Check code style, then report"${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /team spawn [n] --parallel|--sequence|--dag "task"${RESET}`,
+          );
+          console.log(
+            `${DIM}  /team spawn 3 --parallel "Analyze codebase"${RESET}`,
+          );
+          console.log(
+            `${DIM}  /team spawn --sequence "First analyze, then implement"${RESET}`,
+          );
+          console.log(
+            `${DIM}  /team spawn --dag "Check code style, then report"${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
 
         startSpinner(`Creating ${mode} team...`);
         try {
-          const result = await client.request<{ team_id: string; status: string }>('teamSpawn', {
+          const result = await client.request<{
+            team_id: string;
+            status: string;
+          }>("teamSpawn", {
             count,
             mode,
             task,
           });
           stopSpinner();
-          console.log(`\n${FG_GREEN}${BOLD}Team created${RESET} ${DIM}[${result.team_id}] ${mode}${count ? ` (${count} agents)` : ''}${RESET}`);
+          console.log(
+            `\n${FG_GREEN}${BOLD}Team created${RESET} ${DIM}[${result.team_id}] ${mode}${count ? ` (${count} agents)` : ""}${RESET}`,
+          );
           console.log(`${DIM}  Task: ${task}${RESET}`);
-          console.log(`${DIM}  Execute with: /team exec ${result.team_id}${RESET}\n`);
+          console.log(
+            `${DIM}  Execute with: /team exec ${result.team_id}${RESET}\n`,
+          );
         } catch (err) {
           stopSpinner();
           console.error(`${FG_RED}Failed to create team: ${err}${RESET}`);
@@ -2764,21 +3839,44 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'list' || subCmd === '') {
+      if (subCmd === "list" || subCmd === "") {
         try {
-          const result = await client.request<{ teams: Array<{ id: string; task: string; mode: string; status: string; agent_count: number; created_at: string }>; count: number }>('teamList');
+          const result = await client.request<{
+            teams: Array<{
+              id: string;
+              task: string;
+              mode: string;
+              status: string;
+              agent_count: number;
+              created_at: string;
+            }>;
+            count: number;
+          }>("teamList");
           if (result.count === 0) {
-            console.log(`\n${DIM}No teams. Use /team spawn to create one.${RESET}\n`);
+            console.log(
+              `\n${DIM}No teams. Use /team spawn to create one.${RESET}\n`,
+            );
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Teams${RESET} ${DIM}(${result.count})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Teams${RESET} ${DIM}(${result.count})${RESET}\n`,
+            );
             for (const t of result.teams) {
-              const statusIcon = t.status === 'Running' ? `${FG_YELLOW}●${RESET}`
-                : t.status === 'Completed' ? `${FG_GREEN}●${RESET}`
-                : t.status === 'Failed' ? `${FG_RED}●${RESET}`
-                : `${FG_GRAY}●${RESET}`;
-              const taskPreview = t.task.length > 50 ? t.task.slice(0, 50) + '…' : t.task;
-              console.log(`  ${statusIcon} ${FG_WHITE}${t.id}${RESET}  ${DIM}${t.mode}${RESET}  ${FG_WHITE}${taskPreview}${RESET}`);
-              console.log(`    ${DIM}${t.agent_count} agents · ${t.status} · ${t.created_at}${RESET}`);
+              const statusIcon =
+                t.status === "Running"
+                  ? `${FG_YELLOW}●${RESET}`
+                  : t.status === "Completed"
+                    ? `${FG_GREEN}●${RESET}`
+                    : t.status === "Failed"
+                      ? `${FG_RED}●${RESET}`
+                      : `${FG_GRAY}●${RESET}`;
+              const taskPreview =
+                t.task.length > 50 ? t.task.slice(0, 50) + "…" : t.task;
+              console.log(
+                `  ${statusIcon} ${FG_WHITE}${t.id}${RESET}  ${DIM}${t.mode}${RESET}  ${FG_WHITE}${taskPreview}${RESET}`,
+              );
+              console.log(
+                `    ${DIM}${t.agent_count} agents · ${t.status} · ${t.created_at}${RESET}`,
+              );
             }
             console.log();
           }
@@ -2789,37 +3887,67 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'status') {
-        const teamId = parts[1] || '';
+      if (subCmd === "status") {
+        const teamId = parts[1] || "";
         if (!teamId) {
           console.log(`\n${FG_YELLOW}Usage: /team status <id>${RESET}\n`);
           rl.prompt();
           return;
         }
         try {
-          const t = await client.request<{ id: string; task: string; mode: string; status: string; agents: Array<{ id: string; status: string; prompt: string }>; total_cost_usd: number; total_tokens: number }>('teamStatus', { team_id: teamId });
-          const statusColor = t.status === 'Running' ? FG_YELLOW
-            : t.status === 'Completed' ? FG_GREEN
-            : t.status === 'Failed' ? FG_RED : FG_GRAY;
-          console.log(`\n${FG_ORANGE}${BOLD}Team${RESET} ${FG_WHITE}${t.id}${RESET}`);
-          console.log(`  ${FG_WHITE}Status:${RESET}  ${statusColor}${t.status}${RESET}`);
+          const t = await client.request<{
+            id: string;
+            task: string;
+            mode: string;
+            status: string;
+            agents: Array<{ id: string; status: string; prompt: string }>;
+            total_cost_usd: number;
+            total_tokens: number;
+          }>("teamStatus", { team_id: teamId });
+          const statusColor =
+            t.status === "Running"
+              ? FG_YELLOW
+              : t.status === "Completed"
+                ? FG_GREEN
+                : t.status === "Failed"
+                  ? FG_RED
+                  : FG_GRAY;
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Team${RESET} ${FG_WHITE}${t.id}${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Status:${RESET}  ${statusColor}${t.status}${RESET}`,
+          );
           console.log(`  ${FG_WHITE}Mode:${RESET}    ${t.mode}`);
           console.log(`  ${FG_WHITE}Task:${RESET}    ${t.task}`);
           if (t.total_cost_usd > 0) {
-            console.log(`  ${FG_WHITE}Cost:${RESET}    $${t.total_cost_usd.toFixed(4)}`);
+            console.log(
+              `  ${FG_WHITE}Cost:${RESET}    $${t.total_cost_usd.toFixed(4)}`,
+            );
           }
           if (t.total_tokens > 0) {
-            console.log(`  ${FG_WHITE}Tokens:${RESET}  ${t.total_tokens.toLocaleString()}`);
+            console.log(
+              `  ${FG_WHITE}Tokens:${RESET}  ${t.total_tokens.toLocaleString()}`,
+            );
           }
           if (t.agents && t.agents.length > 0) {
-            console.log(`\n  ${FG_GRAY}── Agents (${t.agents.length}) ──${RESET}`);
+            console.log(
+              `\n  ${FG_GRAY}── Agents (${t.agents.length}) ──${RESET}`,
+            );
             for (const a of t.agents) {
-              const aStatusIcon = a.status === 'Running' ? `${FG_YELLOW}●${RESET}`
-                : a.status === 'Completed' ? `${FG_GREEN}●${RESET}`
-                : a.status === 'Failed' ? `${FG_RED}●${RESET}`
-                : `${FG_GRAY}●${RESET}`;
-              const promptPreview = a.prompt.length > 40 ? a.prompt.slice(0, 40) + '…' : a.prompt;
-              console.log(`    ${aStatusIcon} ${DIM}${a.id}${RESET}  ${promptPreview}`);
+              const aStatusIcon =
+                a.status === "Running"
+                  ? `${FG_YELLOW}●${RESET}`
+                  : a.status === "Completed"
+                    ? `${FG_GREEN}●${RESET}`
+                    : a.status === "Failed"
+                      ? `${FG_RED}●${RESET}`
+                      : `${FG_GRAY}●${RESET}`;
+              const promptPreview =
+                a.prompt.length > 40 ? a.prompt.slice(0, 40) + "…" : a.prompt;
+              console.log(
+                `    ${aStatusIcon} ${DIM}${a.id}${RESET}  ${promptPreview}`,
+              );
             }
           }
           console.log();
@@ -2830,8 +3958,8 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'exec' || subCmd === 'execute') {
-        const teamId = parts[1] || '';
+      if (subCmd === "exec" || subCmd === "execute") {
+        const teamId = parts[1] || "";
         if (!teamId) {
           console.log(`\n${FG_YELLOW}Usage: /team exec <id>${RESET}\n`);
           rl.prompt();
@@ -2839,15 +3967,24 @@ async function main() {
         }
         startSpinner(`Executing team ${teamId}...`);
         try {
-          const result = await client.request<{ team_id: string; success: boolean; duration_ms: number }>('teamExecute', { team_id: teamId });
+          const result = await client.request<{
+            team_id: string;
+            success: boolean;
+            duration_ms: number;
+          }>("teamExecute", { team_id: teamId });
           stopSpinner();
           if (result.success) {
-            const dur = result.duration_ms >= 1000
-              ? `${(result.duration_ms / 1000).toFixed(1)}s`
-              : `${result.duration_ms}ms`;
-            console.log(`\n${FG_GREEN}${BOLD}Team completed${RESET} ${DIM}${result.team_id} in ${dur}${RESET}\n`);
+            const dur =
+              result.duration_ms >= 1000
+                ? `${(result.duration_ms / 1000).toFixed(1)}s`
+                : `${result.duration_ms}ms`;
+            console.log(
+              `\n${FG_GREEN}${BOLD}Team completed${RESET} ${DIM}${result.team_id} in ${dur}${RESET}\n`,
+            );
           } else {
-            console.log(`\n${FG_RED}Team execution failed${RESET} ${DIM}${result.team_id}${RESET}\n`);
+            console.log(
+              `\n${FG_RED}Team execution failed${RESET} ${DIM}${result.team_id}${RESET}\n`,
+            );
           }
         } catch (err) {
           stopSpinner();
@@ -2857,28 +3994,43 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'results') {
-        const teamId = parts[1] || '';
+      if (subCmd === "results") {
+        const teamId = parts[1] || "";
         if (!teamId) {
           console.log(`\n${FG_YELLOW}Usage: /team results <id>${RESET}\n`);
           rl.prompt();
           return;
         }
         try {
-          const result = await client.request<{ team_id: string; results: Array<{ agent_id: string; status: string; result?: string; error?: string }> }>('teamResults', { team_id: teamId });
-          console.log(`\n${FG_ORANGE}${BOLD}Team Results${RESET} ${FG_WHITE}${result.team_id}${RESET}\n`);
+          const result = await client.request<{
+            team_id: string;
+            results: Array<{
+              agent_id: string;
+              status: string;
+              result?: string;
+              error?: string;
+            }>;
+          }>("teamResults", { team_id: teamId });
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Team Results${RESET} ${FG_WHITE}${result.team_id}${RESET}\n`,
+          );
           for (const r of result.results) {
-            const statusIcon = r.status === 'Completed' ? `${FG_GREEN}✓${RESET}`
-              : r.status === 'Failed' ? `${FG_RED}✗${RESET}`
-              : `${FG_GRAY}○${RESET}`;
+            const statusIcon =
+              r.status === "Completed"
+                ? `${FG_GREEN}✓${RESET}`
+                : r.status === "Failed"
+                  ? `${FG_RED}✗${RESET}`
+                  : `${FG_GRAY}○${RESET}`;
             console.log(`  ${statusIcon} ${FG_WHITE}${r.agent_id}${RESET}`);
             if (r.result) {
-              const lines = r.result.split('\n').slice(0, 5);
+              const lines = r.result.split("\n").slice(0, 5);
               for (const line of lines) {
                 console.log(`    ${DIM}${line.slice(0, 100)}${RESET}`);
               }
-              if (r.result.split('\n').length > 5) {
-                console.log(`    ${DIM}... (${r.result.length} chars total)${RESET}`);
+              if (r.result.split("\n").length > 5) {
+                console.log(
+                  `    ${DIM}... (${r.result.length} chars total)${RESET}`,
+                );
               }
             }
             if (r.error) {
@@ -2893,19 +4045,24 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'abort') {
-        const teamId = parts[1] || '';
+      if (subCmd === "abort") {
+        const teamId = parts[1] || "";
         if (!teamId) {
           console.log(`\n${FG_YELLOW}Usage: /team abort <id>${RESET}\n`);
           rl.prompt();
           return;
         }
         try {
-          const result = await client.request<{ team_id: string; aborted: boolean }>('teamAbort', { team_id: teamId });
+          const result = await client.request<{
+            team_id: string;
+            aborted: boolean;
+          }>("teamAbort", { team_id: teamId });
           if (result.aborted) {
             console.log(`\n${FG_GREEN}Team ${teamId} aborted.${RESET}\n`);
           } else {
-            console.log(`\n${FG_YELLOW}Team ${teamId} was not running or not found.${RESET}\n`);
+            console.log(
+              `\n${FG_YELLOW}Team ${teamId} was not running or not found.${RESET}\n`,
+            );
           }
         } catch (err) {
           console.error(`${FG_RED}${err}${RESET}`);
@@ -2916,24 +4073,42 @@ async function main() {
 
       // Unknown /team subcommand — show help
       console.log(`\n${FG_ORANGE}${BOLD}Team Commands${RESET}\n`);
-      console.log(`  ${FG_WHITE}/team spawn [n] --parallel "task"${RESET}  ${DIM}Create parallel team${RESET}`);
-      console.log(`  ${FG_WHITE}/team spawn --sequence "task"${RESET}    ${DIM}Create sequential team${RESET}`);
-      console.log(`  ${FG_WHITE}/team spawn --dag "task"${RESET}         ${DIM}Create DAG team${RESET}`);
-      console.log(`  ${FG_WHITE}/team list${RESET}                       ${DIM}List all teams${RESET}`);
-      console.log(`  ${FG_WHITE}/team status <id>${RESET}                 ${DIM}Show team status${RESET}`);
-      console.log(`  ${FG_WHITE}/team exec <id>${RESET}                   ${DIM}Execute a team${RESET}`);
-      console.log(`  ${FG_WHITE}/team results <id>${RESET}                ${DIM}Show team results${RESET}`);
-      console.log(`  ${FG_WHITE}/team abort <id>${RESET}                  ${DIM}Abort a running team${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/team spawn [n] --parallel "task"${RESET}  ${DIM}Create parallel team${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team spawn --sequence "task"${RESET}    ${DIM}Create sequential team${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team spawn --dag "task"${RESET}         ${DIM}Create DAG team${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team list${RESET}                       ${DIM}List all teams${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team status <id>${RESET}                 ${DIM}Show team status${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team exec <id>${RESET}                   ${DIM}Execute a team${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team results <id>${RESET}                ${DIM}Show team results${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team abort <id>${RESET}                  ${DIM}Abort a running team${RESET}`,
+      );
       console.log();
       rl.prompt();
       return;
     }
 
-    if (input.startsWith('/telemetry')) {
-      const arg = input.slice('/telemetry'.length).trim().toLowerCase();
-      if (arg === 'on') {
-        console.log(`\n${FG_GREEN}${BOLD}Telemetry enabled${RESET} ${DIM}(events stored locally in ~/.baoclaw/telemetry/)${RESET}\n`);
-      } else if (arg === 'off') {
+    if (input.startsWith("/telemetry")) {
+      const arg = input.slice("/telemetry".length).trim().toLowerCase();
+      if (arg === "on") {
+        console.log(
+          `\n${FG_GREEN}${BOLD}Telemetry enabled${RESET} ${DIM}(events stored locally in ~/.baoclaw/telemetry/)${RESET}\n`,
+        );
+      } else if (arg === "off") {
         console.log(`\n${FG_YELLOW}Telemetry disabled${RESET}\n`);
       } else {
         console.log(`\n${FG_YELLOW}Usage: /telemetry on|off${RESET}\n`);
@@ -2943,95 +4118,138 @@ async function main() {
     }
 
     // ── /template commands ──
-    if (input.startsWith('/template')) {
-      const tplArgs = input.slice('/template'.length).trim();
+    if (input.startsWith("/template")) {
+      const tplArgs = input.slice("/template".length).trim();
       const parts = tplArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
+      const subCmd = parts[0] || "";
 
-      if (subCmd === 'list' || subCmd === '') {
+      if (subCmd === "list" || subCmd === "") {
         try {
-          const result = await client.request<{ templates: any[]; count: number }>('templateList');
+          const result = await client.request<{
+            templates: any[];
+            count: number;
+          }>("templateList");
           if (result.count === 0) {
-            console.log(`\n${DIM}No templates found. Use /template create to create one.${RESET}\n`);
+            console.log(
+              `\n${DIM}No templates found. Use /template create to create one.${RESET}\n`,
+            );
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Templates${RESET} ${DIM}(${result.count})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Templates${RESET} ${DIM}(${result.count})${RESET}\n`,
+            );
             for (const t of result.templates) {
-              const builtin = t.builtin ? ` ${FG_BLUE}[builtin]${RESET}` : '';
-              const trigger = t.trigger ? ` ${DIM}trigger:${RESET} ${FG_WHITE}${t.trigger}${RESET}` : '';
+              const builtin = t.builtin ? ` ${FG_BLUE}[builtin]${RESET}` : "";
+              const trigger = t.trigger
+                ? ` ${DIM}trigger:${RESET} ${FG_WHITE}${t.trigger}${RESET}`
+                : "";
               console.log(`  ${FG_WHITE}${BOLD}${t.name}${RESET}${builtin}`);
-              console.log(`    ${DIM}${t.description || 'No description'}${RESET}  v${t.version}${trigger}  ${DIM}steps:${t.steps_count} vars:${t.variables_count}${RESET}`);
+              console.log(
+                `    ${DIM}${t.description || "No description"}${RESET}  v${t.version}${trigger}  ${DIM}steps:${t.steps_count} vars:${t.variables_count}${RESET}`,
+              );
             }
             console.log();
           }
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'create') {
-        const rest = tplArgs.slice('create'.length).trim();
+      if (subCmd === "create") {
+        const rest = tplArgs.slice("create".length).trim();
         const match = rest.match(/^(\S+)\s+(\S+)\s+(.+)/);
         if (!match) {
-          console.log(`\n${FG_YELLOW}Usage: /template create <name> <trigger> <description>${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /template create <name> <trigger> <description>${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
         const name = match[1];
         const trigger = match[2];
         const description = match[3];
-        const templateJson = JSON.stringify({ name, trigger, description, version: '1.0.0', workflow: [], variables: {} });
+        const templateJson = JSON.stringify({
+          name,
+          trigger,
+          description,
+          version: "1.0.0",
+          workflow: [],
+          variables: {},
+        });
         try {
-          await client.request('templateCreate', { json: templateJson });
-          console.log(`\n${FG_GREEN}✓ Template created:${RESET} ${FG_WHITE}${name}${RESET} ${DIM}${trigger}${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+          await client.request("templateCreate", { json: templateJson });
+          console.log(
+            `\n${FG_GREEN}✓ Template created:${RESET} ${FG_WHITE}${name}${RESET} ${DIM}${trigger}${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'delete' || subCmd === 'rm') {
-        const name = parts.slice(1).join(' ');
+      if (subCmd === "delete" || subCmd === "rm") {
+        const name = parts.slice(1).join(" ");
         if (!name) {
           console.log(`\n${FG_YELLOW}Usage: /template delete <name>${RESET}\n`);
           rl.prompt();
           return;
         }
         try {
-          await client.request('templateDelete', { name });
-          console.log(`\n${FG_GREEN}✓ Template deleted:${RESET} ${FG_WHITE}${name}${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+          await client.request("templateDelete", { name });
+          console.log(
+            `\n${FG_GREEN}✓ Template deleted:${RESET} ${FG_WHITE}${name}${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'export') {
-        const name = parts.slice(1).join(' ');
+      if (subCmd === "export") {
+        const name = parts.slice(1).join(" ");
         if (!name) {
           console.log(`\n${FG_YELLOW}Usage: /template export <name>${RESET}\n`);
           rl.prompt();
           return;
         }
         try {
-          const result = await client.request<{ name: string; template: any }>('templateExport', { name });
-          console.log(`\n${FG_ORANGE}${BOLD}Template: ${result.name}${RESET}\n`);
+          const result = await client.request<{ name: string; template: any }>(
+            "templateExport",
+            { name },
+          );
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Template: ${result.name}${RESET}\n`,
+          );
           console.log(JSON.stringify(result.template, null, 2));
           console.log();
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'import') {
-        const url = parts.slice(1).join(' ');
+      if (subCmd === "import") {
+        const url = parts.slice(1).join(" ");
         if (!url) {
           console.log(`\n${FG_YELLOW}Usage: /template import <url>${RESET}\n`);
           rl.prompt();
           return;
         }
-        startSpinner('Importing template...');
+        startSpinner("Importing template...");
         try {
-          const result = await client.request<{ success: boolean; name: string; trigger: string }>('templateImport', { url });
+          const result = await client.request<{
+            success: boolean;
+            name: string;
+            trigger: string;
+          }>("templateImport", { url });
           stopSpinner();
-          console.log(`\n${FG_GREEN}✓ Template imported:${RESET} ${FG_WHITE}${result.name}${RESET} ${DIM}${result.trigger}${RESET}\n`);
+          console.log(
+            `\n${FG_GREEN}✓ Template imported:${RESET} ${FG_WHITE}${result.name}${RESET} ${DIM}${result.trigger}${RESET}\n`,
+          );
         } catch (err) {
           stopSpinner();
           console.error(`${FG_RED}${err}${RESET}`);
@@ -3041,35 +4259,57 @@ async function main() {
       }
 
       console.log(`\n${FG_ORANGE}${BOLD}Template Commands${RESET}\n`);
-      console.log(`  ${FG_WHITE}/template list${RESET}                    ${DIM}List all templates${RESET}`);
-      console.log(`  ${FG_WHITE}/template create <name> <t> <d>${RESET}    ${DIM}Create a template${RESET}`);
-      console.log(`  ${FG_WHITE}/template delete <name>${RESET}             ${DIM}Delete a template${RESET}`);
-      console.log(`  ${FG_WHITE}/template export <name>${RESET}             ${DIM}Export template as JSON${RESET}`);
-      console.log(`  ${FG_WHITE}/template import <url>${RESET}              ${DIM}Import template from URL${RESET}\n`);
+      console.log(
+        `  ${FG_WHITE}/template list${RESET}                    ${DIM}List all templates${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/template create <name> <t> <d>${RESET}    ${DIM}Create a template${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/template delete <name>${RESET}             ${DIM}Delete a template${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/template export <name>${RESET}             ${DIM}Export template as JSON${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/template import <url>${RESET}              ${DIM}Import template from URL${RESET}\n`,
+      );
       rl.prompt();
       return;
     }
 
     // ── Extended /git commands ──
-    if (input.startsWith('/git ')) {
-      const gitArgs = input.slice('/git'.length).trim();
+    if (input.startsWith("/git ")) {
+      const gitArgs = input.slice("/git".length).trim();
       const parts = gitArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
+      const subCmd = parts[0] || "";
 
-      if (subCmd === 'pr' && parts[1] === 'list') {
-        startSpinner('Fetching pull requests...');
+      if (subCmd === "pr" && parts[1] === "list") {
+        startSpinner("Fetching pull requests...");
         try {
-          const result = await client.request<{ pull_requests?: any[]; error?: string }>('gitPrList');
+          const result = await client.request<{
+            pull_requests?: any[];
+            error?: string;
+          }>("gitPrList");
           stopSpinner();
           if (result.error) {
             console.log(`\n${FG_YELLOW}${result.error}${RESET}\n`);
-          } else if (!result.pull_requests || result.pull_requests.length === 0) {
+          } else if (
+            !result.pull_requests ||
+            result.pull_requests.length === 0
+          ) {
             console.log(`\n${DIM}No open pull requests.${RESET}\n`);
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Pull Requests${RESET} ${DIM}(${result.pull_requests.length})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Pull Requests${RESET} ${DIM}(${result.pull_requests.length})${RESET}\n`,
+            );
             for (const pr of result.pull_requests) {
-              console.log(`  ${FG_CYAN}#${pr.number}${RESET} ${FG_WHITE}${pr.title}${RESET}`);
-              console.log(`    ${DIM}${pr.state}${RESET}  ${pr.head_branch} → ${pr.base_branch}  ${DIM}by ${pr.author}${RESET}  ${pr.url}`);
+              console.log(
+                `  ${FG_CYAN}#${pr.number}${RESET} ${FG_WHITE}${pr.title}${RESET}`,
+              );
+              console.log(
+                `    ${DIM}${pr.state}${RESET}  ${pr.head_branch} → ${pr.base_branch}  ${DIM}by ${pr.author}${RESET}  ${pr.url}`,
+              );
             }
             console.log();
           }
@@ -3081,19 +4321,26 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'pr' && parts[1] === 'create') {
-        const title = parts.slice(2).join(' ');
+      if (subCmd === "pr" && parts[1] === "create") {
+        const title = parts.slice(2).join(" ");
         if (!title) {
           console.log(`\n${FG_YELLOW}Usage: /git pr create <title>${RESET}\n`);
           rl.prompt();
           return;
         }
-        startSpinner('Creating PR...');
+        startSpinner("Creating PR...");
         try {
-          const result = await client.request<{ success: boolean; number?: number; url?: string; error?: string }>('gitPrCreate', { title, body: '', base: '', head: '' });
+          const result = await client.request<{
+            success: boolean;
+            number?: number;
+            url?: string;
+            error?: string;
+          }>("gitPrCreate", { title, body: "", base: "", head: "" });
           stopSpinner();
           if (result.success) {
-            console.log(`\n${FG_GREEN}✓ PR #${result.number} created${RESET} ${DIM}${result.url}${RESET}\n`);
+            console.log(
+              `\n${FG_GREEN}✓ PR #${result.number} created${RESET} ${DIM}${result.url}${RESET}\n`,
+            );
           } else {
             console.log(`\n${FG_RED}${result.error}${RESET}\n`);
           }
@@ -3105,22 +4352,31 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'branch') {
-        startSpinner('Listing branches...');
+      if (subCmd === "branch") {
+        startSpinner("Listing branches...");
         try {
-          const result = await client.request<{ branches?: any[]; error?: string }>('gitBranchList');
+          const result = await client.request<{
+            branches?: any[];
+            error?: string;
+          }>("gitBranchList");
           stopSpinner();
           if (result.error) {
             console.log(`\n${FG_YELLOW}${result.error}${RESET}\n`);
           } else if (!result.branches || result.branches.length === 0) {
             console.log(`\n${DIM}No branches.${RESET}\n`);
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Branches${RESET} ${DIM}(${result.branches.length})${RESET}\n`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Branches${RESET} ${DIM}(${result.branches.length})${RESET}\n`,
+            );
             for (const b of result.branches) {
-              const marker = b.is_current ? `${FG_GREEN}*${RESET}` : ' ';
-              const ahead = b.ahead > 0 ? ` ${FG_GREEN}↑${b.ahead}${RESET}` : '';
-              const behind = b.behind > 0 ? ` ${FG_RED}↓${b.behind}${RESET}` : '';
-              console.log(`  ${marker} ${FG_WHITE}${b.name}${RESET}${ahead}${behind}  ${DIM}${b.last_commit} ${b.last_commit_msg}${RESET}`);
+              const marker = b.is_current ? `${FG_GREEN}*${RESET}` : " ";
+              const ahead =
+                b.ahead > 0 ? ` ${FG_GREEN}↑${b.ahead}${RESET}` : "";
+              const behind =
+                b.behind > 0 ? ` ${FG_RED}↓${b.behind}${RESET}` : "";
+              console.log(
+                `  ${marker} ${FG_WHITE}${b.name}${RESET}${ahead}${behind}  ${DIM}${b.last_commit} ${b.last_commit_msg}${RESET}`,
+              );
             }
             console.log();
           }
@@ -3132,19 +4388,27 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'conflict') {
-        startSpinner('Checking conflicts...');
+      if (subCmd === "conflict") {
+        startSpinner("Checking conflicts...");
         try {
-          const result = await client.request<{ conflicts?: any[]; has_conflicts?: boolean; error?: string }>('gitConflictCheck');
+          const result = await client.request<{
+            conflicts?: any[];
+            has_conflicts?: boolean;
+            error?: string;
+          }>("gitConflictCheck");
           stopSpinner();
           if (result.error) {
             console.log(`\n${FG_YELLOW}${result.error}${RESET}\n`);
           } else if (!result.has_conflicts) {
             console.log(`\n${FG_GREEN}✓ No conflicts detected${RESET}\n`);
           } else {
-            console.log(`\n${FG_RED}${BOLD}Conflicts detected${RESET} ${DIM}(${(result.conflicts || []).length})${RESET}\n`);
-            for (const c of (result.conflicts || [])) {
-              console.log(`  ${FG_YELLOW}⚠${RESET} ${FG_WHITE}${c.file}${RESET} ${c.resolved ? FG_GREEN + 'resolved' : FG_RED + 'unresolved'}${RESET}`);
+            console.log(
+              `\n${FG_RED}${BOLD}Conflicts detected${RESET} ${DIM}(${(result.conflicts || []).length})${RESET}\n`,
+            );
+            for (const c of result.conflicts || []) {
+              console.log(
+                `  ${FG_YELLOW}⚠${RESET} ${FG_WHITE}${c.file}${RESET} ${c.resolved ? FG_GREEN + "resolved" : FG_RED + "unresolved"}${RESET}`,
+              );
             }
             console.log();
           }
@@ -3157,72 +4421,125 @@ async function main() {
       }
 
       console.log(`\n${FG_ORANGE}${BOLD}Git Commands${RESET}\n`);
-      console.log(`  ${FG_WHITE}/git${RESET}               ${DIM}Git status (branch, changes)${RESET}`);
-      console.log(`  ${FG_WHITE}/git pr list${RESET}       ${DIM}List pull requests${RESET}`);
-      console.log(`  ${FG_WHITE}/git pr create <title>${RESET} ${DIM}Create a pull request${RESET}`);
-      console.log(`  ${FG_WHITE}/git branch${RESET}         ${DIM}List branches${RESET}`);
-      console.log(`  ${FG_WHITE}/git conflict${RESET}       ${DIM}Check for merge conflicts${RESET}`);
-      console.log(`  ${FG_WHITE}/diff${RESET}              ${DIM}Git diff summary${RESET}`);
-      console.log(`  ${FG_WHITE}/commit <msg>${RESET}      ${DIM}Stage all and commit${RESET}\n`);
+      console.log(
+        `  ${FG_WHITE}/git${RESET}               ${DIM}Git status (branch, changes)${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git pr list${RESET}       ${DIM}List pull requests${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git pr create <title>${RESET} ${DIM}Create a pull request${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git branch${RESET}         ${DIM}List branches${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git conflict${RESET}       ${DIM}Check for merge conflicts${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/diff${RESET}              ${DIM}Git diff summary${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/commit <msg>${RESET}      ${DIM}Stage all and commit${RESET}\n`,
+      );
       rl.prompt();
       return;
     }
 
     // ── Extended /model commands ──
-    if (input.startsWith('/model ')) {
-      const modelArgs = input.slice('/model'.length).trim();
+    if (input.startsWith("/model ")) {
+      const modelArgs = input.slice("/model".length).trim();
       const parts = modelArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
+      const subCmd = parts[0] || "";
 
-      if (subCmd === 'list') {
+      if (subCmd === "list") {
         try {
-          const result = await client.request<{ models: any[]; count: number }>('modelList');
-          console.log(`\n${FG_ORANGE}${BOLD}Available Models${RESET} ${DIM}(${result.count})${RESET}\n`);
+          const result = await client.request<{ models: any[]; count: number }>(
+            "modelList",
+          );
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Available Models${RESET} ${DIM}(${result.count})${RESET}\n`,
+          );
           for (const m of result.models) {
             const costIn = `$${m.cost_per_1k_input}/1K`;
             const costOut = `$${m.cost_per_1k_output}/1K`;
-            const caps = (m.capabilities || []).join(', ');
-            console.log(`  ${FG_WHITE}${BOLD}${m.name}${RESET}  ${DIM}${m.provider}${RESET}  priority:${m.priority}`);
-            console.log(`    ${DIM}ctx:${(m.max_tokens/1000).toFixed(0)}K  in:${costIn}  out:${costOut}${caps ? '  [' + caps + ']' : ''}${RESET}`);
+            const caps = (m.capabilities || []).join(", ");
+            console.log(
+              `  ${FG_WHITE}${BOLD}${m.name}${RESET}  ${DIM}${m.provider}${RESET}  priority:${m.priority}`,
+            );
+            console.log(
+              `    ${DIM}ctx:${(m.max_tokens / 1000).toFixed(0)}K  in:${costIn}  out:${costOut}${caps ? "  [" + caps + "]" : ""}${RESET}`,
+            );
           }
           console.log();
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'route') {
-        const task = parts.slice(1).join(' ');
+      if (subCmd === "route") {
+        const task = parts.slice(1).join(" ");
         if (!task) {
-          console.log(`\n${FG_YELLOW}Usage: /model route <task description>${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /model route <task description>${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
         try {
-          const result = await client.request<{ selected_model: string; reason: string; confidence: number }>('modelRoute', { task });
+          const result = await client.request<{
+            selected_model: string;
+            reason: string;
+            confidence: number;
+          }>("modelRoute", { task });
           console.log(`\n${FG_ORANGE}${BOLD}Model Routing${RESET}\n`);
           console.log(`  ${FG_WHITE}Task:${RESET} ${task}`);
-          console.log(`  ${FG_WHITE}Model:${RESET} ${FG_GREEN}${result.selected_model}${RESET}`);
-          console.log(`  ${FG_WHITE}Confidence:${RESET} ${(result.confidence * 100).toFixed(0)}%`);
+          console.log(
+            `  ${FG_WHITE}Model:${RESET} ${FG_GREEN}${result.selected_model}${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Confidence:${RESET} ${(result.confidence * 100).toFixed(0)}%`,
+          );
           console.log(`  ${DIM}${result.reason}${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'budget') {
+      if (subCmd === "budget") {
         try {
           const result = await client.request<{
-            daily_limit: number; monthly_limit: number;
-            current_daily: number; current_monthly: number;
-            remaining_daily: number; remaining_monthly: number;
-          }>('modelBudget');
-          const dailyPct = result.daily_limit > 0 ? (result.current_daily / result.daily_limit * 100).toFixed(1) : '0';
-          const monthlyPct = result.monthly_limit > 0 ? (result.current_monthly / result.monthly_limit * 100).toFixed(1) : '0';
+            daily_limit: number;
+            monthly_limit: number;
+            current_daily: number;
+            current_monthly: number;
+            remaining_daily: number;
+            remaining_monthly: number;
+          }>("modelBudget");
+          const dailyPct =
+            result.daily_limit > 0
+              ? ((result.current_daily / result.daily_limit) * 100).toFixed(1)
+              : "0";
+          const monthlyPct =
+            result.monthly_limit > 0
+              ? ((result.current_monthly / result.monthly_limit) * 100).toFixed(
+                  1,
+                )
+              : "0";
           console.log(`\n${FG_ORANGE}${BOLD}Budget${RESET}\n`);
-          console.log(`  ${FG_WHITE}Daily:${RESET}   $${result.current_daily.toFixed(4)} / $${result.daily_limit.toFixed(2)} ${DIM}(${dailyPct}%)${RESET}  ${FG_GREEN}$${result.remaining_daily.toFixed(4)} remaining${RESET}`);
-          console.log(`  ${FG_WHITE}Monthly:${RESET} $${result.current_monthly.toFixed(4)} / $${result.monthly_limit.toFixed(2)} ${DIM}(${monthlyPct}%)${RESET}  ${FG_GREEN}$${result.remaining_monthly.toFixed(4)} remaining${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+          console.log(
+            `  ${FG_WHITE}Daily:${RESET}   $${result.current_daily.toFixed(4)} / $${result.daily_limit.toFixed(2)} ${DIM}(${dailyPct}%)${RESET}  ${FG_GREEN}$${result.remaining_daily.toFixed(4)} remaining${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Monthly:${RESET} $${result.current_monthly.toFixed(4)} / $${result.monthly_limit.toFixed(2)} ${DIM}(${monthlyPct}%)${RESET}  ${FG_GREEN}$${result.remaining_monthly.toFixed(4)} remaining${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
@@ -3232,29 +4549,51 @@ async function main() {
     }
 
     // ── Extended /telemetry commands ──
-    if (input.startsWith('/telemetry ')) {
-      const telArgs = input.slice('/telemetry'.length).trim();
+    if (input.startsWith("/telemetry ")) {
+      const telArgs = input.slice("/telemetry".length).trim();
       const parts = telArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
+      const subCmd = parts[0] || "";
 
-      if (subCmd === 'stats') {
-        startSpinner('Loading telemetry...');
+      if (subCmd === "stats") {
+        startSpinner("Loading telemetry...");
         try {
           const result = await client.request<{
-            total_turns: number; total_tokens: number; total_cost_usd: number;
-            total_tools_called: number; sessions_count: number; files_modified: number;
-            avg_response_time_ms: number; most_used_tool: string | null;
-          }>('telemetryStats');
+            total_turns: number;
+            total_tokens: number;
+            total_cost_usd: number;
+            total_tools_called: number;
+            sessions_count: number;
+            files_modified: number;
+            avg_response_time_ms: number;
+            most_used_tool: string | null;
+          }>("telemetryStats");
           stopSpinner();
           console.log(`\n${FG_ORANGE}${BOLD}Telemetry Stats${RESET}\n`);
-          console.log(`  ${FG_WHITE}Turns:${RESET}       ${result.total_turns}`);
-          console.log(`  ${FG_WHITE}Tokens:${RESET}      ${(result.total_tokens / 1000).toFixed(1)}K`);
-          console.log(`  ${FG_WHITE}Cost:${RESET}        $${result.total_cost_usd.toFixed(4)}`);
-          console.log(`  ${FG_WHITE}Tools Called:${RESET} ${result.total_tools_called}`);
-          console.log(`  ${FG_WHITE}Sessions:${RESET}     ${result.sessions_count}`);
-          console.log(`  ${FG_WHITE}Files Modified:${RESET} ${result.files_modified}`);
-          console.log(`  ${FG_WHITE}Avg Response:${RESET}  ${result.avg_response_time_ms.toFixed(0)}ms`);
-          if (result.most_used_tool) console.log(`  ${FG_WHITE}Top Tool:${RESET}     ${result.most_used_tool}`);
+          console.log(
+            `  ${FG_WHITE}Turns:${RESET}       ${result.total_turns}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Tokens:${RESET}      ${(result.total_tokens / 1000).toFixed(1)}K`,
+          );
+          console.log(
+            `  ${FG_WHITE}Cost:${RESET}        $${result.total_cost_usd.toFixed(4)}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Tools Called:${RESET} ${result.total_tools_called}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Sessions:${RESET}     ${result.sessions_count}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Files Modified:${RESET} ${result.files_modified}`,
+          );
+          console.log(
+            `  ${FG_WHITE}Avg Response:${RESET}  ${result.avg_response_time_ms.toFixed(0)}ms`,
+          );
+          if (result.most_used_tool)
+            console.log(
+              `  ${FG_WHITE}Top Tool:${RESET}     ${result.most_used_tool}`,
+            );
           console.log();
         } catch (err) {
           stopSpinner();
@@ -3264,20 +4603,32 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'trends') {
+      if (subCmd === "trends") {
         const days = parseInt(parts[1], 10) || 7;
         startSpinner(`Loading ${days}-day trends...`);
         try {
-          const result = await client.request<{ days: number; daily: any[]; count: number }>('telemetryTrends', { days });
+          const result = await client.request<{
+            days: number;
+            daily: any[];
+            count: number;
+          }>("telemetryTrends", { days });
           stopSpinner();
           if (result.count === 0) {
-            console.log(`\n${DIM}No telemetry data for the last ${days} days.${RESET}\n`);
+            console.log(
+              `\n${DIM}No telemetry data for the last ${days} days.${RESET}\n`,
+            );
           } else {
-            console.log(`\n${FG_ORANGE}${BOLD}Daily Trends${RESET} ${DIM}(last ${days} days)${RESET}\n`);
-            console.log(`  ${DIM}Date         Turns  Tokens    Cost     Tools  Sessions${RESET}`);
+            console.log(
+              `\n${FG_ORANGE}${BOLD}Daily Trends${RESET} ${DIM}(last ${days} days)${RESET}\n`,
+            );
+            console.log(
+              `  ${DIM}Date         Turns  Tokens    Cost     Tools  Sessions${RESET}`,
+            );
             for (const d of result.daily) {
-              const tokensK = (d.tokens / 1000).toFixed(1) + 'K';
-              console.log(`  ${FG_WHITE}${d.date}${RESET}  ${String(d.turns).padStart(5)}  ${tokensK.padStart(7)}  $${d.cost.toFixed(3).padStart(7)}  ${String(d.tools).padStart(5)}  ${String(d.sessions).padStart(8)}`);
+              const tokensK = (d.tokens / 1000).toFixed(1) + "K";
+              console.log(
+                `  ${FG_WHITE}${d.date}${RESET}  ${String(d.turns).padStart(5)}  ${tokensK.padStart(7)}  $${d.cost.toFixed(3).padStart(7)}  ${String(d.tools).padStart(5)}  ${String(d.sessions).padStart(8)}`,
+              );
             }
             console.log();
           }
@@ -3289,16 +4640,21 @@ async function main() {
         return;
       }
 
-      if (subCmd === 'export') {
-        const format = parts[1] || 'summary';
-        if (!['json', 'csv', 'summary', 'md', 'markdown'].includes(format)) {
-          console.log(`\n${FG_YELLOW}Usage: /telemetry export <json|csv|summary>${RESET}\n`);
+      if (subCmd === "export") {
+        const format = parts[1] || "summary";
+        if (!["json", "csv", "summary", "md", "markdown"].includes(format)) {
+          console.log(
+            `\n${FG_YELLOW}Usage: /telemetry export <json|csv|summary>${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
         startSpinner(`Exporting as ${format}...`);
         try {
-          const result = await client.request<{ format: string; data: string }>('telemetryExport', { format });
+          const result = await client.request<{ format: string; data: string }>(
+            "telemetryExport",
+            { format },
+          );
           stopSpinner();
           console.log(`\n${FG_GREEN}✓ Exported (${format})${RESET}\n`);
           console.log(result.data);
@@ -3315,118 +4671,177 @@ async function main() {
     }
 
     // ── /permission commands ──
-    if (input.startsWith('/permission')) {
-      const permArgs = input.slice('/permission'.length).trim();
+    if (input.startsWith("/permission")) {
+      const permArgs = input.slice("/permission".length).trim();
       const parts = permArgs.split(/\s+/);
-      const subCmd = parts[0] || '';
+      const subCmd = parts[0] || "";
 
-      if (subCmd === 'status' || subCmd === '') {
+      if (subCmd === "status" || subCmd === "") {
         try {
-          const result = await client.request<{ rules: any[]; count: number }>('permissionStatus');
-          console.log(`\n${FG_ORANGE}${BOLD}Permission Rules${RESET} ${DIM}(${result.count})${RESET}\n`);
+          const result = await client.request<{ rules: any[]; count: number }>(
+            "permissionStatus",
+          );
+          console.log(
+            `\n${FG_ORANGE}${BOLD}Permission Rules${RESET} ${DIM}(${result.count})${RESET}\n`,
+          );
           for (const r of result.rules) {
-            const deny = r.auto_deny ? ` ${FG_RED}[deny]${RESET}` : '';
-            const confirm = r.require_confirmation ? ` ${FG_YELLOW}[confirm]${RESET}` : '';
-            const allow = (!r.auto_deny && !r.require_confirmation) ? ` ${FG_GREEN}[allow]${RESET}` : '';
-            console.log(`  ${FG_WHITE}${r.tool}${RESET} ${DIM}${r.action}${RESET} ${DIM}→${RESET} ${r.target_pattern || '*'}${deny}${confirm}${allow}`);
+            const deny = r.auto_deny ? ` ${FG_RED}[deny]${RESET}` : "";
+            const confirm = r.require_confirmation
+              ? ` ${FG_YELLOW}[confirm]${RESET}`
+              : "";
+            const allow =
+              !r.auto_deny && !r.require_confirmation
+                ? ` ${FG_GREEN}[allow]${RESET}`
+                : "";
+            console.log(
+              `  ${FG_WHITE}${r.tool}${RESET} ${DIM}${r.action}${RESET} ${DIM}→${RESET} ${r.target_pattern || "*"}${deny}${confirm}${allow}`,
+            );
             console.log(`    ${DIM}${r.description}${RESET}`);
           }
           console.log();
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'grant') {
+      if (subCmd === "grant") {
         const tool = parts[1];
         const action = parts[2];
         const target = parts[3];
         if (!tool || !action || !target) {
-          console.log(`\n${FG_YELLOW}Usage: /permission grant <tool> <action> <target> [--permanent]${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /permission grant <tool> <action> <target> [--permanent]${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
-        const permanent = parts.includes('--permanent');
+        const permanent = parts.includes("--permanent");
         try {
-          await client.request('permissionGrant', { tool, action, target, permanent });
-          console.log(`\n${FG_GREEN}✓ Granted:${RESET} ${FG_WHITE}${tool} ${action} ${target}${RESET} ${DIM}${permanent ? '(permanent)' : '(session)'}${RESET}\n`);
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+          await client.request("permissionGrant", {
+            tool,
+            action,
+            target,
+            permanent,
+          });
+          console.log(
+            `\n${FG_GREEN}✓ Granted:${RESET} ${FG_WHITE}${tool} ${action} ${target}${RESET} ${DIM}${permanent ? "(permanent)" : "(session)"}${RESET}\n`,
+          );
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
-      if (subCmd === 'revoke') {
+      if (subCmd === "revoke") {
         const tool = parts[1];
         const action = parts[2];
         const target = parts[3];
         if (!tool || !action || !target) {
-          console.log(`\n${FG_YELLOW}Usage: /permission revoke <tool> <action> <target>${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /permission revoke <tool> <action> <target>${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
         try {
-          const result = await client.request<{ success: boolean; removed: number }>('permissionRevoke', { tool, action, target });
+          const result = await client.request<{
+            success: boolean;
+            removed: number;
+          }>("permissionRevoke", { tool, action, target });
           if (result.success) {
-            console.log(`\n${FG_GREEN}✓ Revoked ${result.removed} grant(s)${RESET}\n`);
+            console.log(
+              `\n${FG_GREEN}✓ Revoked ${result.removed} grant(s)${RESET}\n`,
+            );
           } else {
             console.log(`\n${FG_YELLOW}No matching grants found${RESET}\n`);
           }
-        } catch (err) { console.error(`${FG_RED}${err}${RESET}`); }
+        } catch (err) {
+          console.error(`${FG_RED}${err}${RESET}`);
+        }
         rl.prompt();
         return;
       }
 
       console.log(`\n${FG_ORANGE}${BOLD}Permission Commands${RESET}\n`);
-      console.log(`  ${FG_WHITE}/permission status${RESET}                        ${DIM}Show all permission rules${RESET}`);
-      console.log(`  ${FG_WHITE}/permission grant <tool> <action> <target>${RESET}  ${DIM}Grant permission${RESET}`);
-      console.log(`  ${FG_WHITE}/permission revoke <tool> <action> <target>${RESET} ${DIM}Revoke permission${RESET}\n`);
+      console.log(
+        `  ${FG_WHITE}/permission status${RESET}                        ${DIM}Show all permission rules${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/permission grant <tool> <action> <target>${RESET}  ${DIM}Grant permission${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/permission revoke <tool> <action> <target>${RESET} ${DIM}Revoke permission${RESET}\n`,
+      );
       rl.prompt();
       return;
     }
 
     // ── /permissions (plural) — 基于规则的安全权限管理（model_profiles 格式）──
-    if (input.startsWith('/permissions')) {
-      const args = input.slice('/permissions'.length).trim();
+    if (input.startsWith("/permissions")) {
+      const args = input.slice("/permissions".length).trim();
 
       // /permissions（无参数）— 显示当前权限配置概览
       if (!args) {
         try {
-          const info = await client.request<any>('permissions.info', {});
-          console.log(`\n${FG_ORANGE}${BOLD}🔒 Permission Rules${RESET} ${DIM}(mode: ${info.mode ?? 'default'})${RESET}\n`);
+          const info = await client.request<any>("permissions.info", {});
+          console.log(
+            `\n${FG_ORANGE}${BOLD}🔒 Permission Rules${RESET} ${DIM}(mode: ${info.mode ?? "default"})${RESET}\n`,
+          );
 
-          const allowRules = (info.always_allow_rules ?? []);
-          const denyRules = (info.always_deny_rules ?? []);
-          const askRules = (info.always_ask_rules ?? []);
+          const allowRules = info.always_allow_rules ?? [];
+          const denyRules = info.always_deny_rules ?? [];
+          const askRules = info.always_ask_rules ?? [];
 
-          console.log(`  ${FG_GREEN}${BOLD}✓ Allow (${allowRules.length})${RESET} ${DIM}— auto-approve${RESET}`);
+          console.log(
+            `  ${FG_GREEN}${BOLD}✓ Allow (${allowRules.length})${RESET} ${DIM}— auto-approve${RESET}`,
+          );
           allowRules.forEach((r: any) => {
-            const t = r.tool_name ?? '?';
-            const p = r.rule_content ? ` "${r.rule_content}"` : '';
+            const t = r.tool_name ?? "?";
+            const p = r.rule_content ? ` "${r.rule_content}"` : "";
             console.log(`    ${FG_GREEN}✓${RESET} ${t}${p}`);
           });
 
-          console.log(`\n  ${FG_RED}${BOLD}✗ Deny (${denyRules.length})${RESET} ${DIM}— always reject${RESET}`);
+          console.log(
+            `\n  ${FG_RED}${BOLD}✗ Deny (${denyRules.length})${RESET} ${DIM}— always reject${RESET}`,
+          );
           denyRules.forEach((r: any) => {
-            const t = r.tool_name ?? '?';
-            const p = r.rule_content ? ` "${r.rule_content}"` : '';
+            const t = r.tool_name ?? "?";
+            const p = r.rule_content ? ` "${r.rule_content}"` : "";
             console.log(`    ${FG_RED}✗${RESET} ${t}${p}`);
           });
 
-          console.log(`\n  ${FG_YELLOW}${BOLD}? Ask (${askRules.length})${RESET} ${DIM}— prompt user${RESET}`);
+          console.log(
+            `\n  ${FG_YELLOW}${BOLD}? Ask (${askRules.length})${RESET} ${DIM}— prompt user${RESET}`,
+          );
           askRules.forEach((r: any) => {
-            const t = r.tool_name ?? '?';
-            const p = r.rule_content ? ` "${r.rule_content}"` : '';
+            const t = r.tool_name ?? "?";
+            const p = r.rule_content ? ` "${r.rule_content}"` : "";
             console.log(`    ${FG_YELLOW}?${RESET} ${t}${p}`);
           });
 
           console.log(`\n  ${DIM}Usage:${RESET}`);
-          console.log(`  ${FG_WHITE}/permissions allow <tool> [glob]${RESET}  ${DIM}Add allow rule${RESET}`);
-          console.log(`  ${FG_WHITE}/permissions deny <tool> [glob]${RESET}   ${DIM}Add deny rule${RESET}`);
-          console.log(`  ${FG_WHITE}/permissions ask <tool> [glob]${RESET}    ${DIM}Add ask rule${RESET}`);
-          console.log(`  ${FG_WHITE}/permissions mode <m>${RESET}             ${DIM}Set mode (default|plan|bypass|auto)${RESET}`);
-          console.log(`  ${FG_WHITE}/permissions remove <cat> <tool> [glob]${RESET} ${DIM}Remove rule${RESET}\n`);
+          console.log(
+            `  ${FG_WHITE}/permissions allow <tool> [glob]${RESET}  ${DIM}Add allow rule${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}/permissions deny <tool> [glob]${RESET}   ${DIM}Add deny rule${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}/permissions ask <tool> [glob]${RESET}    ${DIM}Add ask rule${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}/permissions mode <m>${RESET}             ${DIM}Set mode (default|plan|bypass|auto)${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}/permissions remove <cat> <tool> [glob]${RESET} ${DIM}Remove rule${RESET}\n`,
+          );
         } catch (err) {
-          console.error(`\n${FG_RED}Failed to get permissions: ${err}${RESET}\n`);
+          console.error(
+            `\n${FG_RED}Failed to get permissions: ${err}${RESET}\n`,
+          );
         }
         rl.prompt();
         return;
@@ -3436,11 +4851,13 @@ async function main() {
       const sub = parts[0];
 
       // /permissions mode <mode>
-      if (sub === 'mode' && parts[1]) {
+      if (sub === "mode" && parts[1]) {
         const mode = parts[1];
         try {
-          await client.request('permissions.setMode', { mode });
-          console.log(`\n${FG_GREEN}${BOLD}✓ Permission mode set to: ${mode}${RESET}\n`);
+          await client.request("permissions.setMode", { mode });
+          console.log(
+            `\n${FG_GREEN}${BOLD}✓ Permission mode set to: ${mode}${RESET}\n`,
+          );
         } catch (err) {
           console.error(`\n${FG_RED}Failed to set mode: ${err}${RESET}\n`);
         }
@@ -3449,22 +4866,26 @@ async function main() {
       }
 
       // /permissions allow|deny|ask <tool> [glob]
-      if (sub === 'allow' || sub === 'deny' || sub === 'ask') {
+      if (sub === "allow" || sub === "deny" || sub === "ask") {
         if (!parts[1]) {
-          console.log(`\n${FG_YELLOW}Usage: /permissions ${sub} <tool> [glob]${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /permissions ${sub} <tool> [glob]${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
         const toolName = parts[1];
         const ruleContent = parts[2] || null;
         try {
-          await client.request('permissions.addRule', {
+          await client.request("permissions.addRule", {
             category: sub,
             tool_name: toolName,
             rule_content: ruleContent,
           });
-          const glob = ruleContent ? ` "${ruleContent}"` : '';
-          console.log(`\n${FG_GREEN}${BOLD}✓ Added ${sub} rule: ${toolName}${glob}${RESET}\n`);
+          const glob = ruleContent ? ` "${ruleContent}"` : "";
+          console.log(
+            `\n${FG_GREEN}${BOLD}✓ Added ${sub} rule: ${toolName}${glob}${RESET}\n`,
+          );
         } catch (err) {
           console.error(`\n${FG_RED}Failed to add rule: ${err}${RESET}\n`);
         }
@@ -3473,9 +4894,11 @@ async function main() {
       }
 
       // /permissions remove <category> <tool> [glob]
-      if (sub === 'remove' || sub === 'rm') {
+      if (sub === "remove" || sub === "rm") {
         if (!parts[1] || !parts[2]) {
-          console.log(`\n${FG_YELLOW}Usage: /permissions remove <allow|deny|ask> <tool> [glob]${RESET}\n`);
+          console.log(
+            `\n${FG_YELLOW}Usage: /permissions remove <allow|deny|ask> <tool> [glob]${RESET}\n`,
+          );
           rl.prompt();
           return;
         }
@@ -3483,13 +4906,15 @@ async function main() {
         const toolName = parts[2];
         const ruleContent = parts[3] || null;
         try {
-          await client.request('permissions.removeRule', {
+          await client.request("permissions.removeRule", {
             category,
             tool_name: toolName,
             rule_content: ruleContent,
           });
-          const glob = ruleContent ? ` "${ruleContent}"` : '';
-          console.log(`\n${FG_GREEN}${BOLD}✓ Removed ${category} rule: ${toolName}${glob}${RESET}\n`);
+          const glob = ruleContent ? ` "${ruleContent}"` : "";
+          console.log(
+            `\n${FG_GREEN}${BOLD}✓ Removed ${category} rule: ${toolName}${glob}${RESET}\n`,
+          );
         } catch (err) {
           console.error(`\n${FG_RED}Failed to remove rule: ${err}${RESET}\n`);
         }
@@ -3499,7 +4924,9 @@ async function main() {
 
       // Unknown subcommand
       console.log(`\n${FG_YELLOW}Unknown subcommand: ${sub}${RESET}`);
-      console.log(`  ${DIM}Try: /permissions, /permissions allow <tool> [glob]${RESET}\n`);
+      console.log(
+        `  ${DIM}Try: /permissions, /permissions allow <tool> [glob]${RESET}\n`,
+      );
       rl.prompt();
       return;
     }
@@ -3509,23 +4936,38 @@ async function main() {
     // ═══════════════════════════════════════════════════════════════
 
     // ── /tokens — token 用量统计 ──
-    if (input === '/tokens' || input === '/token') {
+    if (input === "/tokens" || input === "/token") {
       try {
-        const result = await client.request<any>('session.tokens', {});
+        const result = await client.request<any>("session.tokens", {});
         if (result && result.current_tokens !== undefined) {
           const ctxWin = result.context_window ?? 0;
-          const pct = ctxWin > 0 ? (result.current_tokens / ctxWin * 100).toFixed(1) : '?';
+          const pct =
+            ctxWin > 0
+              ? ((result.current_tokens / ctxWin) * 100).toFixed(1)
+              : "?";
           const remaining = Math.max(0, ctxWin - result.current_tokens);
           const thrRatio = result.threshold_ratio ?? 0;
-          console.log(`\n${FG_ORANGE}${BOLD}📊 Token Usage${RESET} ${DIM}(session: ${String(result.session_id ?? '').slice(0, 8) || '?'})${RESET}`);
+          console.log(
+            `\n${FG_ORANGE}${BOLD}📊 Token Usage${RESET} ${DIM}(session: ${String(result.session_id ?? "").slice(0, 8) || "?"})${RESET}`,
+          );
           console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-          console.log(`  ${FG_WHITE}当前使用:${RESET}     ${FG_CYAN}${(result.current_tokens ?? 0).toLocaleString()}${RESET} / ${ctxWin.toLocaleString()} tokens ${DIM}(${pct}%)${RESET}`);
-          console.log(`  ${FG_WHITE}距离压缩:${RESET}     ${FG_YELLOW}${remaining.toLocaleString()}${RESET} tokens ${DIM}(${(thrRatio * 100).toFixed(0)}% 阈值)${RESET}`);
+          console.log(
+            `  ${FG_WHITE}当前使用:${RESET}     ${FG_CYAN}${(result.current_tokens ?? 0).toLocaleString()}${RESET} / ${ctxWin.toLocaleString()} tokens ${DIM}(${pct}%)${RESET}`,
+          );
+          console.log(
+            `  ${FG_WHITE}距离压缩:${RESET}     ${FG_YELLOW}${remaining.toLocaleString()}${RESET} tokens ${DIM}(${(thrRatio * 100).toFixed(0)}% 阈值)${RESET}`,
+          );
           console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-          console.log(`  ${FG_WHITE}累计输入:${RESET}     ${result.total_input_tokens != null ? (result.total_input_tokens as number).toLocaleString() : 'N/A'}`);
-          console.log(`  ${FG_WHITE}累计输出:${RESET}     ${result.total_output_tokens != null ? (result.total_output_tokens as number).toLocaleString() : 'N/A'}`);
+          console.log(
+            `  ${FG_WHITE}累计输入:${RESET}     ${result.total_input_tokens != null ? (result.total_input_tokens as number).toLocaleString() : "N/A"}`,
+          );
+          console.log(
+            `  ${FG_WHITE}累计输出:${RESET}     ${result.total_output_tokens != null ? (result.total_output_tokens as number).toLocaleString() : "N/A"}`,
+          );
           console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-          console.log(`  ${DIM}模型: ${result.model ?? 'unknown'} | 窗口: ${ctxWin > 0 ? (ctxWin / 1_000_000).toFixed(1) + 'M' : '?'}${RESET}\n`);
+          console.log(
+            `  ${DIM}模型: ${result.model ?? "unknown"} | 窗口: ${ctxWin > 0 ? (ctxWin / 1_000_000).toFixed(1) + "M" : "?"}${RESET}\n`,
+          );
         } else {
           console.log(`\n${FG_YELLOW}⚠ Token 数据不可用${RESET}\n`);
         }
@@ -3537,18 +4979,28 @@ async function main() {
     }
 
     // ── /cost — 花费估算 ──
-    if (input === '/cost') {
+    if (input === "/cost") {
       try {
-        const result = await client.request<any>('session.cost', {});
-        const fmtCost = (v: any) => typeof v === 'number' ? v.toFixed(4) : 'N/A';
-        const fmtTokens = (v: any) => typeof v === 'number' ? v.toLocaleString() : '0';
+        const result = await client.request<any>("session.cost", {});
+        const fmtCost = (v: any) =>
+          typeof v === "number" ? v.toFixed(4) : "N/A";
+        const fmtTokens = (v: any) =>
+          typeof v === "number" ? v.toLocaleString() : "0";
         console.log(`\n${FG_ORANGE}${BOLD}💰 Cost Estimate${RESET}`);
         console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-        console.log(`  ${FG_WHITE}本 session:${RESET}   ${FG_GREEN}$${fmtCost(result.session_cost)}${RESET}`);
-        console.log(`  ${FG_WHITE}  输入:${RESET}     $${fmtCost(result.input_cost)} ${DIM}(${fmtTokens(result.input_tokens)} tokens)${RESET}`);
-        console.log(`  ${FG_WHITE}  输出:${RESET}     $${fmtCost(result.output_cost)} ${DIM}(${fmtTokens(result.output_tokens)} tokens)${RESET}`);
+        console.log(
+          `  ${FG_WHITE}本 session:${RESET}   ${FG_GREEN}$${fmtCost(result.session_cost)}${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}  输入:${RESET}     $${fmtCost(result.input_cost)} ${DIM}(${fmtTokens(result.input_tokens)} tokens)${RESET}`,
+        );
+        console.log(
+          `  ${FG_WHITE}  输出:${RESET}     $${fmtCost(result.output_cost)} ${DIM}(${fmtTokens(result.output_tokens)} tokens)${RESET}`,
+        );
         console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-        console.log(`  ${DIM}模型: ${result.model ?? 'unknown'} | 输入 $${result.input_price_per_million ?? '?'}/M | 输出 $${result.output_price_per_million ?? '?'}/M${RESET}\n`);
+        console.log(
+          `  ${DIM}模型: ${result.model ?? "unknown"} | 输入 $${result.input_price_per_million ?? "?"}/M | 输出 $${result.output_price_per_million ?? "?"}/M${RESET}\n`,
+        );
       } catch (err) {
         console.error(`${FG_RED}Failed to get cost estimate: ${err}${RESET}\n`);
       }
@@ -3557,17 +5009,27 @@ async function main() {
     }
 
     // ── /session — session 元数据 ──
-    if (input === '/session') {
+    if (input === "/session") {
       try {
-        const result = await client.request<any>('session.info', {});
+        const result = await client.request<any>("session.info", {});
         console.log(`\n${FG_ORANGE}${BOLD}🔧 Session Info${RESET}`);
         console.log(`  ${FG_GRAY}─────────────────────────────────${RESET}`);
-        console.log(`  ${FG_WHITE}ID:${RESET}           ${FG_CYAN}${result.session_id ?? '?'}${RESET}`);
-        console.log(`  ${FG_WHITE}工作目录:${RESET}     ${result.cwd ?? '?'}`);
-        console.log(`  ${FG_WHITE}客户端数:${RESET}     ${result.client_count ?? 0}`);
-        console.log(`  ${FG_WHITE}对话轮次:${RESET}     ${result.message_count ?? 0}`);
-        console.log(`  ${FG_WHITE}创建时间:${RESET}     ${result.created_at ?? '?'}`);
-        console.log(`  ${FG_WHITE}最后活跃:${RESET}     ${result.last_active ?? '?'}\n`);
+        console.log(
+          `  ${FG_WHITE}ID:${RESET}           ${FG_CYAN}${result.session_id ?? "?"}${RESET}`,
+        );
+        console.log(`  ${FG_WHITE}工作目录:${RESET}     ${result.cwd ?? "?"}`);
+        console.log(
+          `  ${FG_WHITE}客户端数:${RESET}     ${result.client_count ?? 0}`,
+        );
+        console.log(
+          `  ${FG_WHITE}对话轮次:${RESET}     ${result.message_count ?? 0}`,
+        );
+        console.log(
+          `  ${FG_WHITE}创建时间:${RESET}     ${result.created_at ?? "?"}`,
+        );
+        console.log(
+          `  ${FG_WHITE}最后活跃:${RESET}     ${result.last_active ?? "?"}\n`,
+        );
       } catch (err) {
         console.error(`${FG_RED}Failed to get session info: ${err}${RESET}\n`);
       }
@@ -3576,16 +5038,21 @@ async function main() {
     }
 
     // ── /config — 完整配置 JSON（key 打码）──
-    if (input === '/config') {
+    if (input === "/config") {
       try {
-        const result = await client.request<any>('config.show', {});
+        const result = await client.request<any>("config.show", {});
         // Deep-clone and mask api keys
         const maskKeys = (obj: any): any => {
-          if (obj === null || typeof obj !== 'object') return obj;
+          if (obj === null || typeof obj !== "object") return obj;
           if (Array.isArray(obj)) return obj.map(maskKeys);
           const masked: Record<string, any> = {};
           for (const [k, v] of Object.entries(obj)) {
-            if (typeof k === 'string' && /api[_-]?key/i.test(k) && typeof v === 'string' && v.length > 8) {
+            if (
+              typeof k === "string" &&
+              /api[_-]?key/i.test(k) &&
+              typeof v === "string" &&
+              v.length > 8
+            ) {
               masked[k] = `${v.slice(0, 4)}****${v.slice(-4)}`;
             } else {
               masked[k] = maskKeys(v);
@@ -3594,7 +5061,9 @@ async function main() {
           return masked;
         };
         const masked = maskKeys(result);
-        console.log(`\n${FG_ORANGE}${BOLD}⚙ Configuration${RESET} ${DIM}(keys masked)${RESET}\n`);
+        console.log(
+          `\n${FG_ORANGE}${BOLD}⚙ Configuration${RESET} ${DIM}(keys masked)${RESET}\n`,
+        );
         console.log(JSON.stringify(masked, null, 2));
         console.log();
       } catch (err) {
@@ -3604,74 +5073,152 @@ async function main() {
       return;
     }
 
-    if (input === '/help') {
+    if (input === "/help") {
       console.log(`\n${FG_ORANGE}${BOLD}Commands${RESET}\n`);
 
       console.log(`  ${FG_GRAY}── Conversation ──${RESET}`);
-      console.log(`  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`);
-      console.log(`  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`);
-      console.log(`  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model: /model list|route|budget${RESET}`);
-      console.log(`  ${FG_WHITE}/history${RESET}    ${DIM}Recent conversation: /history [n]${RESET}`);
-      console.log(`  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`);
-      console.log(`  ${FG_WHITE}/debug${RESET}      ${DIM}Toggle timing debug for next query${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/compact${RESET}    ${DIM}Compress conversation context${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/think${RESET}      ${DIM}Toggle extended thinking mode${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/model${RESET}      ${DIM}Show or switch model: /model list|route|budget${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/history${RESET}    ${DIM}Recent conversation: /history [n]${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/abort${RESET}      ${DIM}Cancel current request${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/debug${RESET}      ${DIM}Toggle timing debug for next query${RESET}`,
+      );
       console.log();
 
       console.log(`  ${FG_GRAY}── Projects & Git ──${RESET}`);
-      console.log(`  ${FG_WHITE}/projects${RESET}   ${DIM}List, switch, create projects${RESET}`);
-      console.log(`  ${FG_WHITE}/git${RESET}        ${DIM}Git status (branch, changes)${RESET}`);
-      console.log(`  ${FG_WHITE}/git pr list|create${RESET}   ${DIM}Pull request management${RESET}`);
-      console.log(`  ${FG_WHITE}/git branch${RESET}  ${DIM}List branches${RESET}`);
-      console.log(`  ${FG_WHITE}/git conflict${RESET}${DIM} Check for merge conflicts${RESET}`);
-      console.log(`  ${FG_WHITE}/diff${RESET}       ${DIM}Git diff summary${RESET}`);
-      console.log(`  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/projects${RESET}   ${DIM}List, switch, create projects${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git${RESET}        ${DIM}Git status (branch, changes)${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git pr list|create${RESET}   ${DIM}Pull request management${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git branch${RESET}  ${DIM}List branches${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/git conflict${RESET}${DIM} Check for merge conflicts${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/diff${RESET}       ${DIM}Git diff summary${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/commit${RESET}     ${DIM}Stage all and commit${RESET}`,
+      );
       console.log();
 
       console.log(`  ${FG_GRAY}── Tools & Extensions ──${RESET}`);
-      console.log(`  ${FG_WHITE}/tools${RESET}      ${DIM}List registered tools${RESET}`);
-      console.log(`  ${FG_WHITE}/mcp${RESET}        ${DIM}List MCP servers${RESET}`);
-      console.log(`  ${FG_WHITE}/skills${RESET}     ${DIM}List discovered skills${RESET}`);
-      console.log(`  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/tools${RESET}      ${DIM}List registered tools${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/mcp${RESET}        ${DIM}List MCP servers${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/skills${RESET}     ${DIM}List discovered skills${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/plugins${RESET}    ${DIM}List discovered plugins${RESET}`,
+      );
       console.log();
 
       console.log(`  ${FG_GRAY}── Templates & Automation ──${RESET}`);
-      console.log(`  ${FG_WHITE}/template${RESET}   ${DIM}Workflow templates: list, create, delete, export, import${RESET}`);
-      console.log(`  ${FG_WHITE}/task${RESET}       ${DIM}Background tasks: run, list, status, stop${RESET}`);
-      console.log(`  ${FG_WHITE}/cron${RESET}       ${DIM}Scheduled tasks: add, list, remove, toggle${RESET}`);
-      console.log(`  ${FG_WHITE}/memory${RESET}     ${DIM}Long-term memory: list, add, delete, clear${RESET}`);
-      console.log(`  ${FG_WHITE}/team${RESET}       ${DIM}Sub-agent teams: spawn, list, status, exec${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/template${RESET}   ${DIM}Workflow templates: list, create, delete, export, import${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/task${RESET}       ${DIM}Background tasks: run, list, status, stop${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/cron${RESET}       ${DIM}Scheduled tasks: add, list, remove, toggle${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/memory${RESET}     ${DIM}Long-term memory: list, add, delete, clear${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/team${RESET}       ${DIM}Sub-agent teams: spawn, list, status, exec${RESET}`,
+      );
       console.log();
 
       console.log(`  ${FG_GRAY}── Telemetry & Permissions ──${RESET}`);
-      console.log(`  ${FG_WHITE}/telemetry${RESET}  ${DIM}Telemetry: stats, trends, export, on|off${RESET}`);
-      console.log(`  ${FG_WHITE}/permission${RESET} ${DIM}Permission gate: status, grant, revoke${RESET}`);
-      console.log(`  ${FG_WHITE}/permissions${RESET} ${DIM}Permission rules: allow/deny/ask/mode${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/telemetry${RESET}  ${DIM}Telemetry: stats, trends, export, on|off${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/permission${RESET} ${DIM}Permission gate: status, grant, revoke${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/permissions${RESET} ${DIM}Permission rules: allow/deny/ask/mode${RESET}`,
+      );
       console.log();
 
       console.log(`  ${FG_GRAY}── Input & Integrations ──${RESET}`);
-      console.log(`  ${FG_WHITE}/doc${RESET}        ${DIM}Attach PDF/DOCX document for next message${RESET}`);
-      console.log(`  ${FG_WHITE}/voice${RESET}      ${DIM}Voice input (requires whisper.cpp)${RESET}`);
-      console.log(`  ${FG_WHITE}@file.pdf${RESET}   ${DIM}Attach file: @photo.png @doc.pdf @doc.docx${RESET}`);
-      console.log(`  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/doc${RESET}        ${DIM}Attach PDF/DOCX document for next message${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/voice${RESET}      ${DIM}Voice input (requires whisper.cpp)${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}@file.pdf${RESET}   ${DIM}Attach file: @photo.png @doc.pdf @doc.docx${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/telegram${RESET}   ${DIM}Manage Telegram gateway${RESET}`,
+      );
       console.log();
 
       console.log(`  ${FG_GRAY}── Session & Info ──${RESET}`);
-      console.log(`  ${FG_WHITE}/tokens${RESET}    ${DIM}显示 token 用量统计${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/tokens${RESET}    ${DIM}显示 token 用量统计${RESET}`,
+      );
       console.log(`  ${FG_WHITE}/cost${RESET}      ${DIM}显示花费估算${RESET}`);
-      console.log(`  ${FG_WHITE}/session${RESET}   ${DIM}显示当前 session 信息${RESET}`);
-      console.log(`  ${FG_WHITE}/model${RESET}     ${DIM}显示模型配置 (key 已打码)${RESET}`);
-      console.log(`  ${FG_WHITE}/config${RESET}    ${DIM}显示完整配置 JSON (key 已打码)${RESET}`);
-      console.log(`  ${FG_WHITE}/memory${RESET}    ${DIM}显示记忆系统说明 (/memory list 查看条目)${RESET}`);
-      console.log(`  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`);
-      console.log(`  ${FG_WHITE}/help${RESET}       ${DIM}Show this help${RESET}`);
-      console.log(`  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`);
-      console.log(`  ${FG_WHITE}/shutdown${RESET}   ${DIM}Stop the daemon process${RESET}`);
+      console.log(
+        `  ${FG_WHITE}/session${RESET}   ${DIM}显示当前 session 信息${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/model${RESET}     ${DIM}显示模型配置 (key 已打码)${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/config${RESET}    ${DIM}显示完整配置 JSON (key 已打码)${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/memory${RESET}    ${DIM}显示记忆系统说明 (/memory list 查看条目)${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/clear${RESET}      ${DIM}Clear screen${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/help${RESET}       ${DIM}Show this help${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/quit${RESET}       ${DIM}Disconnect (daemon keeps running)${RESET}`,
+      );
+      console.log(
+        `  ${FG_WHITE}/shutdown${RESET}   ${DIM}Stop the daemon process${RESET}`,
+      );
       console.log();
       rl.prompt();
       return;
     }
 
     // Auto-detect drag-drop image files (terminal pastes quoted path like '/path/to/img.png')
-    const dragDropMatch = input.match(/^['"]?(\/[^\s'"]+\.(png|jpg|jpeg|gif|webp))['"]?\s*$/i);
+    const dragDropMatch = input.match(
+      /^['"]?(\/[^\s'"]+\.(png|jpg|jpeg|gif|webp))['"]?\s*$/i,
+    );
     if (dragDropMatch) {
       const imgPath = dragDropMatch[1];
       if (fs.existsSync(imgPath)) {
@@ -3683,12 +5230,12 @@ async function main() {
     console.log(`\n${FG_BRIGHT_WHITE}${BOLD}You${RESET} ${input}`);
 
     // Reset state
-    currentText = '';
+    currentText = "";
     isStreaming = false;
     toolCount = 0;
     queryStartTime = Date.now();
 
-    startSpinner('Thinking...');
+    startSpinner("Thinking...");
 
     // Check for @file references and convert to attachments
     let submitPayload: Record<string, unknown> = { prompt: input };
@@ -3703,68 +5250,99 @@ async function main() {
         const ext = path.extname(filePath).toLowerCase().slice(1);
         try {
           const fileData = fs.readFileSync(absPath);
-          if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+          if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
             // Image attachment
-            const mediaType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+            const mediaType = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
             attachments.push({
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: fileData.toString('base64') },
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: fileData.toString("base64"),
+              },
             });
-          } else if (ext === 'pdf') {
+          } else if (ext === "pdf") {
             // PDF — Route A: extract text for prompt; Route B: also send as document block
             try {
-              if (!pdf) { pdf = (await import('pdf-parse')).default; }
+              if (!pdf) {
+                const pdfModule = await import("pdf-parse");
+                pdf =
+                  (pdfModule as { default?: typeof pdfModule }).default ??
+                  pdfModule;
+              }
               const pdfData = await pdf(fileData);
-              const pdfText = pdfData.text || '';
+              const pdfText = pdfData.text || "";
               if (pdfText.trim()) {
                 const maxChars = 100_000;
-                const truncated = pdfText.length > maxChars
-                  ? pdfText.slice(0, maxChars) + `\n\n[... 文档已截断，共 ${pdfText.length} 字符]`
-                  : pdfText;
+                const truncated =
+                  pdfText.length > maxChars
+                    ? pdfText.slice(0, maxChars) +
+                      `\n\n[... 文档已截断，共 ${pdfText.length} 字符]`
+                    : pdfText;
                 // Prepend extracted text to the prompt
                 textPart = `[文件: ${filePath} (${pdfData.numpages}页)]\n\n${truncated}\n\n---\n${textPart}`;
               } else {
                 // Text extraction failed, fall back to document block
                 attachments.push({
-                  type: 'document',
-                  source: { type: 'base64', media_type: 'application/pdf', data: fileData.toString('base64') },
+                  type: "document",
+                  source: {
+                    type: "base64",
+                    media_type: "application/pdf",
+                    data: fileData.toString("base64"),
+                  },
                 });
               }
             } catch {
               // pdf-parse failed, fall back to document block
               attachments.push({
-                type: 'document',
-                source: { type: 'base64', media_type: 'application/pdf', data: fileData.toString('base64') },
+                type: "document",
+                source: {
+                  type: "base64",
+                  media_type: "application/pdf",
+                  data: fileData.toString("base64"),
+                },
               });
             }
-          } else if (ext === 'docx') {
+          } else if (ext === "docx") {
             // DOCX — Route A: extract text via mammoth
             try {
-              if (!mammoth) { mammoth = (await import('mammoth')).default; }
+              if (!mammoth) {
+                mammoth = (await import("mammoth")).default;
+              }
               const result = await mammoth.extractRawText({ buffer: fileData });
-              const docText = result.value || '';
+              const docText = result.value || "";
               if (docText.trim()) {
                 const maxChars = 100_000;
-                const truncated = docText.length > maxChars
-                  ? docText.slice(0, maxChars) + `\n\n[... 文档已截断，共 ${docText.length} 字符]`
-                  : docText;
+                const truncated =
+                  docText.length > maxChars
+                    ? docText.slice(0, maxChars) +
+                      `\n\n[... 文档已截断，共 ${docText.length} 字符]`
+                    : docText;
                 textPart = `[文件: ${filePath}]\n\n${truncated}\n\n---\n${textPart}`;
               } else {
-                console.log(`${FG_YELLOW}Warning: DOCX file is empty or text extraction failed${RESET}`);
+                console.log(
+                  `${FG_YELLOW}Warning: DOCX file is empty or text extraction failed${RESET}`,
+                );
               }
             } catch (e: any) {
-              console.log(`${FG_YELLOW}Warning: Failed to extract DOCX text: ${e.message}${RESET}`);
+              console.log(
+                `${FG_YELLOW}Warning: Failed to extract DOCX text: ${e.message}${RESET}`,
+              );
             }
-          } else if (ext === 'doc') {
-            console.log(`${FG_YELLOW}Warning: .doc format not supported, please convert to .docx${RESET}`);
+          } else if (ext === "doc") {
+            console.log(
+              `${FG_YELLOW}Warning: .doc format not supported, please convert to .docx${RESET}`,
+            );
           }
-          textPart = textPart.replace(match, '').trim();
+          textPart = textPart.replace(match, "").trim();
         } catch {
-          console.log(`${FG_YELLOW}Warning: Could not read ${filePath}${RESET}`);
+          console.log(
+            `${FG_YELLOW}Warning: Could not read ${filePath}${RESET}`,
+          );
         }
       }
       if (attachments.length > 0) {
-        submitPayload = { prompt: textPart || '请分析这个文件', attachments };
+        submitPayload = { prompt: textPart || "请分析这个文件", attachments };
         console.log(`${DIM}  📎 ${attachments.length} attachment(s)${RESET}`);
       } else if (textPart !== input) {
         // Text was extracted from documents and prepended to prompt
@@ -3776,9 +5354,12 @@ async function main() {
     try {
       // Merge pending attachments from /doc command
       if (pendingAttachments.length > 0) {
-        const existing = (submitPayload.attachments as Array<Record<string, unknown>>) || [];
+        const existing =
+          (submitPayload.attachments as Array<Record<string, unknown>>) || [];
         submitPayload.attachments = [...existing, ...pendingAttachments];
-        console.log(`${DIM}  📎 Including ${pendingAttachments.length} pending attachment(s) from /doc${RESET}`);
+        console.log(
+          `${DIM}  📎 Including ${pendingAttachments.length} pending attachment(s) from /doc${RESET}`,
+        );
         pendingAttachments = [];
       }
 
@@ -3787,7 +5368,7 @@ async function main() {
         resetDebugTimers();
         debugSubmitTime = Date.now();
       }
-      await client.request('submitMessage', submitPayload);
+      await client.request("submitMessage", submitPayload);
     } catch (err) {
       stopSpinner();
       console.error(`${FG_RED}Request failed: ${err}${RESET}`);
@@ -3796,13 +5377,12 @@ async function main() {
     rl.prompt();
   }
 
-  rl.on('close', async () => {
+  rl.on("close", async () => {
     stopSpinner();
     console.log(`\n${DIM}Disconnected (daemon stays running).${RESET}`);
     await client.disconnect();
     process.exit(0);
   });
-
 }
 
 main().catch((err) => {

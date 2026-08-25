@@ -15,7 +15,7 @@ use crate::engine::git_info::{get_git_info, GitInfo};
 use crate::engine::hooks::{HookManager, TriggerContext, TriggerType};
 use crate::engine::session_memory::SessionMemory;
 use crate::engine::token_counter::BudgetStatus;
-use crate::models::message::{ContentBlock, Message, MessageContent, ApiUserMessage, Usage};
+use crate::models::message::{ApiUserMessage, ContentBlock, Message, MessageContent, Usage};
 use crate::tools::trait_def::{ProgressSender, Tool};
 
 /// Constant representing zero usage, useful for initialization.
@@ -82,9 +82,7 @@ pub enum EngineEvent {
         tool_use_id: Option<String>,
     },
     #[serde(rename = "thinking_chunk")]
-    ThinkingChunk {
-        content: String,
-    },
+    ThinkingChunk { content: String },
     #[serde(rename = "tool_use")]
     ToolUse {
         tool_name: String,
@@ -104,10 +102,7 @@ pub enum EngineEvent {
         tool_use_id: String,
     },
     #[serde(rename = "progress")]
-    Progress {
-        tool_use_id: String,
-        data: Value,
-    },
+    Progress { tool_use_id: String, data: Value },
     #[serde(rename = "state_update")]
     StateUpdate { patch: Value },
     #[serde(rename = "model_fallback")]
@@ -137,9 +132,7 @@ pub enum EngineEvent {
     Error(EngineError),
     /// System warning (non-fatal error worth surfacing to user, e.g. memory write failure).
     #[serde(rename = "system_warning")]
-    SystemWarning {
-        message: String,
-    },
+    SystemWarning { message: String },
 }
 
 /// Result of a completed query.
@@ -251,11 +244,16 @@ impl AdaptiveCompactTracker {
         self.compact_count += 1;
 
         // Update running averages
-        self.avg_compression_ratio = self.history.iter()
+        self.avg_compression_ratio = self
+            .history
+            .iter()
             .map(|h| h.compression_ratio)
-            .sum::<f64>() / self.history.len() as f64;
+            .sum::<f64>()
+            / self.history.len() as f64;
 
-        let loss_entries: Vec<f64> = self.history.iter()
+        let loss_entries: Vec<f64> = self
+            .history
+            .iter()
             .map(|h| if h.user_repeated_topic { 0.3 } else { 0.0 })
             .collect();
         self.avg_loss_score = loss_entries.iter().sum::<f64>() / loss_entries.len() as f64;
@@ -268,11 +266,19 @@ impl AdaptiveCompactTracker {
             self.keep_recent = (self.keep_recent + 4).min(30);
         } else if self.avg_compression_ratio < 0.3 && self.avg_loss_score < 0.05 {
             // Poor compression, low loss — compact more aggressively
-            self.keep_recent = if self.keep_recent > 6 { self.keep_recent - 2 } else { 6 };
+            self.keep_recent = if self.keep_recent > 6 {
+                self.keep_recent - 2
+            } else {
+                6
+            };
         } else if self.avg_loss_score < 0.05 && self.avg_compression_ratio > 0.6 {
             // Good compression, low loss — current setting works well
             // Slight decrease to save more tokens
-            self.keep_recent = if self.keep_recent > 8 { self.keep_recent - 1 } else { 8 };
+            self.keep_recent = if self.keep_recent > 8 {
+                self.keep_recent - 1
+            } else {
+                8
+            };
         }
         // else: moderate performance, keep current setting
     }
@@ -336,7 +342,7 @@ impl QueryEngine {
         let cached_project_instructions = load_project_instructions(&config.cwd);
         let cached_rules_raw = load_all_rule_files(&config.cwd);
         let cached_git_info = get_git_info(&config.cwd);
-        
+
         // Initialize hook manager from config if present
         let hook_manager = config.hook_manager.clone();
         if let Some(ref hm) = hook_manager {
@@ -349,7 +355,7 @@ impl QueryEngine {
                 hm_clone.set_working_directory(cwd).await;
             });
         }
-        
+
         // Context warmup: intent predictor + warmup manager share the file cache.
         let intent_predictor = Arc::new(tokio::sync::Mutex::new(
             crate::engine::intent_predictor::IntentPredictor::new(),
@@ -360,7 +366,7 @@ impl QueryEngine {
                 config.file_cache.as_ref().map(Arc::clone),
             ),
         ));
-        
+
         Self {
             config,
             messages: Vec::new(),
@@ -386,12 +392,16 @@ impl QueryEngine {
 
     /// Shared warmup manager (for hit attribution when files are read,
     /// and for periodic learning passes).
-    pub fn warmup_manager_arc(&self) -> Arc<tokio::sync::Mutex<crate::engine::warmup::WarmupManager>> {
+    pub fn warmup_manager_arc(
+        &self,
+    ) -> Arc<tokio::sync::Mutex<crate::engine::warmup::WarmupManager>> {
         Arc::clone(&self.warmup_manager)
     }
 
     /// Shared intent predictor (for recording actual intents / accuracy).
-    pub fn intent_predictor_arc(&self) -> Arc<tokio::sync::Mutex<crate::engine::intent_predictor::IntentPredictor>> {
+    pub fn intent_predictor_arc(
+        &self,
+    ) -> Arc<tokio::sync::Mutex<crate::engine::intent_predictor::IntentPredictor>> {
         Arc::clone(&self.intent_predictor)
     }
 
@@ -419,7 +429,9 @@ impl QueryEngine {
 
     /// Load and apply a persisted token baseline for fast startup.
     pub async fn load_token_baseline(&self, session_id: &str) {
-        if let Some(baseline) = crate::engine::token_counter::TokenCounter::load_baseline(session_id) {
+        if let Some(baseline) =
+            crate::engine::token_counter::TokenCounter::load_baseline(session_id)
+        {
             let mut counter = self.token_counter.lock().await;
             counter.apply_baseline(baseline);
         }
@@ -440,7 +452,9 @@ impl QueryEngine {
     }
 
     /// Expose the token counter Arc for external use.
-    pub fn token_counter_arc(&self) -> Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>> {
+    pub fn token_counter_arc(
+        &self,
+    ) -> Arc<tokio::sync::Mutex<crate::engine::token_counter::TokenCounter>> {
         Arc::clone(&self.token_counter)
     }
 
@@ -502,7 +516,9 @@ impl QueryEngine {
     /// Clean up message history to ensure it's in a valid state for the next API call.
     /// Fixes: consecutive user messages, trailing tool_use without tool_result, etc.
     fn cleanup_incomplete_tool_calls(&mut self) {
-        if self.messages.is_empty() { return; }
+        if self.messages.is_empty() {
+            return;
+        }
 
         // ---- Pass 1: middle-of-history orphan tool_use repair ----
         // Scan every assistant message; for each tool_use id, the NEXT user
@@ -512,7 +528,9 @@ impl QueryEngine {
         while i < self.messages.len() {
             // Collect tool_use ids from this assistant message (if any)
             let tool_use_ids: Vec<String> = match &self.messages[i].content {
-                MessageContent::Assistant { message, .. } => message.content.iter()
+                MessageContent::Assistant { message, .. } => message
+                    .content
+                    .iter()
                     .filter_map(|b| match b {
                         ContentBlock::ToolUse { id, .. } => Some(id.clone()),
                         _ => None,
@@ -530,19 +548,27 @@ impl QueryEngine {
                 );
 
                 if next_is_user_with_results {
-                    let present: std::collections::HashSet<String> = match &self.messages[next_idx].content {
-                        MessageContent::User { message, .. } =>
-                            extract_tool_result_ids(message).into_iter().collect(),
-                        _ => std::collections::HashSet::new(),
-                    };
-                    let missing: Vec<String> = tool_use_ids.iter()
+                    let present: std::collections::HashSet<String> =
+                        match &self.messages[next_idx].content {
+                            MessageContent::User { message, .. } => {
+                                extract_tool_result_ids(message).into_iter().collect()
+                            }
+                            _ => std::collections::HashSet::new(),
+                        };
+                    let missing: Vec<String> = tool_use_ids
+                        .iter()
                         .filter(|id| !present.contains(*id))
                         .cloned()
                         .collect();
                     if !missing.is_empty() {
-                        eprintln!("Cleanup: injecting stub tool_results for {} missing id(s) at msg[{}]",
-                                  missing.len(), next_idx);
-                        if let MessageContent::User { message, .. } = &mut self.messages[next_idx].content {
+                        eprintln!(
+                            "Cleanup: injecting stub tool_results for {} missing id(s) at msg[{}]",
+                            missing.len(),
+                            next_idx
+                        );
+                        if let MessageContent::User { message, .. } =
+                            &mut self.messages[next_idx].content
+                        {
                             for id in missing {
                                 if let Value::Array(ref mut arr) = &mut message.content {
                                     arr.push(serde_json::json!({
@@ -568,13 +594,20 @@ impl QueryEngine {
 
         // ---- Pass 2: original trailing cleanup (preserved) ----
         loop {
-            if self.messages.is_empty() { break; }
+            if self.messages.is_empty() {
+                break;
+            }
             let last = &self.messages[self.messages.len() - 1];
             match &last.content {
                 MessageContent::Assistant { message, .. } => {
-                    let has_tool_use = message.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+                    let has_tool_use = message
+                        .content
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
                     if has_tool_use {
-                        eprintln!("Cleanup: removing trailing incomplete tool_use assistant message");
+                        eprintln!(
+                            "Cleanup: removing trailing incomplete tool_use assistant message"
+                        );
                         self.messages.pop();
                         continue;
                     }
@@ -627,7 +660,9 @@ impl QueryEngine {
         if split > 0 && split < self.messages.len() {
             if let MessageContent::Assistant { message, .. } = &self.messages[split - 1].content {
                 // Extract all tool_use IDs from the assistant message
-                let tool_use_ids: Vec<&str> = message.content.iter()
+                let tool_use_ids: Vec<&str> = message
+                    .content
+                    .iter()
                     .filter_map(|block| match block {
                         ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
                         _ => None,
@@ -636,11 +671,14 @@ impl QueryEngine {
 
                 if !tool_use_ids.is_empty() {
                     // Scan forward to find all corresponding tool_result messages
-                    let mut found_results: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    let mut found_results: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
                     let mut next_idx = split;
 
                     while next_idx < self.messages.len() {
-                        if let MessageContent::User { message, .. } = &self.messages[next_idx].content {
+                        if let MessageContent::User { message, .. } =
+                            &self.messages[next_idx].content
+                        {
                             let result_ids = extract_tool_result_ids(message);
                             for id in result_ids {
                                 if tool_use_ids.contains(&id.as_str()) {
@@ -680,7 +718,10 @@ impl QueryEngine {
         let truncated_summary = if raw_summary.len() > max_summary_chars {
             format!(
                 "{}...\n\n[Conversation truncated, {} total chars]",
-                raw_summary.chars().take(max_summary_chars).collect::<String>(),
+                raw_summary
+                    .chars()
+                    .take(max_summary_chars)
+                    .collect::<String>(),
                 raw_summary.len()
             )
         } else {
@@ -697,9 +738,15 @@ impl QueryEngine {
         let summary = match self.call_api_for_summary(&summary_prompt).await {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Compact: summary API failed ({}), falling back to truncation", e.message);
+                eprintln!(
+                    "Compact: summary API failed ({}), falling back to truncation",
+                    e.message
+                );
                 // Fallback: just use a brief note instead of a real summary
-                format!("[Previous conversation ({} messages) was truncated due to context limits]", old_messages.len())
+                format!(
+                    "[Previous conversation ({} messages) was truncated due to context limits]",
+                    old_messages.len()
+                )
             }
         };
 
@@ -770,7 +817,9 @@ impl QueryEngine {
                     break;
                 }
             };
-            let Some(event_result) = event_result else { break; };
+            let Some(event_result) = event_result else {
+                break;
+            };
             match event_result {
                 Ok(event) => match event {
                     crate::api::client::ApiStreamEvent::ContentBlockDelta { delta, .. } => {
@@ -799,10 +848,15 @@ impl QueryEngine {
         }
 
         if summary_text.is_empty() {
-            eprintln!("Compact: API returned empty summary (model: {})", self.config.model);
+            eprintln!(
+                "Compact: API returned empty summary (model: {})",
+                self.config.model
+            );
             return Err(EngineError {
                 code: "empty_summary".to_string(),
-                message: "API returned an empty summary. Try /compact again or reduce conversation size.".to_string(),
+                message:
+                    "API returned an empty summary. Try /compact again or reduce conversation size."
+                        .to_string(),
                 details: None,
             });
         }
@@ -812,10 +866,7 @@ impl QueryEngine {
 
     /// Submit a user message and process the response loop.
     /// Returns a receiver that yields EngineEvent items.
-    pub async fn submit_message(
-        &mut self,
-        prompt: String,
-    ) -> mpsc::Receiver<EngineEvent> {
+    pub async fn submit_message(&mut self, prompt: String) -> mpsc::Receiver<EngineEvent> {
         self.submit_message_with_attachments(prompt, None).await
     }
 
@@ -829,10 +880,12 @@ impl QueryEngine {
 
         let (tx, rx) = mpsc::channel(256);
 
-        let _ = tx.send(EngineEvent::Progress {
-            tool_use_id: String::new(),
-            data: serde_json::json!({"message": "Cleaning up previous state..."}),
-        }).await;
+        let _ = tx
+            .send(EngineEvent::Progress {
+                tool_use_id: String::new(),
+                data: serde_json::json!({"message": "Cleaning up previous state..."}),
+            })
+            .await;
 
         // Clean up any mess from previous errors/aborts before adding new message
         self.cleanup_incomplete_tool_calls();
@@ -869,15 +922,14 @@ impl QueryEngine {
             },
         };
         self.messages.push(user_msg);
-        
+
         // Trigger UserMessage hook
         if let Some(ref hook_manager) = self.hook_manager {
             let hm = Arc::clone(hook_manager);
             let prompt_text = prompt.clone();
             let cwd = self.config.cwd.clone();
             tokio::spawn(async move {
-                let ctx = TriggerContext::user_message(&prompt_text)
-                    .with_cwd(cwd);
+                let ctx = TriggerContext::user_message(&prompt_text).with_cwd(cwd);
                 let result = hm.process(TriggerType::UserMessage, ctx).await;
                 if !result.errors.is_empty() {
                     eprintln!("UserMessage hook errors: {:?}", result.errors);
@@ -910,10 +962,12 @@ impl QueryEngine {
         }
 
         // ── Token budget check: auto-compact if context is too large ──
-        let _ = tx.send(EngineEvent::Progress {
-            tool_use_id: String::new(),
-            data: serde_json::json!({"message": "Estimating token usage..."}),
-        }).await;
+        let _ = tx
+            .send(EngineEvent::Progress {
+                tool_use_id: String::new(),
+                data: serde_json::json!({"message": "Estimating token usage..."}),
+            })
+            .await;
         // Threshold and context window come from BaoclawConfig (default 70% of 200K).
         // The TokenCounter uses tiktoken + API-calibrated baselines for accuracy.
         // Pre-compute both should_compact and budget_status in a single lock+estimate pass.
@@ -931,11 +985,16 @@ impl QueryEngine {
             // instead (no API call needed).
             let msg_count = self.messages.len();
             if msg_count <= 500 {
-                eprintln!("Pre-query auto-compact ({} messages, {} tokens)", msg_count, initial_budget.1);
+                eprintln!(
+                    "Pre-query auto-compact ({} messages, {} tokens)",
+                    msg_count, initial_budget.1
+                );
                 match self.compact().await {
                     Ok(result) => {
-                        eprintln!("Auto-compact: {} -> {} tokens (saved {})",
-                            result.tokens_before, result.tokens_after, result.tokens_saved);
+                        eprintln!(
+                            "Auto-compact: {} -> {} tokens (saved {})",
+                            result.tokens_before, result.tokens_after, result.tokens_saved
+                        );
                         self.compact_fail_count = 0;
                     }
                     Err(e) => {
@@ -952,18 +1011,31 @@ impl QueryEngine {
                         let mut msgs = self.messages.to_vec();
                         if session_memory_compact(&mut msgs, &sm.get()) {
                             self.messages = msgs;
-                            eprintln!("Session-memory compact applied ({} messages remaining)", self.messages.len());
+                            eprintln!(
+                                "Session-memory compact applied ({} messages remaining)",
+                                self.messages.len()
+                            );
                         }
                     } else {
                         // Last resort: just keep last 100 messages
-                        let tail: Vec<_> = self.messages[self.messages.len().saturating_sub(100)..].to_vec();
-                        eprintln!("Emergency tail-trim: {} → {} messages", msg_count, tail.len());
+                        let tail: Vec<_> =
+                            self.messages[self.messages.len().saturating_sub(100)..].to_vec();
+                        eprintln!(
+                            "Emergency tail-trim: {} → {} messages",
+                            msg_count,
+                            tail.len()
+                        );
                         self.messages = tail;
                     }
                 } else {
                     // No session_memory at all — keep last 100
-                    let tail: Vec<_> = self.messages[self.messages.len().saturating_sub(100)..].to_vec();
-                    eprintln!("Emergency tail-trim (no session_memory): {} → {} messages", msg_count, tail.len());
+                    let tail: Vec<_> =
+                        self.messages[self.messages.len().saturating_sub(100)..].to_vec();
+                    eprintln!(
+                        "Emergency tail-trim (no session_memory): {} → {} messages",
+                        msg_count,
+                        tail.len()
+                    );
                     self.messages = tail;
                 }
             }
@@ -1095,32 +1167,26 @@ impl QueryLoopConfig {
 pub fn estimate_tokens(messages: &[Message]) -> u64 {
     let total_chars: usize = messages
         .iter()
-        .map(|m| {
-            match &m.content {
-                MessageContent::User { message, .. } => {
-                    serde_json::to_string(&message.content)
-                        .unwrap_or_default()
-                        .len()
-                }
-                MessageContent::Assistant { message, .. } => {
-                    message
-                        .content
-                        .iter()
-                        .map(|block| match block {
-                            ContentBlock::Text { text } => text.len(),
-                            ContentBlock::ToolUse { input, .. } => {
-                                serde_json::to_string(input).unwrap_or_default().len()
-                            }
-                            ContentBlock::Thinking { thinking } => thinking.len(),
-                            ContentBlock::Image { source } => source.data.len(),
-                            ContentBlock::Document { source } => source.data.len(),
-                        })
-                        .sum()
-                }
-                MessageContent::System { content, .. } => content.len(),
-                MessageContent::Progress { data, .. } => {
-                    serde_json::to_string(data).unwrap_or_default().len()
-                }
+        .map(|m| match &m.content {
+            MessageContent::User { message, .. } => serde_json::to_string(&message.content)
+                .unwrap_or_default()
+                .len(),
+            MessageContent::Assistant { message, .. } => message
+                .content
+                .iter()
+                .map(|block| match block {
+                    ContentBlock::Text { text } => text.len(),
+                    ContentBlock::ToolUse { input, .. } => {
+                        serde_json::to_string(input).unwrap_or_default().len()
+                    }
+                    ContentBlock::Thinking { thinking } => thinking.len(),
+                    ContentBlock::Image { source } => source.data.len(),
+                    ContentBlock::Document { source } => source.data.len(),
+                })
+                .sum(),
+            MessageContent::System { content, .. } => content.len(),
+            MessageContent::Progress { data, .. } => {
+                serde_json::to_string(data).unwrap_or_default().len()
             }
         })
         .sum();
@@ -1168,13 +1234,11 @@ pub fn format_messages_for_summary(messages: &[Message]) -> String {
         .join("\n\n")
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::client::ApiClientConfig;
-    use crate::models::message::ContentBlock;
+    use crate::models::message::{ApiAssistantMessage, ContentBlock};
     use serde_json::json;
 
     fn make_config() -> QueryEngineConfig {
@@ -1491,9 +1555,9 @@ mod tests {
 
     #[test]
     fn test_extract_tool_uses_text_only() {
-        let blocks = vec![
-            ContentBlock::Text { text: "Hello world".to_string() },
-        ];
+        let blocks = vec![ContentBlock::Text {
+            text: "Hello world".to_string(),
+        }];
         let result = extract_tool_uses(&blocks);
         assert!(result.is_empty());
     }
@@ -1501,7 +1565,9 @@ mod tests {
     #[test]
     fn test_extract_tool_uses_with_tools() {
         let blocks = vec![
-            ContentBlock::Text { text: "Let me run that.".to_string() },
+            ContentBlock::Text {
+                text: "Let me run that.".to_string(),
+            },
             ContentBlock::ToolUse {
                 id: "tu_1".to_string(),
                 name: "Bash".to_string(),
@@ -1529,35 +1595,37 @@ mod tests {
 
     #[test]
     fn test_extract_text_single() {
-        let blocks = vec![
-            ContentBlock::Text { text: "Hello".to_string() },
-        ];
+        let blocks = vec![ContentBlock::Text {
+            text: "Hello".to_string(),
+        }];
         assert_eq!(extract_text(&blocks), Some("Hello".to_string()));
     }
 
     #[test]
     fn test_extract_text_multiple() {
         let blocks = vec![
-            ContentBlock::Text { text: "Hello ".to_string() },
+            ContentBlock::Text {
+                text: "Hello ".to_string(),
+            },
             ContentBlock::ToolUse {
                 id: "tu_1".to_string(),
                 name: "Bash".to_string(),
                 input: json!({}),
             },
-            ContentBlock::Text { text: "world".to_string() },
+            ContentBlock::Text {
+                text: "world".to_string(),
+            },
         ];
         assert_eq!(extract_text(&blocks), Some("Hello world".to_string()));
     }
 
     #[test]
     fn test_extract_text_tool_only() {
-        let blocks = vec![
-            ContentBlock::ToolUse {
-                id: "tu_1".to_string(),
-                name: "Bash".to_string(),
-                input: json!({}),
-            },
-        ];
+        let blocks = vec![ContentBlock::ToolUse {
+            id: "tu_1".to_string(),
+            name: "Bash".to_string(),
+            input: json!({}),
+        }];
         assert!(extract_text(&blocks).is_none());
     }
 
@@ -1573,8 +1641,14 @@ mod tests {
     #[test]
     fn test_accumulate_usage_multiple() {
         let mut total = EMPTY_USAGE;
-        accumulate_usage(&mut total, &json!({"input_tokens": 100, "output_tokens": 50}));
-        accumulate_usage(&mut total, &json!({"input_tokens": 200, "output_tokens": 30}));
+        accumulate_usage(
+            &mut total,
+            &json!({"input_tokens": 100, "output_tokens": 50}),
+        );
+        accumulate_usage(
+            &mut total,
+            &json!({"input_tokens": 200, "output_tokens": 30}),
+        );
         assert_eq!(total.input_tokens, 300);
         assert_eq!(total.output_tokens, 80);
     }
@@ -1582,12 +1656,15 @@ mod tests {
     #[test]
     fn test_accumulate_usage_with_cache() {
         let mut total = EMPTY_USAGE;
-        accumulate_usage(&mut total, &json!({
-            "input_tokens": 10,
-            "output_tokens": 5,
-            "cache_creation_input_tokens": 20,
-            "cache_read_input_tokens": 30
-        }));
+        accumulate_usage(
+            &mut total,
+            &json!({
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_creation_input_tokens": 20,
+                "cache_read_input_tokens": 30
+            }),
+        );
         assert_eq!(total.input_tokens, 10);
         assert_eq!(total.output_tokens, 5);
         assert_eq!(total.cache_creation_input_tokens, Some(20));
@@ -1642,7 +1719,7 @@ mod tests {
                 api_key: "test".to_string(),
                 base_url: None,
                 max_retries: None,
-            api_path: None,
+                api_path: None,
             })),
             tools: vec![],
             model: "test".to_string(),
@@ -1657,7 +1734,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
-            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            token_counter: Arc::new(tokio::sync::Mutex::new(
+                crate::engine::token_counter::TokenCounter::new(200_000, 0.7),
+            )),
             parent_turn_id: None,
             agent_label: None,
             session_memory: None,
@@ -1680,7 +1759,10 @@ mod tests {
         assert!(system.is_some());
         let blocks = system.unwrap();
         assert_eq!(blocks.len(), 1);
-        assert!(blocks[0]["text"].as_str().unwrap().contains("helpful AI coding assistant"));
+        assert!(blocks[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("helpful AI coding assistant"));
     }
 
     #[test]
@@ -1691,7 +1773,7 @@ mod tests {
                 api_key: "test".to_string(),
                 base_url: None,
                 max_retries: None,
-            api_path: None,
+                api_path: None,
             })),
             tools: vec![],
             model: "test".to_string(),
@@ -1706,7 +1788,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
-            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            token_counter: Arc::new(tokio::sync::Mutex::new(
+                crate::engine::token_counter::TokenCounter::new(200_000, 0.7),
+            )),
             parent_turn_id: None,
             agent_label: None,
             session_memory: None,
@@ -1740,7 +1824,7 @@ mod tests {
                 api_key: "test".to_string(),
                 base_url: None,
                 max_retries: None,
-            api_path: None,
+                api_path: None,
             })),
             tools: vec![],
             model: "claude-sonnet-4-20250514".to_string(),
@@ -1755,7 +1839,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
-            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            token_counter: Arc::new(tokio::sync::Mutex::new(
+                crate::engine::token_counter::TokenCounter::new(200_000, 0.7),
+            )),
             parent_turn_id: None,
             agent_label: None,
             session_memory: None,
@@ -1774,20 +1860,18 @@ mod tests {
             context_window: 200_000,
             auto_compact_threshold_ratio: 0.7,
         };
-        let messages = vec![
-            Message {
-                uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                timestamp: "2024-01-15T10:30:00Z".to_string(),
-                content: MessageContent::User {
-                    message: ApiUserMessage {
-                        role: "user".to_string(),
-                        content: Value::String("Hello".to_string()),
-                    },
-                    is_meta: false,
-                    tool_use_result: None,
+        let messages = vec![Message {
+            uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            timestamp: "2024-01-15T10:30:00Z".to_string(),
+            content: MessageContent::User {
+                message: ApiUserMessage {
+                    role: "user".to_string(),
+                    content: Value::String("Hello".to_string()),
                 },
+                is_meta: false,
+                tool_use_result: None,
             },
-        ];
+        }];
         let request = build_api_request(&messages, &config);
         assert_eq!(request.model, "claude-sonnet-4-20250514");
         assert!(request.stream);
@@ -1882,7 +1966,7 @@ mod tests {
                 api_key: "test".to_string(),
                 base_url: None,
                 max_retries: None,
-            api_path: None,
+                api_path: None,
             })),
             tools: vec![],
             model: "test".to_string(),
@@ -1897,7 +1981,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
-            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            token_counter: Arc::new(tokio::sync::Mutex::new(
+                crate::engine::token_counter::TokenCounter::new(200_000, 0.7),
+            )),
             parent_turn_id: None,
             agent_label: None,
             session_memory: None,
@@ -1931,7 +2017,7 @@ mod tests {
                 api_key: "test".to_string(),
                 base_url: None,
                 max_retries: None,
-            api_path: None,
+                api_path: None,
             })),
             tools: vec![],
             model: "test".to_string(),
@@ -1946,7 +2032,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
-            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            token_counter: Arc::new(tokio::sync::Mutex::new(
+                crate::engine::token_counter::TokenCounter::new(200_000, 0.7),
+            )),
             parent_turn_id: None,
             agent_label: None,
             session_memory: None,
@@ -2013,10 +2101,7 @@ mod tests {
     async fn test_compact_too_few_messages_no_compression() {
         // With <= 4 messages, compact should return tokens_saved=0
         let mut engine = QueryEngine::new(make_config());
-        engine.set_messages(vec![
-            make_user_msg("hello"),
-            make_assistant_msg("hi"),
-        ]);
+        engine.set_messages(vec![make_user_msg("hello"), make_assistant_msg("hi")]);
         let result = engine.compact().await.unwrap();
         assert_eq!(result.tokens_saved, 0);
         assert_eq!(result.summary_tokens, 0);
@@ -2136,7 +2221,7 @@ mod tests {
                 api_key: "test".to_string(),
                 base_url: None,
                 max_retries: None,
-            api_path: None,
+                api_path: None,
             })),
             tools: vec![],
             model: "claude-sonnet-4-20250514".to_string(),
@@ -2151,7 +2236,9 @@ mod tests {
             session_id: None,
             fallback_models: vec![],
             max_retries_per_model: 2,
-            token_counter: Arc::new(tokio::sync::Mutex::new(crate::engine::token_counter::TokenCounter::new(200_000, 0.7))),
+            token_counter: Arc::new(tokio::sync::Mutex::new(
+                crate::engine::token_counter::TokenCounter::new(200_000, 0.7),
+            )),
             parent_turn_id: None,
             agent_label: None,
             session_memory: None,
@@ -2192,7 +2279,10 @@ mod tests {
         let config = make_loop_config_with_thinking(ThinkingConfig::Disabled);
         let messages = make_test_messages();
         let request = build_api_request(&messages, &config);
-        assert!(request.thinking.is_none(), "Thinking should be None when disabled");
+        assert!(
+            request.thinking.is_none(),
+            "Thinking should be None when disabled"
+        );
     }
 
     #[test]
@@ -2200,7 +2290,10 @@ mod tests {
         let config = make_loop_config_with_thinking(ThinkingConfig::Adaptive);
         let messages = make_test_messages();
         let request = build_api_request(&messages, &config);
-        assert!(request.thinking.is_some(), "Thinking should be Some when adaptive");
+        assert!(
+            request.thinking.is_some(),
+            "Thinking should be Some when adaptive"
+        );
         let thinking = request.thinking.unwrap();
         assert_eq!(thinking["type"], "enabled");
         assert_eq!(thinking["budget_tokens"], 10240);
@@ -2208,10 +2301,15 @@ mod tests {
 
     #[test]
     fn test_build_api_request_thinking_enabled_default_budget() {
-        let config = make_loop_config_with_thinking(ThinkingConfig::Enabled { budget_tokens: 10240 });
+        let config = make_loop_config_with_thinking(ThinkingConfig::Enabled {
+            budget_tokens: 10240,
+        });
         let messages = make_test_messages();
         let request = build_api_request(&messages, &config);
-        assert!(request.thinking.is_some(), "Thinking should be Some when enabled");
+        assert!(
+            request.thinking.is_some(),
+            "Thinking should be Some when enabled"
+        );
         let thinking = request.thinking.unwrap();
         assert_eq!(thinking["type"], "enabled");
         assert_eq!(thinking["budget_tokens"], 10240);
@@ -2219,10 +2317,15 @@ mod tests {
 
     #[test]
     fn test_build_api_request_thinking_enabled_custom_budget() {
-        let config = make_loop_config_with_thinking(ThinkingConfig::Enabled { budget_tokens: 32768 });
+        let config = make_loop_config_with_thinking(ThinkingConfig::Enabled {
+            budget_tokens: 32768,
+        });
         let messages = make_test_messages();
         let request = build_api_request(&messages, &config);
-        assert!(request.thinking.is_some(), "Thinking should be Some when enabled");
+        assert!(
+            request.thinking.is_some(),
+            "Thinking should be Some when enabled"
+        );
         let thinking = request.thinking.unwrap();
         assert_eq!(thinking["type"], "enabled");
         assert_eq!(thinking["budget_tokens"], 32768);
@@ -2231,11 +2334,16 @@ mod tests {
     #[test]
     fn test_build_api_request_thinking_enabled_serialization() {
         // Verify the full request serializes correctly with thinking
-        let config = make_loop_config_with_thinking(ThinkingConfig::Enabled { budget_tokens: 16384 });
+        let config = make_loop_config_with_thinking(ThinkingConfig::Enabled {
+            budget_tokens: 16384,
+        });
         let messages = make_test_messages();
         let request = build_api_request(&messages, &config);
         let json = serde_json::to_value(&request).unwrap();
-        assert!(json.get("thinking").is_some(), "Serialized request should contain thinking field");
+        assert!(
+            json.get("thinking").is_some(),
+            "Serialized request should contain thinking field"
+        );
         assert_eq!(json["thinking"]["type"], "enabled");
         assert_eq!(json["thinking"]["budget_tokens"], 16384);
     }
@@ -2247,14 +2355,19 @@ mod tests {
         let messages = make_test_messages();
         let request = build_api_request(&messages, &config);
         let json = serde_json::to_value(&request).unwrap();
-        assert!(json.get("thinking").is_none(), "Serialized request should not contain thinking field when disabled");
+        assert!(
+            json.get("thinking").is_none(),
+            "Serialized request should not contain thinking field when disabled"
+        );
     }
 
     #[test]
     fn test_update_thinking_config() {
         let mut engine = QueryEngine::new(make_config());
         // Default is Disabled
-        engine.update_thinking_config(ThinkingConfig::Enabled { budget_tokens: 8192 });
+        engine.update_thinking_config(ThinkingConfig::Enabled {
+            budget_tokens: 8192,
+        });
         // Verify by checking the config was updated (we can't directly access config,
         // but we can verify through the ThinkingConfig serialization)
         engine.update_thinking_config(ThinkingConfig::Disabled);

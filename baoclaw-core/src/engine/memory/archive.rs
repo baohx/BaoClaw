@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 
-use crate::engine::memory::{MemoryEntry, DecayConfig};
+use crate::engine::memory::{DecayConfig, MemoryEntry};
 
 /// Archive file name for stored archived memories.
 const ARCHIVE_FILE: &str = "memory_archive.jsonl";
@@ -143,7 +143,10 @@ impl MemoryArchive {
                     .open(&*fp)
                 {
                     if let Err(e) = writeln!(f, "{}", line) {
-                        eprintln!("[memory-archive] WARNING: append failed: {} — entry may be lost", e);
+                        eprintln!(
+                            "[memory-archive] WARNING: append failed: {} — entry may be lost",
+                            e
+                        );
                     }
                 }
             }
@@ -232,7 +235,10 @@ impl MemoryArchive {
     /// Get an archived memory by ID prefix without removing it.
     pub async fn get_archived(&self, id_prefix: &str) -> Option<MemoryEntry> {
         let entries = self.entries.lock().await;
-        entries.iter().find(|e| e.id.starts_with(id_prefix)).cloned()
+        entries
+            .iter()
+            .find(|e| e.id.starts_with(id_prefix))
+            .cloned()
     }
 
     /// Permanently delete an archived memory by ID prefix.
@@ -262,7 +268,11 @@ impl MemoryArchive {
 
         let fp = self.file_path.lock().await;
         if let Err(e) = std::fs::write(&*fp, "") {
-            eprintln!("[memory-archive] WARNING: could not truncate archive {}: {}", fp.display(), e);
+            eprintln!(
+                "[memory-archive] WARNING: could not truncate archive {}: {}",
+                fp.display(),
+                e
+            );
         }
 
         count
@@ -295,10 +305,7 @@ impl MemoryArchive {
         let fp = self.file_path.lock().await;
         Self::write_all_sync(&fp, &entries);
 
-        eprintln!(
-            "Archive cleanup: removed {} old entries",
-            delete_count
-        );
+        eprintln!("Archive cleanup: removed {} old entries", delete_count);
         delete_count
     }
 
@@ -469,6 +476,7 @@ mod tests {
     #[tokio::test]
     async fn test_clear() {
         let archive = MemoryArchive::load();
+        archive.clear().await;
 
         let memories = vec![
             create_test_memory("test-clear-1", 0.05),
