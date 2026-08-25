@@ -131,7 +131,7 @@ make_launcher "baoclaw-tui"       "ts-ipc/tui/index.tsx"           "Rich termina
 make_launcher "baoclaw-web"       "baoclaw-web/src/server.ts"      "Web browser chat"
 make_launcher "baoclaw-telegram"  "baoclaw-telegram/src/gateway.ts" "Telegram bot gateway"
 make_launcher "baoclaw-feishu"    "baoclaw-feishu/src/gateway.ts"  "Feishu bot gateway"
-make_launcher "baoclaw-whatsapp"  "baoclaw-whatsapp/src/session.ts" "WhatsApp gateway"
+make_launcher "baoclaw-whatsapp"  "baoclaw-whatsapp/src/gateway.ts" "WhatsApp gateway"
 
 # 7. 创建 MCP 服务器启动脚本
 mkdir -p "$INSTALL_DIR/bin"

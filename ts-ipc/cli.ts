@@ -1247,7 +1247,23 @@ async function main() {
   // Connect IPC
   const client = new IpcClient();
   startSpinner("Connecting to engine (loading MCP servers)...");
-  await client.connect(socketPath);
+  try {
+    await client.connect(socketPath);
+  } catch (error) {
+    // A stale fixed socket can survive a daemon crash. Start a replacement
+    // instead of exposing the raw ECONNREFUSED to the user.
+    if (isReconnect && fixed && socketPath === fixed) {
+      stopSpinner();
+      console.log(
+        `${DIM}Daemon socket is stale; starting a new daemon...${RESET}`,
+      );
+      socketPath = await startNewDaemon(binaryPath, sandboxMode);
+      startSpinner("Connecting to engine (loading MCP servers)...");
+      await client.connect(socketPath);
+    } else {
+      throw error;
+    }
+  }
 
   // Initialize
   const thinkingSettings = thinkingEnabled

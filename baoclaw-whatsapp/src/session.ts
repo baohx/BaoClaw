@@ -2,47 +2,55 @@
  * Baileys Session Manager (v7.x).
  * WhatsApp Web connection via QR code (default) or pairing code (--pairing flag).
  */
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import * as readline from 'readline';
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import * as readline from "readline";
 
 let makeWASocket: any;
 let useMultiFileAuthState: any;
 let DisconnectReason: any;
 let Browsers: any;
+let fetchLatestBaileysVersion: any;
 
 async function loadDeps() {
-  const baileys = await import('@whiskeysockets/baileys');
+  const baileys = await import("@whiskeysockets/baileys");
   makeWASocket = baileys.makeWASocket ?? baileys.default;
   useMultiFileAuthState = baileys.useMultiFileAuthState;
   DisconnectReason = baileys.DisconnectReason;
   Browsers = baileys.Browsers;
+  fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
 }
 
-const AUTH_DIR_NAME = 'whatsapp-auth';
+const AUTH_DIR_NAME = "whatsapp-auth";
 const MAX_RETRIES = 5;
-const usePairingMode = process.argv.includes('--pairing');
+const usePairingMode = process.argv.includes("--pairing");
 
 const logger = {
-  level: 'warn' as const,
+  level: "warn" as const,
   info: () => {},
-  warn: (...args: any[]) => console.warn('[Baileys warn]', ...args),
-  error: (...args: any[]) => console.error('[Baileys error]', ...args),
+  warn: (...args: any[]) => console.warn("[Baileys warn]", ...args),
+  error: (...args: any[]) => console.error("[Baileys error]", ...args),
   debug: () => {},
   trace: () => {},
-  fatal: (...args: any[]) => console.error('[Baileys fatal]', ...args),
+  fatal: (...args: any[]) => console.error("[Baileys fatal]", ...args),
   child: () => logger,
 } as any;
 
 export function getAuthDir(): string {
-  return path.join(os.homedir(), '.baoclaw', AUTH_DIR_NAME);
+  return path.join(os.homedir(), ".baoclaw", AUTH_DIR_NAME);
 }
 
 function prompt(question: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
   return new Promise((resolve) => {
-    rl.question(question, (answer) => { rl.close(); resolve(answer.trim()); });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
   });
 }
 
@@ -50,22 +58,28 @@ function displayQR(qr: string) {
   // qrcode-terminal prints directly to stdout when called without callback
   try {
     // ESM dynamic import of CJS — qrcode-terminal writes to process.stdout
-    import('qrcode-terminal').then((mod: any) => {
-      const qt = mod.default ?? mod;
-      if (typeof qt.generate === 'function') {
-        qt.generate(qr, { small: true });
-      } else {
-        printQRAsURL(qr);
-      }
-    }).catch(() => printQRAsURL(qr));
+    import("qrcode-terminal")
+      .then((mod: any) => {
+        const qt = mod.default ?? mod;
+        if (typeof qt.generate === "function") {
+          qt.generate(qr, { small: true });
+        } else {
+          printQRAsURL(qr);
+        }
+      })
+      .catch(() => printQRAsURL(qr));
   } catch {
     printQRAsURL(qr);
   }
 }
 
 function printQRAsURL(qr: string) {
-  console.log(`\n📷 Open this URL in browser to get QR code, then scan with WhatsApp:\n`);
-  console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}\n`);
+  console.log(
+    `\n📷 Open this URL in browser to get QR code, then scan with WhatsApp:\n`,
+  );
+  console.log(
+    `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}\n`,
+  );
 }
 
 export class SessionManager {
@@ -86,8 +100,8 @@ export class SessionManager {
   private async initProxy(): Promise<void> {
     if (this.proxyUrl && !this.proxyAgent) {
       try {
-        const mod = await import('socks-proxy-agent');
-        const SocksProxyAgent = mod.SocksProxyAgent || mod.default;
+        const mod = await import("socks-proxy-agent");
+        const SocksProxyAgent = mod.SocksProxyAgent || (mod as any).default;
         this.proxyAgent = new SocksProxyAgent(this.proxyUrl);
         console.log(`Using proxy: ${this.proxyUrl}`);
       } catch (err: any) {
@@ -100,9 +114,19 @@ export class SessionManager {
     await loadDeps();
     await this.initProxy();
 
+    let waVersion: number[] | undefined;
+    try {
+      const latest = await fetchLatestBaileysVersion();
+      if (latest?.version) waVersion = latest.version;
+    } catch (err: any) {
+      console.warn(`Could not fetch latest WhatsApp version: ${err.message}`);
+    }
+
     fs.mkdirSync(this.authDir, { recursive: true, mode: 0o700 });
     const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
-    const hasAuth = fs.existsSync(path.join(this.authDir, 'creds.json')) && state.creds?.registered;
+    const hasAuth =
+      fs.existsSync(path.join(this.authDir, "creds.json")) &&
+      state.creds?.registered;
 
     return new Promise((resolve, reject) => {
       let retries = 0;
@@ -110,20 +134,24 @@ export class SessionManager {
       let pairingRequested = false;
 
       const startSocket = () => {
-        const browserConfig = Browsers ? Browsers.ubuntu('Chrome') : ['BaoClaw', 'Chrome', '22.04'];
+        const browserConfig = Browsers
+          ? Browsers.ubuntu("Chrome")
+          : ["BaoClaw", "Chrome", "22.04"];
 
         const sock = makeWASocket({
           auth: state,
           browser: browserConfig,
           connectTimeoutMs: 60_000,
           logger,
-          printQRInTerminal: !usePairingMode,
-          ...(this.proxyAgent ? { agent: this.proxyAgent, fetchAgent: this.proxyAgent } : {}),
+          ...(waVersion ? { version: waVersion } : {}),
+          ...(this.proxyAgent
+            ? { agent: this.proxyAgent, fetchAgent: this.proxyAgent }
+            : {}),
         });
 
-        sock.ev.on('creds.update', saveCreds);
+        sock.ev.on("creds.update", saveCreds);
 
-        sock.ev.on('connection.update', async (update: any) => {
+        sock.ev.on("connection.update", async (update: any) => {
           const { connection, lastDisconnect, qr } = update;
 
           if (qr) {
@@ -132,76 +160,109 @@ export class SessionManager {
               try {
                 let phone = this.pairingPhone;
                 if (!phone) {
-                  phone = await prompt('\n📱 Enter WhatsApp phone (e.g. +8613812345678): ');
+                  phone = await prompt(
+                    "\n📱 Enter WhatsApp phone (e.g. +8613812345678): ",
+                  );
                 }
-                const cleaned = phone.replace(/[^0-9]/g, '');
+                const cleaned = phone.replace(/[^0-9]/g, "");
                 console.log(`\nRequesting pairing code for +${cleaned}...`);
                 const code = await sock.requestPairingCode(cleaned);
                 console.log(`\n🔑 Pairing code: ${code}`);
-                console.log(`Open WhatsApp → Settings → Linked Devices → Link a Device`);
-                console.log(`Choose "Link with phone number instead" and enter the code.\n`);
+                console.log(
+                  `Open WhatsApp → Settings → Linked Devices → Link a Device`,
+                );
+                console.log(
+                  `Choose "Link with phone number instead" and enter the code.\n`,
+                );
               } catch (err: any) {
                 console.error(`Pairing code failed: ${err.message}`);
-                console.log('\nFalling back to QR code:');
+                console.log("\nFalling back to QR code:");
                 await displayQR(qr);
               }
             } else {
-              console.log('\n📱 Scan this QR code with WhatsApp:');
+              console.log("\n📱 Scan this QR code with WhatsApp:");
               await displayQR(qr);
-              console.log('Open WhatsApp → Settings → Linked Devices → Link a Device → Scan QR\n');
+              console.log(
+                "Open WhatsApp → Settings → Linked Devices → Link a Device → Scan QR\n",
+              );
             }
           }
 
-          if (connection === 'open' && !resolved) {
+          if (connection === "open" && !resolved) {
             resolved = true;
             this.sock = sock;
             this._isConnected = true;
-            this.phoneNumber = sock.user?.id ? '+' + sock.user.id.split(':')[0] : null;
-            console.log(`\n✅ WhatsApp connected${this.phoneNumber ? ` as ${this.phoneNumber}` : ''}.`);
+            this.phoneNumber = sock.user?.id
+              ? "+" + sock.user.id.split(":")[0]
+              : null;
+            console.log(
+              `\n✅ WhatsApp connected${this.phoneNumber ? ` as ${this.phoneNumber}` : ""}.`,
+            );
             resolve(sock);
           }
 
-          if (connection === 'close' && !resolved) {
+          if (connection === "close" && !resolved) {
             this._isConnected = false;
-            const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+            const statusCode = (lastDisconnect?.error as any)?.output
+              ?.statusCode;
             const isLoggedOut = statusCode === DisconnectReason?.loggedOut;
             if (isLoggedOut) {
-              console.log('Logged out. Clearing auth state.');
+              console.log("Logged out. Clearing auth state.");
               this.clearAuthState();
-              reject(new Error('Logged out from WhatsApp'));
+              reject(new Error("Logged out from WhatsApp"));
               return;
             }
             retries++;
             if (retries > MAX_RETRIES) {
-              reject(new Error(`Failed after ${MAX_RETRIES} retries (status=${statusCode})`));
+              reject(
+                new Error(
+                  `Failed after ${MAX_RETRIES} retries (status=${statusCode})`,
+                ),
+              );
               return;
             }
-            console.log(`Connection closed (status=${statusCode}). Retry ${retries}/${MAX_RETRIES} in 3s...`);
-            setTimeout(() => { if (!resolved) startSocket(); }, 3000);
+            console.log(
+              `Connection closed (status=${statusCode}). Retry ${retries}/${MAX_RETRIES} in 3s...`,
+            );
+            setTimeout(() => {
+              if (!resolved) startSocket();
+            }, 3000);
           }
         });
       };
 
       if (!hasAuth) {
-        console.log(`\n📱 Mode: ${usePairingMode ? 'Pairing Code' : 'QR Code scan'}`);
+        console.log(
+          `\n📱 Mode: ${usePairingMode ? "Pairing Code" : "QR Code scan"}`,
+        );
       }
       startSocket();
     });
   }
 
-  getPhoneNumber(): string | null { return this.phoneNumber; }
-  isConnected(): boolean { return this._isConnected; }
-  getSocket(): any { return this.sock; }
+  getPhoneNumber(): string | null {
+    return this.phoneNumber;
+  }
+  isConnected(): boolean {
+    return this._isConnected;
+  }
+  getSocket(): any {
+    return this.sock;
+  }
 
   async disconnect(): Promise<void> {
     if (this.sock) {
-      try { this.sock.end(undefined); } catch {}
+      try {
+        this.sock.end(undefined);
+      } catch {}
       this.sock = null;
       this._isConnected = false;
     }
   }
 
   clearAuthState(): void {
-    try { fs.rmSync(this.authDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(this.authDir, { recursive: true, force: true });
+    } catch {}
   }
 }
