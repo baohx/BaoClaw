@@ -1,4 +1,4 @@
-.PHONY: help install test check check-all run tui build clean
+.PHONY: help install test check check-all check-web check-js run tui build clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -37,7 +37,12 @@ fmt: ## Run rustfmt check
 fmt-fix: ## Auto-fix formatting
 	cd baoclaw-core && cargo fmt
 
-check-all: check clippy fmt ## All quality checks (no tests)
+check-js: ## Type-check + syntax-check all baoclaw-web sources
+	cd baoclaw-web && npm run check
+
+check-web: check-js ## Alias for baoclaw-web checks
+
+check-all: check clippy fmt check-web ## All quality checks (no tests)
 
 # ======== Run ========
 
