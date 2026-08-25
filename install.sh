@@ -63,6 +63,9 @@ copy_gateway() {
   fi
   # public 静态资源（web）
   [ -d "$src/public" ] && cp -r "$src/public/." "$dst/public/" 2>/dev/null
+  # Gateway-specific install hooks and patch-package patches
+  [ -d "$src/scripts" ] && cp -r "$src/scripts/." "$dst/scripts/" 2>/dev/null
+  [ -d "$src/patches" ] && cp -r "$src/patches/." "$dst/patches/" 2>/dev/null
   # 元信息
   cp "$src/package.json" "$dst/" 2>/dev/null
   cp "$src/package-lock.json" "$dst/" 2>/dev/null

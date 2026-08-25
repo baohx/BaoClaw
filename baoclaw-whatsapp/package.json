@@ -5,7 +5,7 @@
   "scripts": {
     "start": "npx tsx src/gateway.ts",
     "test": "npx tsx --test src/**/*.test.ts",
-    "postinstall": "patch-package"
+    "postinstall": "node scripts/apply-crypto-patch.cjs"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc13",
