@@ -13,9 +13,12 @@ impl SandboxConfig {
         let backend = if which_exists("bwrap") {
             SandboxBackend::Bubblewrap
         } else if which_exists("docker") {
-            SandboxBackend::Docker {
-                image: std::env::var("BAOCLAW_SANDBOX_IMAGE")
-                    .unwrap_or_else(|_| "baoclaw-sandbox:latest".into()),
+            let image = std::env::var("BAOCLAW_SANDBOX_IMAGE")
+                .unwrap_or_else(|_| "baoclaw-sandbox:latest".into());
+            if docker_image_exists(&image) {
+                SandboxBackend::Docker { image }
+            } else {
+                SandboxBackend::None
             }
         } else {
             SandboxBackend::None
@@ -312,7 +315,7 @@ pub async fn docker_image_exists_async(image: &str) -> bool {
 }
 
 /// Check if a Docker image exists locally (synchronous, for non-async contexts).
-fn docker_image_exists(image: &str) -> bool {
+pub(crate) fn docker_image_exists(image: &str) -> bool {
     std::process::Command::new("docker")
         .args(["image", "inspect", image])
         .stdout(std::process::Stdio::null())

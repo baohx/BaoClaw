@@ -338,8 +338,8 @@ mod tests {
 
     #[test]
     fn test_env_override_model() {
-        let mut config = BaoclawConfig::default();
         std::env::set_var("ANTHROPIC_MODEL", "claude-opus-4-20250514");
+        let mut config = BaoclawConfig::default();
         apply_env_override(&mut config);
         assert_eq!(config.model, "claude-opus-4-20250514");
         std::env::remove_var("ANTHROPIC_MODEL");

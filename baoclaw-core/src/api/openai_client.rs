@@ -640,3 +640,22 @@ impl OpenAiSseStream {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_openai_client_new() {
+        let config = ApiClientConfig {
+            api_key: "test-key".to_string(),
+            base_url: Some("https://api.openai.com".to_string()),
+            max_retries: Some(3),
+            api_path: None,
+        };
+        let client = OpenAiClient::new(config);
+        assert_eq!(client.api_key, "test-key");
+        assert_eq!(client.base_url, "https://api.openai.com");
+    }
+}

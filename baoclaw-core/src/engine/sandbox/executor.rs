@@ -117,9 +117,12 @@ impl SandboxExecutor {
         if which_exists("bwrap") {
             SandboxBackend::Bubblewrap
         } else if which_exists("docker") {
-            SandboxBackend::Docker {
-                image: std::env::var("BAOCLAW_SANDBOX_IMAGE")
-                    .unwrap_or_else(|_| "baoclaw-sandbox:latest".into()),
+            let image = std::env::var("BAOCLAW_SANDBOX_IMAGE")
+                .unwrap_or_else(|_| "baoclaw-sandbox:latest".into());
+            if super::legacy::docker_image_exists(&image) {
+                SandboxBackend::Docker { image }
+            } else {
+                SandboxBackend::None
             }
         } else {
             SandboxBackend::None
