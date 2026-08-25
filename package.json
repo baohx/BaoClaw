@@ -1,0 +1,24 @@
+{
+  "name": "baoclaw-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "husky",
+    "format": "prettier --write . && cargo fmt --all",
+    "lint": "eslint . --ext .ts,.tsx && cargo clippy --all-targets --all-features -- -D warnings",
+    "typecheck": "tsc --noEmit",
+    "check": "cargo check --all-targets --all-features",
+    "verify-all": "npm run format && npm run lint && npm run typecheck && npm run check"
+  },
+  "devDependencies": {
+    "husky": "^9.1.0",
+    "lint-staged": "^15.0.0",
+    "prettier": "^3.5.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "typescript": "^5.6.0"
+  }
+}
