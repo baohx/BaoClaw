@@ -62,3 +62,46 @@ jobs:
 
       - name: Cargo test
         run: cargo test --manifest-path baoclaw-core/Cargo.toml -- --test-threads=2
+
+  ts-check:
+    name: "TypeScript Typecheck + Lint + Test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install package dependencies
+        run: |
+          npm ci --prefix ts-ipc
+          npm ci --prefix baoclaw-feishu
+          npm ci --prefix baoclaw-whatsapp
+          npm ci --prefix baoclaw-telegram
+
+      - name: Typecheck ts-ipc
+        run: npm exec --prefix ts-ipc -- tsc --noEmit -p ts-ipc/tsconfig.json
+
+      - name: Typecheck Feishu gateway
+        run: npm exec --prefix baoclaw-feishu -- tsc --noEmit -p baoclaw-feishu/tsconfig.json
+
+      - name: Typecheck WhatsApp gateway
+        run: npm exec --prefix baoclaw-whatsapp -- tsc --noEmit -p baoclaw-whatsapp/tsconfig.json
+
+      - name: Typecheck Telegram gateway
+        run: npm exec --prefix baoclaw-telegram -- tsc --noEmit -p baoclaw-telegram/tsconfig.json
+
+      - name: ESLint
+        run: npx eslint . --ext .ts,.tsx
+
+      - name: WhatsApp tests
+        run: npm exec --prefix baoclaw-whatsapp -- tsx --test 'baoclaw-whatsapp/src/**/*.test.ts'
+
+      - name: ts-ipc tests
+        run: npm exec --prefix ts-ipc -- tsx --test ts-ipc/esm-import-extension.test.ts

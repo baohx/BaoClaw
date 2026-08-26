@@ -8,18 +8,18 @@
  *
  * Validates: Requirements 1.1, 1.2, 2.1, 2.2
  */
-import { describe, it } from 'node:test';
-import * as assert from 'node:assert';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { describe, it } from "node:test";
+import * as assert from "node:assert";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 /** Files known to contain buggy relative imports */
 const AFFECTED_FILES = [
-  'cli.ts',
-  'index.ts',
-  'rustCore.ts',
-  'useRustEngine.ts',
-  'streamHandler.ts',
+  "cli.ts",
+  "index.ts",
+  "rustCore.ts",
+  "useRustEngine.ts",
+  "streamHandler.ts",
 ];
 
 /**
@@ -46,20 +46,20 @@ function extractImportSpecifiers(source: string): string[] {
  *     AND NOT specifier ENDS WITH '.js'
  */
 function isBugCondition(specifier: string): boolean {
-  return specifier.startsWith('./') && !specifier.endsWith('.js');
+  return specifier.startsWith("./") && !specifier.endsWith(".js");
 }
 
-describe('Property 1: Bug Condition — All relative imports include .js extension', () => {
+describe("Property 1: Bug Condition — All relative imports include .js extension", () => {
   const dir = path.dirname(new URL(import.meta.url).pathname);
 
   for (const file of AFFECTED_FILES) {
     it(`${file}: every relative import specifier ends with .js`, () => {
       const filePath = path.join(dir, file);
-      const source = fs.readFileSync(filePath, 'utf-8');
+      const source = fs.readFileSync(filePath, "utf-8");
       const specifiers = extractImportSpecifiers(source);
 
       // There must be at least one relative specifier in each affected file
-      const relativeSpecifiers = specifiers.filter((s) => s.startsWith('./'));
+      const relativeSpecifiers = specifiers.filter((s) => s.startsWith("./"));
       assert.ok(
         relativeSpecifiers.length > 0,
         `Expected at least one relative import in ${file}, found none`,
@@ -91,30 +91,30 @@ describe('Property 1: Bug Condition — All relative imports include .js extensi
 
 /** All .ts source files in ts-ipc/ (excluding test files) */
 const ALL_SOURCE_FILES = [
-  'cli.ts',
-  'client.ts',
-  'index.ts',
-  'markdownRenderer.ts',
-  'rustCore.ts',
-  'streamHandler.ts',
-  'types.ts',
-  'useRustEngine.ts',
+  "cli.ts",
+  "client.ts",
+  "index.ts",
+  "markdownRenderer.ts",
+  "rustCore.ts",
+  "streamHandler.ts",
+  "types.ts",
+  "useRustEngine.ts",
 ];
 
 /**
- * Known bare specifiers per file — snapshot from UNFIXED code.
+ * Known bare specifiers per file — intentional package and Node.js imports.
  * These are Node.js built-in and third-party package imports that must
  * never have .js appended.
  */
 const KNOWN_BARE_SPECIFIERS: Record<string, string[]> = {
-  'cli.ts': ['net', 'readline', 'path', 'child_process', 'fs', 'os'],
-  'client.ts': ['net'],
-  'index.ts': [],
-  'markdownRenderer.ts': [],
-  'rustCore.ts': ['child_process'],
-  'streamHandler.ts': [],
-  'types.ts': [],
-  'useRustEngine.ts': ['react'],
+  "cli.ts": ["net", "readline", "path", "child_process", "fs", "os", "crypto"],
+  "client.ts": ["net"],
+  "index.ts": [],
+  "markdownRenderer.ts": [],
+  "rustCore.ts": ["child_process"],
+  "streamHandler.ts": [],
+  "types.ts": [],
+  "useRustEngine.ts": ["react"],
 };
 
 /**
@@ -122,23 +122,23 @@ const KNOWN_BARE_SPECIFIERS: Record<string, string[]> = {
  * Bare specifiers do NOT start with './' or '../'.
  */
 function isBareSpecifier(specifier: string): boolean {
-  return !specifier.startsWith('./') && !specifier.startsWith('../');
+  return !specifier.startsWith("./") && !specifier.startsWith("../");
 }
 
-describe('Property 2: Preservation — Bare specifier imports unchanged', () => {
+describe("Property 2: Preservation — Bare specifier imports unchanged", () => {
   const dir = path.dirname(new URL(import.meta.url).pathname);
 
   for (const file of ALL_SOURCE_FILES) {
     it(`${file}: no bare specifier has .js extension appended`, () => {
       const filePath = path.join(dir, file);
-      const source = fs.readFileSync(filePath, 'utf-8');
+      const source = fs.readFileSync(filePath, "utf-8");
       const specifiers = extractImportSpecifiers(source);
       const bareSpecifiers = specifiers.filter(isBareSpecifier);
 
       // Assert no bare specifier ends with .js
       for (const specifier of bareSpecifiers) {
         assert.ok(
-          !specifier.endsWith('.js'),
+          !specifier.endsWith(".js"),
           `${file}: bare specifier '${specifier}' should NOT have .js extension`,
         );
       }
@@ -146,7 +146,7 @@ describe('Property 2: Preservation — Bare specifier imports unchanged', () => 
 
     it(`${file}: bare specifiers match known snapshot`, () => {
       const filePath = path.join(dir, file);
-      const source = fs.readFileSync(filePath, 'utf-8');
+      const source = fs.readFileSync(filePath, "utf-8");
       const specifiers = extractImportSpecifiers(source);
       const bareSpecifiers = specifiers.filter(isBareSpecifier);
       const expected = KNOWN_BARE_SPECIFIERS[file] ?? [];
@@ -155,7 +155,7 @@ describe('Property 2: Preservation — Bare specifier imports unchanged', () => 
         bareSpecifiers.sort(),
         [...expected].sort(),
         `${file}: bare specifiers do not match expected snapshot. ` +
-        `Found: [${bareSpecifiers.join(', ')}], Expected: [${expected.join(', ')}]`,
+          `Found: [${bareSpecifiers.join(", ")}], Expected: [${expected.join(", ")}]`,
       );
     });
   }
