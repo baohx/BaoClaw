@@ -41,6 +41,13 @@ export function getAuthDir(): string {
   return path.join(os.homedir(), ".baoclaw", AUTH_DIR_NAME);
 }
 
+function secureAuthDirectory(authDir: string): void {
+  fs.chmodSync(authDir, 0o700);
+  for (const entry of fs.readdirSync(authDir, { withFileTypes: true })) {
+    if (entry.isFile()) fs.chmodSync(path.join(authDir, entry.name), 0o600);
+  }
+}
+
 function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -123,6 +130,7 @@ export class SessionManager {
     }
 
     fs.mkdirSync(this.authDir, { recursive: true, mode: 0o700 });
+    secureAuthDirectory(this.authDir);
     const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
     const hasAuth =
       fs.existsSync(path.join(this.authDir, "creds.json")) &&
@@ -149,7 +157,14 @@ export class SessionManager {
             : {}),
         });
 
-        sock.ev.on("creds.update", saveCreds);
+        sock.ev.on("creds.update", () => {
+          void saveCreds()
+            .then(() => secureAuthDirectory(this.authDir))
+            .catch((err: unknown) => {
+              const message = err instanceof Error ? err.message : String(err);
+              logger.error(`Failed to save auth credentials: ${message}`);
+            });
+        });
 
         sock.ev.on("connection.update", async (update: any) => {
           const { connection, lastDisconnect, qr } = update;

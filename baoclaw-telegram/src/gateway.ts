@@ -378,6 +378,12 @@ async function main() {
     );
     process.exit(1);
   }
+  if (config.allowedChatIds.length === 0) {
+    console.error(
+      "Cannot start because no chat allowlist is configured. To fix, set allowedChatIds in config.json.",
+    );
+    process.exit(1);
+  }
 
   console.log("BaoClaw Telegram Gateway starting (daemon mode)...");
 
@@ -1463,11 +1469,8 @@ async function main() {
     if (!msg) return;
     const chatId = msg.chat.id;
 
-    // Allowlist check (empty = allow all)
-    if (
-      config.allowedChatIds.length > 0 &&
-      !config.allowedChatIds.includes(chatId)
-    ) {
+    // Allowlist is validated at startup; reject every non-member.
+    if (!config.allowedChatIds.includes(chatId)) {
       console.log(`Rejected: chat ${chatId}`);
       return;
     }

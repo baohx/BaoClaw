@@ -68,6 +68,25 @@ const MAX_MSG_LEN = 15000;
 const PID_FILE = path.join(process.env.HOME || "/tmp", ".baoclaw-feishu.pid");
 const LOG_DIR = path.join(process.env.HOME || "/tmp", ".baoclaw", "logs");
 
+function loadAllowedChatIds(): string[] {
+  try {
+    const configPath = path.join(
+      process.env.HOME || "/tmp",
+      ".baoclaw",
+      "config.json",
+    );
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    return Array.isArray(raw?.feishu?.allowedChatIds)
+      ? raw.feishu.allowedChatIds.filter(
+          (id: unknown): id is string =>
+            typeof id === "string" && id.length > 0,
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 // Parse CLI flags
 const args = process.argv.slice(2);
 const FLAGS = {
@@ -382,6 +401,12 @@ let lastEventTime = Date.now();
 // ── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
+  const allowedChatIds = loadAllowedChatIds();
+  if (allowedChatIds.length === 0) {
+    throw new Error(
+      "Cannot start because no chat allowlist is configured. To fix, set feishu.allowedChatIds in config.json.",
+    );
+  }
   // ── Setup logging ──
   if (FLAGS.debug) setLogLevel("DEBUG");
   try {
@@ -440,6 +465,10 @@ async function main() {
     if (event.type !== "im.message.receive_v1") return;
     if (event.sender_id === BOT_OPEN_ID) return;
     if (!event.content?.trim()) return;
+    if (!allowedChatIds.includes(event.chat_id)) {
+      logger.warn(`Rejected message from unallowlisted chat ${event.chat_id}`);
+      return;
+    }
 
     handleMessage(event).catch((err) => {
       logger.error(`Unhandled error in handleMessage: ${err.message}`);

@@ -1,0 +1,9 @@
+[allowlist]
+description = "Known synthetic credential fixtures used by security unit tests"
+regexes = [
+  '''my key is sk-abcdefghijklmnopqrstuvwxyz1234567890''',
+  '''token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij''',
+  '''AWS key: AKIAIOSFODNN7EXAMPLE''',
+  '''slack: synthetic-slack-bot-token-fixture''',
+  '''Authorization: Bearer eyJhbGciOiJIUzI1NiJ9\.payload\.signature''',
+]

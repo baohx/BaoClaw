@@ -812,21 +812,29 @@ npx --prefix ts-ipc tsx ts-ipc/cli.ts
   "api_type": "anthropic",
   "openai_base_url": null,
   "telegram": {
-    "token": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+    "token": "<telegram-bot-token>",
     "allowedChatIds": [12345678]
+  },
+  "feishu": {
+    "allowedChatIds": ["oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
   }
 }
 ```
 
-| Field                     | Type     | Default                    | Description                                |
-| ------------------------- | -------- | -------------------------- | ------------------------------------------ |
-| `model`                   | string   | `claude-sonnet-4-20250514` | Primary LLM model                          |
-| `fallback_models`         | string[] | `[]`                       | Models to try when primary is rate-limited |
-| `max_retries_per_model`   | number   | `2`                        | Retries before falling back to next model  |
-| `api_type`                | string   | `"anthropic"`              | `"anthropic"` or `"openai"`                |
-| `openai_base_url`         | string?  | `null`                     | Base URL for OpenAI-compatible API         |
-| `telegram.token`          | string   | —                          | Telegram bot token from @BotFather         |
-| `telegram.allowedChatIds` | number[] | `[]`                       | Allowed chat IDs (empty = allow all)       |
+| Field                     | Type     | Default                    | Description                                                               |
+| ------------------------- | -------- | -------------------------- | ------------------------------------------------------------------------- |
+| `model`                   | string   | `claude-sonnet-4-20250514` | Primary LLM model                                                         |
+| `fallback_models`         | string[] | `[]`                       | Models to try when primary is rate-limited                                |
+| `max_retries_per_model`   | number   | `2`                        | Retries before falling back to next model                                 |
+| `api_type`                | string   | `"anthropic"`              | `"anthropic"` or `"openai"`                                               |
+| `openai_base_url`         | string?  | `null`                     | Base URL for OpenAI-compatible API                                        |
+| `telegram.token`          | string   | —                          | Telegram bot token from @BotFather                                        |
+| `telegram.allowedChatIds` | number[] | `[]`                       | Allowed chat IDs (required; empty = reject all and refuse startup)        |
+| `feishu.allowedChatIds`   | string[] | `[]`                       | Allowed Feishu chat IDs (required; empty = reject all and refuse startup) |
+
+WhatsApp session credentials are stored under `~/.baoclaw/whatsapp-auth/`.
+The directory is restricted to the owner (`0700`) and credential files to the
+owner (`0600`) after each credentials update.
 
 Environment variable overrides:
 

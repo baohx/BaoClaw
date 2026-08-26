@@ -111,3 +111,9 @@ jobs:
 
       - name: Telegram tests
         run: npm exec --prefix baoclaw-telegram -- tsx --test 'baoclaw-telegram/src/**/*.test.ts'
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
