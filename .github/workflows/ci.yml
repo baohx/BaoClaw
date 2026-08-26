@@ -104,4 +104,10 @@ jobs:
         run: npm exec --prefix baoclaw-whatsapp -- tsx --test 'baoclaw-whatsapp/src/**/*.test.ts'
 
       - name: ts-ipc tests
-        run: npm exec --prefix ts-ipc -- tsx --test ts-ipc/esm-import-extension.test.ts
+        run: npm exec --prefix ts-ipc -- tsx --test 'ts-ipc/src/**/*.test.ts' 'ts-ipc/*.test.ts'
+
+      - name: Feishu tests
+        run: npm exec --prefix baoclaw-feishu -- tsx --test 'baoclaw-feishu/src/**/*.test.ts'
+
+      - name: Telegram tests
+        run: npm exec --prefix baoclaw-telegram -- tsx --test 'baoclaw-telegram/src/**/*.test.ts'

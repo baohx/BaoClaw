@@ -54,6 +54,7 @@ import {
   formatStart,
   formatSearchResults,
 } from "./commands.js";
+import { splitMessage } from "./messageSplitter.js";
 
 // ── Global error handlers ──
 process.on("uncaughtException", (err) => {
@@ -195,24 +196,6 @@ async function connectToDaemon(
   throw new Error(
     `No BaoClaw daemon found after ${maxWaitMs / 1000}s. Start one with: baoclaw.${detail}`,
   );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Message splitting for Telegram's 4096 char limit
-// ═══════════════════════════════════════════════════════════════
-function splitMessage(text: string, max = MAX_TG_MSG): string[] {
-  if (text.length <= max) return [text];
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > max) {
-    let idx = remaining.lastIndexOf("\n\n", max);
-    if (idx <= 0) idx = remaining.lastIndexOf("\n", max);
-    if (idx <= 0) idx = max;
-    chunks.push(remaining.slice(0, idx));
-    remaining = remaining.slice(idx).trimStart();
-  }
-  if (remaining) chunks.push(remaining);
-  return chunks;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -750,7 +733,7 @@ async function main() {
           }
           // Send text first
           if (text.trim().length > 0) {
-            const chunks = splitMessage(text);
+            const chunks = splitMessage(text, MAX_TG_MSG);
             for (const chunk of chunks) {
               try {
                 await sendMessage(chatId, markdownToTelegramHtml(chunk), {
@@ -1597,7 +1580,7 @@ async function main() {
         try {
           const result = await handler(parsed.args, chatId);
           if (result) {
-            const chunks = splitMessage(result);
+            const chunks = splitMessage(result, MAX_TG_MSG);
             for (const chunk of chunks) {
               await sendMessage(chatId, chunk);
             }

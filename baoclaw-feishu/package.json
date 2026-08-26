@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "start": "npx tsx src/gateway.ts"
+    "start": "npx tsx src/gateway.ts",
+    "test": "npx tsx --test src/**/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
