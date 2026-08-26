@@ -25,18 +25,18 @@ export function validateE164(phone: string): boolean {
  * before invoking this helper.
  */
 export function normalizeJid(jid: string): string {
-  if (jid.startsWith('+')) return jid;
-  const atIdx = jid.indexOf('@');
+  if (jid.startsWith("+")) return jid;
+  const atIdx = jid.indexOf("@");
   let digits = atIdx >= 0 ? jid.slice(0, atIdx) : jid;
   // Strip Baileys device-id suffix, e.g. "8613671505207:5" -> "8613671505207"
-  const colonIdx = digits.indexOf(':');
+  const colonIdx = digits.indexOf(":");
   if (colonIdx >= 0) digits = digits.slice(0, colonIdx);
   // If the underlying id is not numeric (e.g. an opaque LID), preserve it
   // so the allowlist check fails closed instead of false-matching a phone.
   if (!/^\d+$/.test(digits)) {
     return atIdx >= 0 ? jid.slice(0, atIdx) : jid;
   }
-  return '+' + digits;
+  return "+" + digits;
 }
 
 /**

@@ -5,16 +5,42 @@
     "display_name": "全面代码审查流水线",
     "description": "自动化代码安全扫描、风格检查、架构评审、性能分析、依赖审计，合并报告并生成最终审计文档",
     "trigger_phrases": [
-      "代码审查", "代码审计", "code review", "code audit",
-      "安全检查", "安全扫描", "安全检查代码",
-      "全面检查代码", "审查项目", "审计项目",
-      "代码质量", "代码质量检查",
-      "帮我审查", "帮我审计", "帮我看看代码"
+      "代码审查",
+      "代码审计",
+      "code review",
+      "code audit",
+      "安全检查",
+      "安全扫描",
+      "安全检查代码",
+      "全面检查代码",
+      "审查项目",
+      "审计项目",
+      "代码质量",
+      "代码质量检查",
+      "帮我审查",
+      "帮我审计",
+      "帮我看看代码"
     ],
     "keywords": [
-      "审查", "审计", "review", "audit", "安全", "security",
-      "风格", "style", "架构", "architecture", "性能", "performance",
-      "依赖", "dependency", "质量", "quality", "检查", "scan", "扫描"
+      "审查",
+      "审计",
+      "review",
+      "audit",
+      "安全",
+      "security",
+      "风格",
+      "style",
+      "架构",
+      "architecture",
+      "性能",
+      "performance",
+      "依赖",
+      "dependency",
+      "质量",
+      "quality",
+      "检查",
+      "scan",
+      "扫描"
     ],
     "expected_duration": "中等（4 波次、7 代理）",
     "estimated_cost": "$2.00 - $5.00 (取决于代码库规模)"
@@ -25,14 +51,31 @@
     "display_name": "代码重构分析流水线",
     "description": "分析代码库的耦合度、复杂度、重复代码、废弃 API 引用，生成重构建议报告",
     "trigger_phrases": [
-      "重构分析", "重构建议", "代码重构",
-      "分析耦合", "分析复杂度", "重复代码",
-      "refactor", "restructure", "代码整理",
-      "优化架构", "模块拆分"
+      "重构分析",
+      "重构建议",
+      "代码重构",
+      "分析耦合",
+      "分析复杂度",
+      "重复代码",
+      "refactor",
+      "restructure",
+      "代码整理",
+      "优化架构",
+      "模块拆分"
     ],
     "keywords": [
-      "重构", "refactor", "耦合", "coupling", "复杂度", "complexity",
-      "重复", "duplicate", "废弃", "deprecated", "结构", "structure"
+      "重构",
+      "refactor",
+      "耦合",
+      "coupling",
+      "复杂度",
+      "complexity",
+      "重复",
+      "duplicate",
+      "废弃",
+      "deprecated",
+      "结构",
+      "structure"
     ],
     "expected_duration": "中等",
     "estimated_cost": "$1.50 - $3.00"
@@ -43,14 +86,31 @@
     "display_name": "依赖升级检查流水线",
     "description": "扫描所有依赖的更新版本、CVE 安全漏洞、破坏性变更、许可证合规性，生成升级计划",
     "trigger_phrases": [
-      "更新依赖", "升级依赖", "依赖升级",
-      "检查依赖", "依赖安全", "CVE 检查",
-      "update dependencies", "upgrade packages",
-      "依赖版本", "库更新"
+      "更新依赖",
+      "升级依赖",
+      "依赖升级",
+      "检查依赖",
+      "依赖安全",
+      "CVE 检查",
+      "update dependencies",
+      "upgrade packages",
+      "依赖版本",
+      "库更新"
     ],
     "keywords": [
-      "依赖", "dependency", "CVE", "更新", "update", "升级", "upgrade",
-      "包", "package", "版本", "version", "许可证", "license"
+      "依赖",
+      "dependency",
+      "CVE",
+      "更新",
+      "update",
+      "升级",
+      "upgrade",
+      "包",
+      "package",
+      "版本",
+      "version",
+      "许可证",
+      "license"
     ],
     "expected_duration": "较短（2-3 波次）",
     "estimated_cost": "$0.50 - $1.50"
@@ -61,14 +121,28 @@
     "display_name": "测试覆盖率分析流水线",
     "description": "分析现有测试覆盖率、识别未覆盖的关键路径、生成测试补充建议、运行全量测试并汇总结果",
     "trigger_phrases": [
-      "测试覆盖率", "测试补充", "写测试",
-      "coverage", "test gap", "补测试",
-      "测试分析", "test coverage analysis",
-      "哪些没测试", "测试报告"
+      "测试覆盖率",
+      "测试补充",
+      "写测试",
+      "coverage",
+      "test gap",
+      "补测试",
+      "测试分析",
+      "test coverage analysis",
+      "哪些没测试",
+      "测试报告"
     ],
     "keywords": [
-      "测试", "test", "覆盖", "coverage", "用例", "case",
-      "单元测试", "集成测试", "覆盖率", "gap"
+      "测试",
+      "test",
+      "覆盖",
+      "coverage",
+      "用例",
+      "case",
+      "单元测试",
+      "集成测试",
+      "覆盖率",
+      "gap"
     ],
     "expected_duration": "较短（3 波次）",
     "estimated_cost": "$0.50 - $1.50"
@@ -79,14 +153,27 @@
     "display_name": "文档生成流水线",
     "description": "扫描代码库生成 API 文档、架构图、README 更新、CHANGELOG 维护",
     "trigger_phrases": [
-      "生成文档", "写文档", "文档自动化",
-      "API 文档", "接口文档", "readme",
-      "generate docs", "documentation",
-      "更新 README", "写 changelog"
+      "生成文档",
+      "写文档",
+      "文档自动化",
+      "API 文档",
+      "接口文档",
+      "readme",
+      "generate docs",
+      "documentation",
+      "更新 README",
+      "写 changelog"
     ],
     "keywords": [
-      "文档", "documentation", "docs", "README", "API",
-      "注释", "comment", "CHANGELOG", "说明"
+      "文档",
+      "documentation",
+      "docs",
+      "README",
+      "API",
+      "注释",
+      "comment",
+      "CHANGELOG",
+      "说明"
     ],
     "expected_duration": "中等（3-4 波次）",
     "estimated_cost": "$1.00 - $2.50"

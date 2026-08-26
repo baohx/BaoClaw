@@ -13,22 +13,22 @@
  * imports (`import { createCipheriv, createDecipheriv } from './_aes_cbc_shim.js'`);
  * CJS consumers can `const { createCipheriv } = require('./_aes_cbc_shim.js')`.
  */
-import nativeCrypto from 'crypto';
-import aesjsDefault from 'aes-js';
+import nativeCrypto from "crypto";
+import aesjsDefault from "aes-js";
 
 const aesjs = aesjsDefault.default ?? aesjsDefault;
 
-const PATCHED = new Set(['aes-256-cbc', 'aes-192-cbc', 'aes-256-ecb']);
+const PATCHED = new Set(["aes-256-cbc", "aes-192-cbc", "aes-256-ecb"]);
 
 function detectHardwareWorks() {
   try {
     const k = Buffer.alloc(32, 1);
     const iv = Buffer.alloc(16, 2);
-    const c = nativeCrypto.createCipheriv('aes-256-cbc', k, iv);
-    const enc = Buffer.concat([c.update(Buffer.from('test')), c.final()]);
-    const d = nativeCrypto.createDecipheriv('aes-256-cbc', k, iv);
+    const c = nativeCrypto.createCipheriv("aes-256-cbc", k, iv);
+    const enc = Buffer.concat([c.update(Buffer.from("test")), c.final()]);
+    const d = nativeCrypto.createDecipheriv("aes-256-cbc", k, iv);
     const dec = Buffer.concat([d.update(enc), d.final()]);
-    return dec.toString() === 'test';
+    return dec.toString() === "test";
   } catch {
     return false;
   }
@@ -39,8 +39,8 @@ const HARDWARE_BROKEN = !detectHardwareWorks();
 if (HARDWARE_BROKEN && !globalThis.__AES_SHIM_LOGGED) {
   globalThis.__AES_SHIM_LOGGED = true;
   console.warn(
-    '[aes-cbc-shim] Detected broken hardware AES-256/192 decrypt. ' +
-    'Routing { aes-256-cbc, aes-192-cbc, aes-256-ecb } through pure-JS implementation.'
+    "[aes-cbc-shim] Detected broken hardware AES-256/192 decrypt. " +
+      "Routing { aes-256-cbc, aes-192-cbc, aes-256-ecb } through pure-JS implementation.",
   );
 }
 
@@ -53,14 +53,14 @@ function pkcs7Unpad(data) {
   if (data.length === 0) return data;
   const padLen = data[data.length - 1];
   if (padLen < 1 || padLen > 16 || padLen > data.length) {
-    const err = new Error('bad decrypt');
-    err.code = 'ERR_OSSL_EVP_BAD_DECRYPT';
+    const err = new Error("bad decrypt");
+    err.code = "ERR_OSSL_EVP_BAD_DECRYPT";
     throw err;
   }
   for (let i = data.length - padLen; i < data.length; i++) {
     if (data[i] !== padLen) {
-      const err = new Error('bad decrypt');
-      err.code = 'ERR_OSSL_EVP_BAD_DECRYPT';
+      const err = new Error("bad decrypt");
+      err.code = "ERR_OSSL_EVP_BAD_DECRYPT";
       throw err;
     }
   }
@@ -68,7 +68,8 @@ function pkcs7Unpad(data) {
 }
 
 function toUint8Array(value) {
-  if (typeof value === 'string') return new Uint8Array(Buffer.from(value, 'hex'));
+  if (typeof value === "string")
+    return new Uint8Array(Buffer.from(value, "hex"));
   if (Buffer.isBuffer(value)) return new Uint8Array(value);
   return value;
 }
@@ -87,31 +88,32 @@ class CbcShim {
     return this;
   }
   update(data, inputEncoding) {
-    if (this.finalized) throw new Error('Cipher already finalized');
+    if (this.finalized) throw new Error("Cipher already finalized");
     let buf;
-    if (typeof data === 'string') buf = Buffer.from(data, inputEncoding ?? 'utf8');
+    if (typeof data === "string")
+      buf = Buffer.from(data, inputEncoding ?? "utf8");
     else if (Buffer.isBuffer(data)) buf = data;
     else buf = Buffer.from(data);
     this.chunks.push(buf);
     return Buffer.alloc(0);
   }
   final() {
-    if (this.finalized) throw new Error('Cipher already finalized');
+    if (this.finalized) throw new Error("Cipher already finalized");
     this.finalized = true;
     const input = Buffer.concat(this.chunks);
     const cbc = new aesjs.ModeOfOperation.cbc(this.key, this.iv);
     if (this.encrypting) {
       const padded = this.autoPadding ? pkcs7Pad(input, 16) : input;
       if (padded.length % 16 !== 0) {
-        const err = new Error('data not multiple of block length');
-        err.code = 'ERR_OSSL_EVP_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH';
+        const err = new Error("data not multiple of block length");
+        err.code = "ERR_OSSL_EVP_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH";
         throw err;
       }
       return Buffer.from(cbc.encrypt(padded));
     } else {
       if (input.length % 16 !== 0) {
-        const err = new Error('wrong final block length');
-        err.code = 'ERR_OSSL_EVP_WRONG_FINAL_BLOCK_LENGTH';
+        const err = new Error("wrong final block length");
+        err.code = "ERR_OSSL_EVP_WRONG_FINAL_BLOCK_LENGTH";
         throw err;
       }
       const decrypted = Buffer.from(cbc.decrypt(input));
@@ -133,31 +135,32 @@ class EcbShim {
     return this;
   }
   update(data, inputEncoding) {
-    if (this.finalized) throw new Error('Cipher already finalized');
+    if (this.finalized) throw new Error("Cipher already finalized");
     let buf;
-    if (typeof data === 'string') buf = Buffer.from(data, inputEncoding ?? 'utf8');
+    if (typeof data === "string")
+      buf = Buffer.from(data, inputEncoding ?? "utf8");
     else if (Buffer.isBuffer(data)) buf = data;
     else buf = Buffer.from(data);
     this.chunks.push(buf);
     return Buffer.alloc(0);
   }
   final() {
-    if (this.finalized) throw new Error('Cipher already finalized');
+    if (this.finalized) throw new Error("Cipher already finalized");
     this.finalized = true;
     const input = Buffer.concat(this.chunks);
     const ecb = new aesjs.ModeOfOperation.ecb(this.key);
     if (this.encrypting) {
       const padded = this.autoPadding ? pkcs7Pad(input, 16) : input;
       if (padded.length % 16 !== 0) {
-        const err = new Error('data not multiple of block length');
-        err.code = 'ERR_OSSL_EVP_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH';
+        const err = new Error("data not multiple of block length");
+        err.code = "ERR_OSSL_EVP_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH";
         throw err;
       }
       return Buffer.from(ecb.encrypt(padded));
     } else {
       if (input.length % 16 !== 0) {
-        const err = new Error('wrong final block length');
-        err.code = 'ERR_OSSL_EVP_WRONG_FINAL_BLOCK_LENGTH';
+        const err = new Error("wrong final block length");
+        err.code = "ERR_OSSL_EVP_WRONG_FINAL_BLOCK_LENGTH";
         throw err;
       }
       const decrypted = Buffer.from(ecb.decrypt(input));
@@ -169,7 +172,7 @@ class EcbShim {
 function makeShim(algorithm, key, iv, encrypting) {
   const algo = algorithm.toLowerCase();
   const keyBytes = toUint8Array(key);
-  if (algo === 'aes-256-ecb') {
+  if (algo === "aes-256-ecb") {
     return new EcbShim(keyBytes, encrypting);
   }
   const ivBytes = iv == null ? new Uint8Array(16) : toUint8Array(iv);

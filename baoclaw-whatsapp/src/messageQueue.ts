@@ -15,7 +15,7 @@ const MSG_ID_CACHE_SIZE = 1000;
 export class MessageQueue {
   private queues = new Map<string, QueueEntry[]>();
   private processing = new Set<string>();
-  private seenMsgIds = new Map<string, number>();  // msgId → timestamp
+  private seenMsgIds = new Map<string, number>(); // msgId → timestamp
 
   /**
    * Check if a message ID has been seen before (deduplication).
@@ -39,7 +39,11 @@ export class MessageQueue {
    * Enqueue a message for a sender.
    * Returns false if the queue has reached maxQueueSize.
    */
-  enqueue(sender: string, message: string, maxQueueSize: number = 100): boolean {
+  enqueue(
+    sender: string,
+    message: string,
+    maxQueueSize: number = 100,
+  ): boolean {
     if (this.queueLength(sender) >= maxQueueSize) return false;
     const entry: QueueEntry = { sender, text: message, receivedAt: Date.now() };
     const queue = this.queues.get(sender);

@@ -80,7 +80,7 @@ export class SenderTracker {
       this.senders.set(phone, {
         jid,
         isGroup,
-        responseAccumulator: '',
+        responseAccumulator: "",
         pendingPermission: null,
         messageCount: 1,
       });
@@ -132,7 +132,7 @@ export class SenderTracker {
    * Returns `''` if the sender is not registered.
    */
   getAccumulated(phone: string): string {
-    return this.senders.get(phone)?.responseAccumulator ?? '';
+    return this.senders.get(phone)?.responseAccumulator ?? "";
   }
 
   /**
@@ -144,7 +144,7 @@ export class SenderTracker {
   clearAccumulator(phone: string): void {
     const state = this.senders.get(phone);
     if (state) {
-      state.responseAccumulator = '';
+      state.responseAccumulator = "";
     }
   }
 
@@ -198,7 +198,10 @@ export class SenderTracker {
     let count = 0;
     const states = Array.from(this.senders.values());
     for (const state of states) {
-      if (state.responseAccumulator.length > 0 || state.pendingPermission !== null) {
+      if (
+        state.responseAccumulator.length > 0 ||
+        state.pendingPermission !== null
+      ) {
         count += 1;
       }
     }

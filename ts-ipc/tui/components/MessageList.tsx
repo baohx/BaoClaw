@@ -1,7 +1,7 @@
-import React from 'react';
-import { Text, Box, Static } from 'ink';
-import { colors, zen } from '../theme.js';
-import { Message, ContentBlock } from '../types.js';
+import React from "react";
+import { Text, Box, Static } from "ink";
+import { colors, zen } from "../theme.js";
+import { Message, ContentBlock } from "../types.js";
 
 interface MessageListProps {
   messages: Message[];
@@ -9,14 +9,10 @@ interface MessageListProps {
 
 const ContentBlockView: React.FC<{ block: ContentBlock }> = ({ block }) => {
   switch (block.type) {
-    case 'text':
-      return (
-        <Text color={colors.text.primary}>
-          {block.content}
-        </Text>
-      );
+    case "text":
+      return <Text color={colors.text.primary}>{block.content}</Text>;
 
-    case 'thinking':
+    case "thinking":
       return (
         <Box flexDirection="column" paddingX={1}>
           <Text color={colors.thinking} dimColor>
@@ -28,28 +24,27 @@ const ContentBlockView: React.FC<{ block: ContentBlock }> = ({ block }) => {
         </Box>
       );
 
-    case 'tool_use': {
-      const toolName = block.toolName || 'tool';
-      const inputStr = block.content || '{}';
-      const inputPreview = inputStr.length > 200
-        ? inputStr.slice(0, 200) + '...'
-        : inputStr;
+    case "tool_use": {
+      const toolName = block.toolName || "tool";
+      const inputStr = block.content || "{}";
+      const inputPreview =
+        inputStr.length > 200 ? inputStr.slice(0, 200) + "..." : inputStr;
       return (
         <Box flexDirection="column" marginY={0} paddingX={1}>
           <Box>
             <Text color={colors.tool} bold>
-              {zen.arrow}{' '}
+              {zen.arrow}{" "}
             </Text>
             <Text color={colors.tool} bold>
               {toolName}
             </Text>
             <Text color={colors.text.muted}> (running)</Text>
           </Box>
-          {inputPreview && inputPreview !== '{}' && (
+          {inputPreview && inputPreview !== "{}" && (
             <Box paddingX={2}>
               <Text color={colors.text.dim}>
-                {inputPreview.split('\n').slice(0, 5).join('\n')}
-                {inputPreview.split('\n').length > 5 ? '\n  ...' : ''}
+                {inputPreview.split("\n").slice(0, 5).join("\n")}
+                {inputPreview.split("\n").length > 5 ? "\n  ..." : ""}
               </Text>
             </Box>
           )}
@@ -57,24 +52,24 @@ const ContentBlockView: React.FC<{ block: ContentBlock }> = ({ block }) => {
       );
     }
 
-    case 'tool_result': {
+    case "tool_result": {
       const isError = block.isError === true;
-      const output = block.content || '';
-      const outputPreview = output.length > 300
-        ? output.slice(0, 300) + '...'
-        : output;
-      const lines = outputPreview.split('\n');
-      const preview = lines.slice(0, 8).join('\n') + (lines.length > 8 ? '\n  ...' : '');
-      
+      const output = block.content || "";
+      const outputPreview =
+        output.length > 300 ? output.slice(0, 300) + "..." : output;
+      const lines = outputPreview.split("\n");
+      const preview =
+        lines.slice(0, 8).join("\n") + (lines.length > 8 ? "\n  ..." : "");
+
       return (
         <Box flexDirection="column" paddingX={2} marginY={0}>
           <Box>
             <Text color={isError ? colors.status.error : colors.status.success}>
-              {isError ? zen.cross : zen.check}{' '}
+              {isError ? zen.cross : zen.check}{" "}
             </Text>
             <Text color={isError ? colors.status.error : colors.text.dim}>
-              {isError ? 'Error' : 'Result'}
-              {block.toolName ? ` (${block.toolName})` : ''}
+              {isError ? "Error" : "Result"}
+              {block.toolName ? ` (${block.toolName})` : ""}
             </Text>
           </Box>
           {preview && (
@@ -88,15 +83,15 @@ const ContentBlockView: React.FC<{ block: ContentBlock }> = ({ block }) => {
       );
     }
 
-    case 'code':
+    case "code":
       return (
         <Box flexDirection="column" paddingX={1}>
           <Text color={colors.markdown.keyword}>
-            {zen.arrow} Code ({block.language || 'text'}):
+            {zen.arrow} Code ({block.language || "text"}):
           </Text>
           <Text color={colors.markdown.string}>
-            {block.content.split('\n').slice(0, 10).join('\n')}
-            {block.content.split('\n').length > 10 ? '\n...' : ''}
+            {block.content.split("\n").slice(0, 10).join("\n")}
+            {block.content.split("\n").length > 10 ? "\n..." : ""}
           </Text>
         </Box>
       );
@@ -107,13 +102,10 @@ const ContentBlockView: React.FC<{ block: ContentBlock }> = ({ block }) => {
 };
 
 const MessageView: React.FC<{ message: Message }> = ({ message }) => {
-  const roleColor = message.role === 'user' 
-    ? colors.role.user 
-    : colors.role.assistant;
+  const roleColor =
+    message.role === "user" ? colors.role.user : colors.role.assistant;
 
-  const roleLabel = message.role === 'user' 
-    ? 'You' 
-    : 'BaoClaw';
+  const roleLabel = message.role === "user" ? "You" : "BaoClaw";
 
   return (
     <Box flexDirection="column" marginY={1}>

@@ -73,6 +73,7 @@ API key 优先级：`model_profiles.*.api_key` > 环境变量（`ANTHROPIC_API_K
 **无需手动启动 daemon**。打开任何客户端时，如果 daemon 没在跑，会自动 fork 一个。
 
 socket 路径：
+
 - Linux: `$XDG_RUNTIME_DIR/baoclaw.sock`（通常是 `/run/user/<UID>/baoclaw.sock`）
 - macOS: `/tmp/baoclaw-sockets/baoclaw.sock`
 - Windows: `%TEMP%\baoclaw-sockets\baoclaw.sock`
@@ -130,6 +131,7 @@ PowerShell -ExecutionPolicy Bypass -File uninstall.ps1
 ### Daemon 如何优雅关闭
 
 daemon 收到关闭信号（SIGTERM/SIGINT 或 Windows SCM Stop）时：
+
 1. 触发 `persist_all()` — 把所有活跃 session 写入 `~/.baoclaw/sessions/`
 2. 安全退出
 

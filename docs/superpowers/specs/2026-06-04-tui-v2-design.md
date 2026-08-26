@@ -8,16 +8,16 @@
 
 参考 Kiro CLI 的交互设计，对现有 `ts-ipc/tui` 做全面升级：
 
-| 模块 | 状态 | 说明 |
-|------|------|------|
-| 快捷键栏 | 新增 | `ShortcutBar.tsx`，底部常驻 |
-| 斜杠命令补全 | 改造 | `InputArea.tsx` 新增候选弹窗 |
-| 消息搜索 | 新增 | `SearchOverlay.tsx`，`Ctrl+R` 触发 |
-| 模型切换 | 新增 | `ModelSelector.tsx`，`/model` 触发 |
+| 模块          | 状态 | 说明                                 |
+| ------------- | ---- | ------------------------------------ |
+| 快捷键栏      | 新增 | `ShortcutBar.tsx`，底部常驻          |
+| 斜杠命令补全  | 改造 | `InputArea.tsx` 新增候选弹窗         |
+| 消息搜索      | 新增 | `SearchOverlay.tsx`，`Ctrl+R` 触发   |
+| 模型切换      | 新增 | `ModelSelector.tsx`，`/model` 触发   |
 | Markdown 增强 | 改造 | `MessageList.tsx` + 新 `markdown.ts` |
-| 思考进度条 | 改造 | `StreamOutput.tsx` 加计时+动画 |
-| 状态栏增强 | 改造 | `StatusBar.tsx` 加版本号 |
-| 帮助覆盖层 | 改造 | `HelpOverlay.tsx` 更新快捷键说明 |
+| 思考进度条    | 改造 | `StreamOutput.tsx` 加计时+动画       |
+| 状态栏增强    | 改造 | `StatusBar.tsx` 加版本号             |
+| 帮助覆盖层    | 改造 | `HelpOverlay.tsx` 更新快捷键说明     |
 
 ## 2. 架构
 
@@ -179,38 +179,38 @@ markdown: {
 
 ## 7. 命令注册表
 
-| 命令 | 说明 | 参数 |
-|------|------|------|
-| `/help` | 显示帮助 | - |
-| `/status` | 会话状态 | - |
-| `/model [name]` | 切换模型 | 可选模型名 |
-| `/clear` | 清屏 | - |
-| `/compact` | 压缩上下文 | - |
-| `/sessions` | 会话列表 | - |
-| `/tools` | 工具面板 | - |
-| `/memory` | 记忆管理 | - |
-| `/cron` | 定时任务 | - |
-| `/git` | Git 状态 | - |
-| `/search <q>` | 搜索消息 | 关键词 |
-| `/skills` | 技能列表 | - |
-| `/gateway` | 网关状态 | - |
+| 命令            | 说明       | 参数       |
+| --------------- | ---------- | ---------- |
+| `/help`         | 显示帮助   | -          |
+| `/status`       | 会话状态   | -          |
+| `/model [name]` | 切换模型   | 可选模型名 |
+| `/clear`        | 清屏       | -          |
+| `/compact`      | 压缩上下文 | -          |
+| `/sessions`     | 会话列表   | -          |
+| `/tools`        | 工具面板   | -          |
+| `/memory`       | 记忆管理   | -          |
+| `/cron`         | 定时任务   | -          |
+| `/git`          | Git 状态   | -          |
+| `/search <q>`   | 搜索消息   | 关键词     |
+| `/skills`       | 技能列表   | -          |
+| `/gateway`      | 网关状态   | -          |
 
 ## 8. 文件改动清单
 
-| 文件 | 操作 | 预估行数 |
-|------|------|---------|
-| `components/ShortcutBar.tsx` | 新建 | ~40 |
-| `components/ModelSelector.tsx` | 新建 | ~80 |
-| `components/SearchOverlay.tsx` | 新建 | ~120 |
-| `markdown.ts` | 新建 | ~150 |
-| `components/App.tsx` | 改造 | +15 |
-| `components/InputArea.tsx` | 改造 | +60 |
-| `components/MessageList.tsx` | 改造 | +40 |
-| `components/StatusBar.tsx` | 改造 | +5 |
-| `components/StreamOutput.tsx` | 改造 | +30 |
-| `components/HelpOverlay.tsx` | 改造 | +10 |
-| `state.ts` | 改造 | +50 |
-| `types.ts` | 改造 | +30 |
-| `theme.ts` | 改造 | +10 |
+| 文件                           | 操作 | 预估行数 |
+| ------------------------------ | ---- | -------- |
+| `components/ShortcutBar.tsx`   | 新建 | ~40      |
+| `components/ModelSelector.tsx` | 新建 | ~80      |
+| `components/SearchOverlay.tsx` | 新建 | ~120     |
+| `markdown.ts`                  | 新建 | ~150     |
+| `components/App.tsx`           | 改造 | +15      |
+| `components/InputArea.tsx`     | 改造 | +60      |
+| `components/MessageList.tsx`   | 改造 | +40      |
+| `components/StatusBar.tsx`     | 改造 | +5       |
+| `components/StreamOutput.tsx`  | 改造 | +30      |
+| `components/HelpOverlay.tsx`   | 改造 | +10      |
+| `state.ts`                     | 改造 | +50      |
+| `types.ts`                     | 改造 | +30      |
+| `theme.ts`                     | 改造 | +10      |
 
 总计：~640 新增行，4 个新文件，9 个改造文件。

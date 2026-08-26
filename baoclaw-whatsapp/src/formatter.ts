@@ -23,14 +23,14 @@
  * - - [ ] text → ☐ text
  */
 export function formatForWhatsApp(markdown: string): string {
-  let result = '';
+  let result = "";
   let i = 0;
   const len = markdown.length;
 
   while (i < len) {
     // Code block: preserve as-is
-    if (markdown.startsWith('```', i)) {
-      const endIdx = markdown.indexOf('```', i + 3);
+    if (markdown.startsWith("```", i)) {
+      const endIdx = markdown.indexOf("```", i + 3);
       if (endIdx >= 0) {
         result += markdown.slice(i, endIdx + 3);
         i = endIdx + 3;
@@ -43,36 +43,43 @@ export function formatForWhatsApp(markdown: string): string {
 
     // Markdown heading → WhatsApp bold: ## text → *text*
     // Must be at start of a line
-    if ((i === 0 || markdown[i - 1] === '\n') && markdown.startsWith('## ', i)) {
+    if (
+      (i === 0 || markdown[i - 1] === "\n") &&
+      markdown.startsWith("## ", i)
+    ) {
       // Find end of line
-      const lineEnd = markdown.indexOf('\n', i + 3);
-      const headingText = lineEnd >= 0
-        ? markdown.slice(i + 3, lineEnd)
-        : markdown.slice(i + 3);
+      const lineEnd = markdown.indexOf("\n", i + 3);
+      const headingText =
+        lineEnd >= 0 ? markdown.slice(i + 3, lineEnd) : markdown.slice(i + 3);
       const trimmed = headingText.trim();
-      result += '*' + trimmed + '*';
+      result += "*" + trimmed + "*";
       i = lineEnd >= 0 ? lineEnd + 1 : len;
       continue;
     }
     // Also handle ### heading
-    if ((i === 0 || markdown[i - 1] === '\n') && markdown.startsWith('### ', i)) {
-      const lineEnd = markdown.indexOf('\n', i + 4);
-      const headingText = lineEnd >= 0
-        ? markdown.slice(i + 4, lineEnd)
-        : markdown.slice(i + 4);
+    if (
+      (i === 0 || markdown[i - 1] === "\n") &&
+      markdown.startsWith("### ", i)
+    ) {
+      const lineEnd = markdown.indexOf("\n", i + 4);
+      const headingText =
+        lineEnd >= 0 ? markdown.slice(i + 4, lineEnd) : markdown.slice(i + 4);
       const trimmed = headingText.trim();
-      result += '*' + trimmed + '*';
+      result += "*" + trimmed + "*";
       i = lineEnd >= 0 ? lineEnd + 1 : len;
       continue;
     }
 
     // Checkbox task → emoji: - [x] text → ✅ text, - [ ] text → ☐ text
-    if ((i === 0 || markdown[i - 1] === '\n') && markdown.startsWith('- [', i)) {
-      if (i + 5 < len && markdown[i + 3] === 'x' && markdown[i + 4] === ']') {
-        result += '✅ ' + markdown.slice(i + 5).replace(/^\s+/, '');
+    if (
+      (i === 0 || markdown[i - 1] === "\n") &&
+      markdown.startsWith("- [", i)
+    ) {
+      if (i + 5 < len && markdown[i + 3] === "x" && markdown[i + 4] === "]") {
+        result += "✅ " + markdown.slice(i + 5).replace(/^\s+/, "");
         i += 5;
         // Skip to end of line
-        const lineEnd = markdown.indexOf('\n', i);
+        const lineEnd = markdown.indexOf("\n", i);
         if (lineEnd >= 0) {
           i = lineEnd; // don't skip the \n, let the main loop handle it
         } else {
@@ -80,10 +87,10 @@ export function formatForWhatsApp(markdown: string): string {
         }
         continue;
       }
-      if (i + 5 < len && markdown[i + 3] === ' ' && markdown[i + 4] === ']') {
-        result += '☐ ' + markdown.slice(i + 5).replace(/^\s+/, '');
+      if (i + 5 < len && markdown[i + 3] === " " && markdown[i + 4] === "]") {
+        result += "☐ " + markdown.slice(i + 5).replace(/^\s+/, "");
         i += 5;
-        const lineEnd = markdown.indexOf('\n', i);
+        const lineEnd = markdown.indexOf("\n", i);
         if (lineEnd >= 0) {
           i = lineEnd;
         } else {
@@ -94,8 +101,8 @@ export function formatForWhatsApp(markdown: string): string {
     }
 
     // Inline code: preserve as-is
-    if (markdown[i] === '`') {
-      const endIdx = markdown.indexOf('`', i + 1);
+    if (markdown[i] === "`") {
+      const endIdx = markdown.indexOf("`", i + 1);
       if (endIdx >= 0) {
         result += markdown.slice(i, endIdx + 1);
         i = endIdx + 1;
@@ -104,7 +111,7 @@ export function formatForWhatsApp(markdown: string): string {
     }
 
     // Markdown link: [text](url) → url
-    if (markdown[i] === '[') {
+    if (markdown[i] === "[") {
       const linkMatch = matchLink(markdown, i);
       if (linkMatch) {
         result += linkMatch.url;
@@ -114,22 +121,22 @@ export function formatForWhatsApp(markdown: string): string {
     }
 
     // Bold: **text** → *text*
-    if (markdown.startsWith('**', i)) {
-      const endIdx = markdown.indexOf('**', i + 2);
+    if (markdown.startsWith("**", i)) {
+      const endIdx = markdown.indexOf("**", i + 2);
       if (endIdx >= 0) {
         const inner = markdown.slice(i + 2, endIdx);
-        result += '*' + inner + '*';
+        result += "*" + inner + "*";
         i = endIdx + 2;
         continue;
       }
     }
 
     // Italic with single asterisk: *text* → _text_
-    if (markdown[i] === '*' && !markdown.startsWith('**', i)) {
-      const endIdx = findClosingMarker(markdown, i + 1, '*');
+    if (markdown[i] === "*" && !markdown.startsWith("**", i)) {
+      const endIdx = findClosingMarker(markdown, i + 1, "*");
       if (endIdx >= 0) {
         const inner = markdown.slice(i + 1, endIdx);
-        result += '_' + inner + '_';
+        result += "_" + inner + "_";
         i = endIdx + 1;
         continue;
       }
@@ -144,15 +151,18 @@ export function formatForWhatsApp(markdown: string): string {
 }
 
 /** Try to match a Markdown link [text](url) at position `start`. */
-function matchLink(text: string, start: number): { url: string; endIdx: number } | null {
+function matchLink(
+  text: string,
+  start: number,
+): { url: string; endIdx: number } | null {
   // Must start with [
-  if (text[start] !== '[') return null;
+  if (text[start] !== "[") return null;
   // Find closing ]
   let depth = 0;
   let j = start;
   while (j < text.length) {
-    if (text[j] === '[') depth++;
-    if (text[j] === ']') {
+    if (text[j] === "[") depth++;
+    if (text[j] === "]") {
       depth--;
       if (depth === 0) break;
     }
@@ -161,18 +171,23 @@ function matchLink(text: string, start: number): { url: string; endIdx: number }
   if (depth !== 0) return null;
   const closeBracket = j;
   // Next char must be (
-  if (closeBracket + 1 >= text.length || text[closeBracket + 1] !== '(') return null;
+  if (closeBracket + 1 >= text.length || text[closeBracket + 1] !== "(")
+    return null;
   // Find closing )
-  const parenEnd = text.indexOf(')', closeBracket + 2);
+  const parenEnd = text.indexOf(")", closeBracket + 2);
   if (parenEnd < 0) return null;
   const url = text.slice(closeBracket + 2, parenEnd);
   return { url, endIdx: parenEnd + 1 };
 }
 
 /** Find the next occurrence of a single marker that isn't doubled. */
-function findClosingMarker(text: string, start: number, marker: string): number {
+function findClosingMarker(
+  text: string,
+  start: number,
+  marker: string,
+): number {
   for (let i = start; i < text.length; i++) {
-    if (text[i] === marker && (marker !== '*' || !text.startsWith('**', i))) {
+    if (text[i] === marker && (marker !== "*" || !text.startsWith("**", i))) {
       return i;
     }
   }
@@ -196,14 +211,14 @@ export function splitMessage(text: string, maxLength: number = 4000): string[] {
 
     // Try paragraph boundary
     const searchRegion = remaining.slice(0, maxLength);
-    const paraIdx = searchRegion.lastIndexOf('\n\n');
+    const paraIdx = searchRegion.lastIndexOf("\n\n");
     if (paraIdx > 0) {
       splitIdx = paraIdx + 2; // include the double newline in the first chunk
     }
 
     // Try line boundary
     if (splitIdx < 0) {
-      const lineIdx = searchRegion.lastIndexOf('\n');
+      const lineIdx = searchRegion.lastIndexOf("\n");
       if (lineIdx > 0) {
         splitIdx = lineIdx + 1;
       }

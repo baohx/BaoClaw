@@ -1,5 +1,5 @@
-import { IpcClient } from './client.js';
-import { StreamEvent, StatePatch } from './types.js';
+import { IpcClient } from "./client.js";
+import { StreamEvent, StatePatch } from "./types.js";
 
 type StreamEventHandler = (event: StreamEvent) => void;
 type StatePatchHandler = (patches: StatePatch[]) => void;
@@ -12,7 +12,7 @@ export interface StreamHandlerManager {
   onStatePatch(handler: StatePatchHandler): () => void;
 
   /** Subscribe to a specific stream event type */
-  onEventType<T extends StreamEvent['type']>(
+  onEventType<T extends StreamEvent["type"]>(
     type: T,
     handler: (event: Extract<StreamEvent, { type: T }>) => void,
   ): () => void;
@@ -27,13 +27,13 @@ export interface StreamHandlerManager {
  *      "/foo~1bar/baz~0qux" → ["foo/bar", "baz~qux"]
  */
 function parseJsonPointer(path: string): string[] | null {
-  if (path === '') return [];
-  if (!path.startsWith('/')) return null;
+  if (path === "") return [];
+  if (!path.startsWith("/")) return null;
 
   return path
     .slice(1)
-    .split('/')
-    .map((seg) => seg.replace(/~1/g, '/').replace(/~0/g, '~'));
+    .split("/")
+    .map((seg) => seg.replace(/~1/g, "/").replace(/~0/g, "~"));
 }
 
 /**
@@ -42,7 +42,10 @@ function parseJsonPointer(path: string): string[] | null {
  * @param patch - The patch to apply
  * @returns true if the patch was applied successfully, false otherwise
  */
-export function applyStatePatch(state: Record<string, unknown>, patch: StatePatch): boolean {
+export function applyStatePatch(
+  state: Record<string, unknown>,
+  patch: StatePatch,
+): boolean {
   const segments = parseJsonPointer(patch.path);
   if (segments === null || segments.length === 0) return false;
 
@@ -52,25 +55,33 @@ export function applyStatePatch(state: Record<string, unknown>, patch: StatePatc
   // Traverse to the parent object
   let current: unknown = state;
   for (const seg of parentSegments) {
-    if (current === null || current === undefined || typeof current !== 'object') {
+    if (
+      current === null ||
+      current === undefined ||
+      typeof current !== "object"
+    ) {
       return false;
     }
     current = (current as Record<string, unknown>)[seg];
   }
 
-  if (current === null || current === undefined || typeof current !== 'object') {
+  if (
+    current === null ||
+    current === undefined ||
+    typeof current !== "object"
+  ) {
     return false;
   }
 
   const parent = current as Record<string, unknown>;
 
   switch (patch.op) {
-    case 'replace':
-    case 'add':
+    case "replace":
+    case "add":
       parent[lastSegment] = patch.value;
       return true;
 
-    case 'remove':
+    case "remove":
       if (!(lastSegment in parent)) return false;
       delete parent[lastSegment];
       return true;
@@ -109,27 +120,30 @@ export function setupStreamHandlers(client: IpcClient): StreamHandlerManager {
   const unsubscribers: (() => void)[] = [];
 
   // Listen for stream/event notifications
-  const unsubStream = client.onNotification('stream/event', (params: unknown) => {
-    const event = params as StreamEvent;
-    if (!event || typeof event !== 'object' || !('type' in event)) return;
+  const unsubStream = client.onNotification(
+    "stream/event",
+    (params: unknown) => {
+      const event = params as StreamEvent;
+      if (!event || typeof event !== "object" || !("type" in event)) return;
 
-    // Dispatch to all-events handlers
-    for (const handler of streamEventHandlers) {
-      handler(event);
-    }
-
-    // Dispatch to type-specific handlers
-    const typed = typedHandlers.get(event.type);
-    if (typed) {
-      for (const handler of typed) {
+      // Dispatch to all-events handlers
+      for (const handler of streamEventHandlers) {
         handler(event);
       }
-    }
-  });
+
+      // Dispatch to type-specific handlers
+      const typed = typedHandlers.get(event.type);
+      if (typed) {
+        for (const handler of typed) {
+          handler(event);
+        }
+      }
+    },
+  );
   unsubscribers.push(unsubStream);
 
   // Listen for state/patch notifications
-  const unsubPatch = client.onNotification('state/patch', (params: unknown) => {
+  const unsubPatch = client.onNotification("state/patch", (params: unknown) => {
     const data = params as { patches?: StatePatch[] };
     if (!data || !Array.isArray(data.patches)) return;
 
@@ -154,7 +168,7 @@ export function setupStreamHandlers(client: IpcClient): StreamHandlerManager {
       };
     },
 
-    onEventType<T extends StreamEvent['type']>(
+    onEventType<T extends StreamEvent["type"]>(
       type: T,
       handler: (event: Extract<StreamEvent, { type: T }>) => void,
     ): () => void {

@@ -1,5 +1,5 @@
-import { spawn, ChildProcess } from 'child_process';
-import { IpcClient } from './client.js';
+import { spawn, ChildProcess } from "child_process";
+import { IpcClient } from "./client.js";
 
 export interface RustCoreConfig {
   /** Path to the baoclaw-core binary */
@@ -36,7 +36,7 @@ function waitForSocketPath(
   timeoutMs: number,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    let buffer = '';
+    let buffer = "";
     let resolved = false;
 
     const timer = setTimeout(() => {
@@ -44,18 +44,22 @@ function waitForSocketPath(
         resolved = true;
         cleanup();
         child.kill();
-        reject(new Error(`Rust core did not emit SOCKET: line within ${timeoutMs}ms`));
+        reject(
+          new Error(
+            `Rust core did not emit SOCKET: line within ${timeoutMs}ms`,
+          ),
+        );
       }
     }, timeoutMs);
 
     const onData = (data: Buffer) => {
-      buffer += data.toString('utf-8');
+      buffer += data.toString("utf-8");
       let newlineIdx: number;
-      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+      while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, newlineIdx).trim();
         buffer = buffer.slice(newlineIdx + 1);
-        if (line.startsWith('SOCKET:')) {
-          const socketPath = line.slice('SOCKET:'.length).trim();
+        if (line.startsWith("SOCKET:")) {
+          const socketPath = line.slice("SOCKET:".length).trim();
           if (socketPath.length > 0 && !resolved) {
             resolved = true;
             cleanup();
@@ -78,20 +82,24 @@ function waitForSocketPath(
       if (!resolved) {
         resolved = true;
         cleanup();
-        reject(new Error(`Rust core exited with code ${code} before emitting SOCKET: line`));
+        reject(
+          new Error(
+            `Rust core exited with code ${code} before emitting SOCKET: line`,
+          ),
+        );
       }
     };
 
     function cleanup() {
       clearTimeout(timer);
-      child.stdout?.off('data', onData);
-      child.off('error', onError);
-      child.off('close', onClose);
+      child.stdout?.off("data", onData);
+      child.off("error", onError);
+      child.off("close", onClose);
     }
 
-    child.stdout?.on('data', onData);
-    child.on('error', onError);
-    child.on('close', onClose);
+    child.stdout?.on("data", onData);
+    child.on("error", onError);
+    child.on("close", onClose);
   });
 }
 
@@ -105,20 +113,22 @@ function waitForSocketPath(
  * 4. Send initialize request
  * 5. Return the handle
  */
-export async function startRustCore(config: RustCoreConfig): Promise<RustCoreHandle> {
+export async function startRustCore(
+  config: RustCoreConfig,
+): Promise<RustCoreHandle> {
   const timeoutMs = config.startupTimeoutMs ?? 10000;
 
   // Step 1: Spawn the Rust binary
   const child = spawn(config.binaryPath, [], {
     cwd: config.cwd,
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
   });
 
   // Collect stderr for diagnostics
-  let stderrOutput = '';
-  child.stderr?.on('data', (data: Buffer) => {
-    stderrOutput += data.toString('utf-8');
+  let stderrOutput = "";
+  child.stderr?.on("data", (data: Buffer) => {
+    stderrOutput += data.toString("utf-8");
   });
 
   // Step 2: Wait for SOCKET:{path} on stdout
@@ -132,9 +142,7 @@ export async function startRustCore(config: RustCoreConfig): Promise<RustCoreHan
     }
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      stderrOutput
-        ? `${message}\nstderr: ${stderrOutput.trim()}`
-        : message,
+      stderrOutput ? `${message}\nstderr: ${stderrOutput.trim()}` : message,
     );
   }
 
@@ -153,14 +161,14 @@ export async function startRustCore(config: RustCoreConfig): Promise<RustCoreHan
   // Step 4: Send initialize request
   let initResult: { capabilities: Record<string, unknown>; sessionId?: string };
   try {
-    initResult = await client.request<{ capabilities: Record<string, unknown>; sessionId?: string }>(
-      'initialize',
-      {
-        cwd: config.cwd,
-        ...(config.model !== undefined && { model: config.model }),
-        ...(config.settings !== undefined && { settings: config.settings }),
-      },
-    );
+    initResult = await client.request<{
+      capabilities: Record<string, unknown>;
+      sessionId?: string;
+    }>("initialize", {
+      cwd: config.cwd,
+      ...(config.model !== undefined && { model: config.model }),
+      ...(config.settings !== undefined && { settings: config.settings }),
+    });
   } catch (err) {
     await client.disconnect();
     if (!child.killed) {
@@ -171,7 +179,7 @@ export async function startRustCore(config: RustCoreConfig): Promise<RustCoreHan
   }
 
   const capabilities = initResult.capabilities ?? {};
-  const sessionId = initResult.sessionId ?? '';
+  const sessionId = initResult.sessionId ?? "";
 
   // Step 5: Build and return the handle
   let shutdownCalled = false;
@@ -186,7 +194,7 @@ export async function startRustCore(config: RustCoreConfig): Promise<RustCoreHan
       shutdownCalled = true;
 
       try {
-        await client.request('shutdown', undefined, 5000);
+        await client.request("shutdown", undefined, 5000);
       } catch {
         // Ignore errors during shutdown request — process may already be gone
       }
@@ -202,12 +210,12 @@ export async function startRustCore(config: RustCoreConfig): Promise<RustCoreHan
 
         const forceKillTimer = setTimeout(() => {
           if (!child.killed) {
-            child.kill('SIGKILL');
+            child.kill("SIGKILL");
           }
           resolve();
         }, 3000);
 
-        child.on('close', () => {
+        child.on("close", () => {
           clearTimeout(forceKillTimer);
           resolve();
         });
@@ -217,7 +225,7 @@ export async function startRustCore(config: RustCoreConfig): Promise<RustCoreHan
     kill(): void {
       shutdownCalled = true;
       if (!child.killed) {
-        child.kill('SIGKILL');
+        child.kill("SIGKILL");
       }
     },
   };
@@ -245,11 +253,14 @@ export async function startRustCoreWithRestart(
     // Listen for unexpected disconnects on the IPC client's underlying connection.
     // When the Rust process crashes, the socket closes, which triggers the client's
     // pending requests to reject. We use a notification listener as a heartbeat proxy.
-    const unsubscribe = currentHandle.client.onNotification('__internal_crash_detect__', () => {
-      // This handler is never actually called — it's just a way to register
-      // a listener. The real crash detection happens when the socket closes
-      // and pending requests reject.
-    });
+    const unsubscribe = currentHandle.client.onNotification(
+      "__internal_crash_detect__",
+      () => {
+        // This handler is never actually called — it's just a way to register
+        // a listener. The real crash detection happens when the socket closes
+        // and pending requests reject.
+      },
+    );
 
     // We can't directly listen for child process exit from here since we don't
     // have access to the ChildProcess. Instead, we rely on the proxy pattern:
@@ -296,10 +307,10 @@ export async function startRustCoreWithRestart(
       const message = err instanceof Error ? err.message : String(err);
       // Detect connection-related failures that indicate a crash
       if (
-        message.includes('Connection closed') ||
-        message.includes('Not connected') ||
-        message.includes('EPIPE') ||
-        message.includes('ECONNRESET')
+        message.includes("Connection closed") ||
+        message.includes("Not connected") ||
+        message.includes("EPIPE") ||
+        message.includes("ECONNRESET")
       ) {
         await attemptRestart();
         return fn();
@@ -346,13 +357,13 @@ export async function startRustCoreWithRestart(
   };
 
   // Override the client's request on the proxy to add auto-restart behavior
-  Object.defineProperty(proxyHandle, 'client', {
+  Object.defineProperty(proxyHandle, "client", {
     get() {
       const client = currentHandle.client;
       // Return a lightweight proxy that intercepts request() calls
       return new Proxy(client, {
         get(target, prop, receiver) {
-          if (prop === 'request') {
+          if (prop === "request") {
             return proxyRequest;
           }
           return Reflect.get(target, prop, receiver);

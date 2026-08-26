@@ -5,15 +5,18 @@
 ## 架构演进
 
 ### Phase 0（原始）：PID-based socket
+
 - socket 路径：`/tmp/baoclaw-sockets/baoclaw-<PID>.sock`
 - 问题：每个 CLI 启动都 fork 新 daemon，同 cwd 也不能共享 session
 
 ### Phase 1（P1-2，2026-06-19）：cwd-hash socket
+
 - socket 路径：`/tmp/baoclaw-sockets/baoclaw-cwd-<16hex>.sock`
 - 改进：同一 cwd 的所有客户端共享 daemon
 - 限制：仍依赖 cwd，跨目录要切
 
 ### Phase 2（P3-1c，2026-06-19）：固定 socket + 优雅关闭
+
 - socket 路径：
   - Linux: `$XDG_RUNTIME_DIR/baoclaw.sock`（/run/user/UID/）
   - macOS: `/tmp/baoclaw-sockets/baoclaw.sock`
@@ -22,6 +25,7 @@
 - 优雅关闭：SIGTERM/SIGINT 时 persist_all()
 
 ### Phase 3（P3-1a/b，2026-06-19）：systemd/launchd 服务化
+
 - daemon 7×24 常驻
 - 开机自启
 - 崩溃自动重启
@@ -42,6 +46,7 @@
 ### 从 Phase 0/1 迁移到 Phase 2（自动，无需操作）
 
 升级到 `3252fb8` 或更新版本后，客户端连接逻辑自动变为：
+
 - 先找固定 socket（新行为）
 - 找不到再找 cwd-hash socket（旧行为）
 - 都找不到则 fork 新 daemon
@@ -60,6 +65,7 @@
 ### 清理旧 socket 文件
 
 升级后可能残留旧 socket 文件，可清理：
+
 ```bash
 # Linux/macOS
 rm -f /tmp/baoclaw-sockets/baoclaw-*.sock
@@ -74,6 +80,7 @@ ls /tmp/baoclaw-sockets/baoclaw.sock         # macOS
 ## Session 持久化
 
 Phase 2 引入 session 持久化：
+
 - 存储路径：`~/.baoclaw/sessions/<session-id>.json`
 - 索引文件：`~/.baoclaw/sessions/registry.json`
 - 归档目录：`~/.baoclaw/sessions/archive/`（>7 天不活跃自动归档）
@@ -128,6 +135,7 @@ cat ~/.baoclaw/sessions/registry.json | jq .
 ## 回滚
 
 如果新版有问题，可以回滚到旧版：
+
 ```bash
 git checkout 929e161    # Phase 0/1
 cargo build --release --bin baoclaw-core

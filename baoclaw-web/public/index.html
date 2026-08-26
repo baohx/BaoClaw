@@ -1,86 +1,110 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BaoClaw</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css" id="hljs-light">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css" id="hljs-dark">
-  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-  <script src="themes.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-</head>
-<body>
-  <div id="app">
-    <aside id="sidebar">
-      <div class="logo">🐾 BaoClaw</div>
-      <div id="session-info" class="sidebar-section"></div>
-      <div class="sidebar-section">
-        <div class="section-title">Projects</div>
-        <div id="project-list"></div>
-      </div>
-      <div class="sidebar-section">
-        <input id="search-input" type="text" placeholder="🔍 Search…">
-      </div>
-      <div class="sidebar-section">
-        <button id="btn-compact" class="sidebar-btn">🗜️ Compact</button>
-        <button id="btn-history" class="sidebar-btn">📜 History</button>
-        <button id="btn-clear" class="sidebar-btn">🧹 Clear</button>
-        <div class="btn-group">
-          <button id="btn-download-md" class="sidebar-btn">💾 .md</button>
-          <button id="btn-download-pdf" class="sidebar-btn">📄 .pdf</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BaoClaw</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css"
+      id="hljs-light"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css"
+      id="hljs-dark"
+    />
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="themes.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div class="logo">🐾 BaoClaw</div>
+        <div id="session-info" class="sidebar-section"></div>
+        <div class="sidebar-section">
+          <div class="section-title">Projects</div>
+          <div id="project-list"></div>
         </div>
-      </div>
-      <div class="sidebar-section">
-        <button id="btn-model" class="sidebar-btn">🤖 Model</button>
-        <button id="btn-git" class="sidebar-btn">🔀 Git</button>
-        <button id="btn-memory" class="sidebar-btn">🧠 Memory</button>
-        <button id="btn-cron" class="sidebar-btn">⏰ Cron</button>
-        <button id="btn-tasks" class="sidebar-btn">📋 Tasks</button>
-      </div>
-      <div class="sidebar-section">
-        <div class="section-title">Theme</div>
-        <select id="theme-picker" title="Color theme"></select>
-      </div>
-      <div id="status-bar" class="sidebar-section status">
-        <span id="status-text">Connecting…</span>
-      </div>
-    </aside>
-    <main id="chat-area">
-      <div id="tab-bar"></div>
-      <div id="messages"></div>
-      <div id="search-overlay" class="hidden">
-        <div id="search-results"></div>
-        <button id="search-close" class="sidebar-btn">Close</button>
-      </div>
-      <div id="input-area">
-        <div id="imagePreview" class="image-preview"></div>
-        <div id="docPreview" class="doc-preview"></div>
-        <div id="input-wrapper">
-          <button id="uploadBtn" title="上传图片">📎</button>
-          <input type="file" id="imageInput" accept="image/*" multiple hidden>
-          <button id="docUploadBtn" title="上传文档 (PDF/DOCX)">📄</button>
-          <input type="file" id="docInput" accept=".pdf,.docx" multiple hidden>
-          <textarea id="input" placeholder="Enter to send, Shift+Enter newline" rows="1"></textarea>
-          <button id="btn-send" title="Send">▶</button>
-          <button id="btn-abort" title="Abort" class="hidden">⏹</button>
+        <div class="sidebar-section">
+          <input id="search-input" type="text" placeholder="🔍 Search…" />
         </div>
-      </div>
-    </main>
-  </div>
-  <!-- Management Panel Modal -->
-  <div id="panel-overlay" class="hidden">
-    <div id="panel-modal">
-      <div id="panel-header">
-        <span id="panel-title"></span>
-        <button id="panel-close">✕</button>
-      </div>
-      <div id="panel-body"></div>
+        <div class="sidebar-section">
+          <button id="btn-compact" class="sidebar-btn">🗜️ Compact</button>
+          <button id="btn-history" class="sidebar-btn">📜 History</button>
+          <button id="btn-clear" class="sidebar-btn">🧹 Clear</button>
+          <div class="btn-group">
+            <button id="btn-download-md" class="sidebar-btn">💾 .md</button>
+            <button id="btn-download-pdf" class="sidebar-btn">📄 .pdf</button>
+          </div>
+        </div>
+        <div class="sidebar-section">
+          <button id="btn-model" class="sidebar-btn">🤖 Model</button>
+          <button id="btn-git" class="sidebar-btn">🔀 Git</button>
+          <button id="btn-memory" class="sidebar-btn">🧠 Memory</button>
+          <button id="btn-cron" class="sidebar-btn">⏰ Cron</button>
+          <button id="btn-tasks" class="sidebar-btn">📋 Tasks</button>
+        </div>
+        <div class="sidebar-section">
+          <div class="section-title">Theme</div>
+          <select id="theme-picker" title="Color theme"></select>
+        </div>
+        <div id="status-bar" class="sidebar-section status">
+          <span id="status-text">Connecting…</span>
+        </div>
+      </aside>
+      <main id="chat-area">
+        <div id="tab-bar"></div>
+        <div id="messages"></div>
+        <div id="search-overlay" class="hidden">
+          <div id="search-results"></div>
+          <button id="search-close" class="sidebar-btn">Close</button>
+        </div>
+        <div id="input-area">
+          <div id="imagePreview" class="image-preview"></div>
+          <div id="docPreview" class="doc-preview"></div>
+          <div id="input-wrapper">
+            <button id="uploadBtn" title="上传图片">📎</button>
+            <input
+              type="file"
+              id="imageInput"
+              accept="image/*"
+              multiple
+              hidden
+            />
+            <button id="docUploadBtn" title="上传文档 (PDF/DOCX)">📄</button>
+            <input
+              type="file"
+              id="docInput"
+              accept=".pdf,.docx"
+              multiple
+              hidden
+            />
+            <textarea
+              id="input"
+              placeholder="Enter to send, Shift+Enter newline"
+              rows="1"
+            ></textarea>
+            <button id="btn-send" title="Send">▶</button>
+            <button id="btn-abort" title="Abort" class="hidden">⏹</button>
+          </div>
+        </div>
+      </main>
     </div>
-  </div>
-  <script src="app.js"></script>
-</body>
+    <!-- Management Panel Modal -->
+    <div id="panel-overlay" class="hidden">
+      <div id="panel-modal">
+        <div id="panel-header">
+          <span id="panel-title"></span>
+          <button id="panel-close">✕</button>
+        </div>
+        <div id="panel-body"></div>
+      </div>
+    </div>
+    <script src="app.js"></script>
+  </body>
 </html>

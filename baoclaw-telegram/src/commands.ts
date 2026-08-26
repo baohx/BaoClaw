@@ -98,31 +98,33 @@ export interface CommandDefinition {
 }
 
 export const COMMAND_REGISTRY: Record<string, CommandDefinition> = {
-  '/tools':   { description: '列出已注册的工具' },
-  '/skills':  { description: '列出已加载的技能' },
-  '/mcp':     { description: '列出 MCP 服务器' },
-  '/plugins': { description: '列出已安装的插件' },
-  '/compact': { description: '压缩对话上下文' },
-  '/think':   { description: '切换扩展思考模式' },
-  '/model':   { description: '查看或切换模型' },
-  '/diff':    { description: '查看 git diff' },
-  '/commit':  { description: '提交 git 变更' },
-  '/git':     { description: '查看 git 状态' },
-  '/abort':   { description: '中止当前任务' },
-  '/help':    { description: '显示帮助信息' },
-  '/status':  { description: '查看网关状态' },
-  '/start':   { description: '显示欢迎信息' },
-  '/clear':   { description: '清除会话说明' },
-  '/shutdown': { description: '关闭守护进程' },
-  '/quit':     { description: '断开 Telegram 网关（Daemon 保持运行）' },
-  '/memory':   { description: '管理长期记忆' },
-  '/cron':     { description: '定时任务: /cron add|list|remove|toggle' },
-  '/projects': { description: '项目管理: /projects list|<id>|new <path> [描述]' },
-  '/task':     { description: '后台任务: /task run|list|status|stop' },
-  '/history':  { description: '查看最近对话: /history [n]' },
-  '/export':   { description: '导出对话历史为 Markdown 文件' },
-  '/search':   { description: '搜索对话历史: /search <关键词>' },
-  '/spec':     { description: 'Spec 管理: /spec list|new|show|status|run|edit' },
+  "/tools": { description: "列出已注册的工具" },
+  "/skills": { description: "列出已加载的技能" },
+  "/mcp": { description: "列出 MCP 服务器" },
+  "/plugins": { description: "列出已安装的插件" },
+  "/compact": { description: "压缩对话上下文" },
+  "/think": { description: "切换扩展思考模式" },
+  "/model": { description: "查看或切换模型" },
+  "/diff": { description: "查看 git diff" },
+  "/commit": { description: "提交 git 变更" },
+  "/git": { description: "查看 git 状态" },
+  "/abort": { description: "中止当前任务" },
+  "/help": { description: "显示帮助信息" },
+  "/status": { description: "查看网关状态" },
+  "/start": { description: "显示欢迎信息" },
+  "/clear": { description: "清除会话说明" },
+  "/shutdown": { description: "关闭守护进程" },
+  "/quit": { description: "断开 Telegram 网关（Daemon 保持运行）" },
+  "/memory": { description: "管理长期记忆" },
+  "/cron": { description: "定时任务: /cron add|list|remove|toggle" },
+  "/projects": {
+    description: "项目管理: /projects list|<id>|new <path> [描述]",
+  },
+  "/task": { description: "后台任务: /task run|list|status|stop" },
+  "/history": { description: "查看最近对话: /history [n]" },
+  "/export": { description: "导出对话历史为 Markdown 文件" },
+  "/search": { description: "搜索对话历史: /search <关键词>" },
+  "/spec": { description: "Spec 管理: /spec list|new|show|status|run|edit" },
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -133,12 +135,14 @@ export const COMMAND_REGISTRY: Record<string, CommandDefinition> = {
  * Parse a message text into a command name and arguments.
  * Returns null if the text is not a slash command.
  */
-export function parseCommand(text: string): { command: string; args: string } | null {
-  if (!text.startsWith('/')) return null;
+export function parseCommand(
+  text: string,
+): { command: string; args: string } | null {
+  if (!text.startsWith("/")) return null;
   const trimmed = text.trim();
-  const spaceIdx = trimmed.indexOf(' ');
+  const spaceIdx = trimmed.indexOf(" ");
   if (spaceIdx === -1) {
-    return { command: trimmed.toLowerCase(), args: '' };
+    return { command: trimmed.toLowerCase(), args: "" };
   }
   return {
     command: trimmed.slice(0, spaceIdx).toLowerCase(),
@@ -163,12 +167,12 @@ export function isRegisteredCommand(text: string): boolean {
  * Format a list of registered tools as plain text.
  */
 export function formatTools(tools: ToolInfo[], count: number): string {
-  if (count === 0) return '暂无已注册的工具。';
+  if (count === 0) return "暂无已注册的工具。";
 
   // Group by type
   const groups: Record<string, ToolInfo[]> = {};
   for (const t of tools) {
-    const type = t.type || 'other';
+    const type = t.type || "other";
     if (!groups[type]) groups[type] = [];
     groups[type].push(t);
   }
@@ -178,11 +182,13 @@ export function formatTools(tools: ToolInfo[], count: number): string {
     out += `── ${type} (${items.length}) ──\n`;
     for (const t of items) {
       const desc = t.description
-        ? (t.description.length > 60 ? t.description.slice(0, 60) + '…' : t.description)
-        : '';
+        ? t.description.length > 60
+          ? t.description.slice(0, 60) + "…"
+          : t.description
+        : "";
       out += `• ${t.name}  ${desc}\n`;
     }
-    out += '\n';
+    out += "\n";
   }
   return out;
 }
@@ -191,7 +197,7 @@ export function formatTools(tools: ToolInfo[], count: number): string {
  * Format a list of loaded skills as plain text.
  */
 export function formatSkills(skills: SkillInfo[], count: number): string {
-  if (count === 0) return '暂无已加载的技能。';
+  if (count === 0) return "暂无已加载的技能。";
   let out = `📚 已加载技能 (${count})\n\n`;
   for (const s of skills) {
     out += `• ${s.name} [${s.source}]\n`;
@@ -205,11 +211,14 @@ export function formatSkills(skills: SkillInfo[], count: number): string {
 /**
  * Format a list of MCP servers as plain text.
  */
-export function formatMcpServers(servers: McpServerInfo[], count: number): string {
-  if (count === 0) return '暂无已配置的 MCP 服务器。';
+export function formatMcpServers(
+  servers: McpServerInfo[],
+  count: number,
+): string {
+  if (count === 0) return "暂无已配置的 MCP 服务器。";
   let out = `🌐 MCP 服务器 (${count})\n\n`;
   for (const srv of servers) {
-    const status = srv.disabled ? '🔴' : '🟢';
+    const status = srv.disabled ? "🔴" : "🟢";
     out += `${status} ${srv.name}  [${srv.server_type}] [${srv.source}]\n`;
   }
   return out;
@@ -219,15 +228,15 @@ export function formatMcpServers(servers: McpServerInfo[], count: number): strin
  * Format a list of installed plugins as plain text.
  */
 export function formatPlugins(plugins: PluginInfo[], count: number): string {
-  if (count === 0) return '暂无已安装的插件。';
+  if (count === 0) return "暂无已安装的插件。";
   let out = `🧩 已安装插件 (${count})\n\n`;
   for (const p of plugins) {
-    const ver = p.version ? ` v${p.version}` : '';
+    const ver = p.version ? ` v${p.version}` : "";
     const features: string[] = [];
-    if (p.has_tools) features.push('tools');
-    if (p.has_skills) features.push('skills');
-    if (p.has_mcp) features.push('mcp');
-    const featureStr = features.length > 0 ? ` (${features.join(', ')})` : '';
+    if (p.has_tools) features.push("tools");
+    if (p.has_skills) features.push("skills");
+    if (p.has_mcp) features.push("mcp");
+    const featureStr = features.length > 0 ? ` (${features.join(", ")})` : "";
     out += `• ${p.name}${ver} [${p.source}]${featureStr}\n`;
     if (p.description) {
       out += `  ${p.description}\n`;
@@ -244,21 +253,24 @@ export function formatPlugins(plugins: PluginInfo[], count: number): string {
  * Format compact result showing tokens saved and summary tokens.
  */
 export function formatCompact(result: CompactResult): string {
-  const pct = result.tokens_before > 0
-    ? ((result.tokens_saved / result.tokens_before) * 100).toFixed(0)
-    : '0';
-  return `🗜️ 上下文已压缩\n\n` +
+  const pct =
+    result.tokens_before > 0
+      ? ((result.tokens_saved / result.tokens_before) * 100).toFixed(0)
+      : "0";
+  return (
+    `🗜️ 上下文已压缩\n\n` +
     `压缩前  ${result.tokens_before.toLocaleString()} tokens\n` +
     `压缩后  ${result.tokens_after.toLocaleString()} tokens\n` +
     `节省    ${result.tokens_saved.toLocaleString()} tokens (${pct}%)\n` +
-    `摘要    ${result.summary_tokens.toLocaleString()} tokens`;
+    `摘要    ${result.summary_tokens.toLocaleString()} tokens`
+  );
 }
 
 /**
  * Format git status showing branch, staged, modified, and untracked files.
  */
 export function formatGitStatus(result: GitStatusResult): string {
-  const branch = result.branch ?? '(detached)';
+  const branch = result.branch ?? "(detached)";
   let out = `📂 Git 状态\n\n分支: ${branch}\n`;
   if (result.staged_files.length > 0) {
     out += `\n暂存文件 (${result.staged_files.length}):\n`;
@@ -272,8 +284,12 @@ export function formatGitStatus(result: GitStatusResult): string {
     out += `\n未跟踪文件 (${result.untracked_files.length}):\n`;
     for (const f of result.untracked_files) out += `  ❓ ${f}\n`;
   }
-  if (result.staged_files.length === 0 && result.modified_files.length === 0 && result.untracked_files.length === 0) {
-    out += '\n工作区干净，无变更。';
+  if (
+    result.staged_files.length === 0 &&
+    result.modified_files.length === 0 &&
+    result.untracked_files.length === 0
+  ) {
+    out += "\n工作区干净，无变更。";
   }
   return out;
 }
@@ -282,7 +298,7 @@ export function formatGitStatus(result: GitStatusResult): string {
  * Format git diff output. Returns friendly message when empty.
  */
 export function formatGitDiff(result: GitDiffResult): string {
-  if (!result.diff || result.diff.trim() === '') return '无变更。';
+  if (!result.diff || result.diff.trim() === "") return "无变更。";
   return `📝 Git Diff\n\n${result.diff}`;
 }
 
@@ -298,16 +314,19 @@ export function formatGitCommit(result: GitCommitResult): string {
  */
 export function formatThinkToggle(enabled: boolean, budget?: number): string {
   if (enabled) {
-    const budgetStr = budget != null ? ` (预算: ${budget} tokens)` : '';
+    const budgetStr = budget != null ? ` (预算: ${budget} tokens)` : "";
     return `🧠 扩展思考已开启${budgetStr}`;
   }
-  return '🧠 扩展思考已关闭';
+  return "🧠 扩展思考已关闭";
 }
 
 /**
  * Format model info showing active model and fallback chain.
  */
-export function formatModelInfo(activeModel: string, fallbackModels: string[]): string {
+export function formatModelInfo(
+  activeModel: string,
+  fallbackModels: string[],
+): string {
   let out = `🤖 模型配置\n\n当前模型: ${activeModel}\n`;
   if (fallbackModels.length > 0) {
     out += `\n回退链:\n`;
@@ -316,7 +335,7 @@ export function formatModelInfo(activeModel: string, fallbackModels: string[]): 
       out += `  ${i + 1}. ${fallbackModels[i]}\n`;
     }
   } else {
-    out += '\n未配置回退模型。';
+    out += "\n未配置回退模型。";
   }
   return out;
 }
@@ -332,14 +351,14 @@ export function formatModelSwitch(model: string): string {
  * Format commit usage hint when no message is provided.
  */
 export function formatCommitUsage(): string {
-  return '用法: /commit <message>';
+  return "用法: /commit <message>";
 }
 
 /**
  * Format abort confirmation message.
  */
 export function formatAbortConfirm(): string {
-  return '⛔ 当前任务已中止。';
+  return "⛔ 当前任务已中止。";
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -360,35 +379,47 @@ export function formatError(err: unknown): string {
  * Format a daemon disconnected warning.
  */
 export function formatDisconnected(): string {
-  return '⚠️ Daemon 连接已断开，请重启网关。';
+  return "⚠️ Daemon 连接已断开，请重启网关。";
 }
 
 /**
  * Format help output listing all commands with descriptions.
  */
-export function formatHelp(registry: Record<string, { description: string }>): string {
+export function formatHelp(
+  registry: Record<string, { description: string }>,
+): string {
   // Group commands by category for cleaner display
   const groups: Record<string, string[]> = {
-    '💬 对话': ['/compact', '/think', '/model', '/history', '/search', '/export', '/abort'],
-    '📂 项目 & Git': ['/projects', '/git', '/diff', '/commit'],
-    '🔧 工具 & 扩展': ['/tools', '/mcp', '/skills', '/plugins'],
-    '⚙️ 自动化': ['/task', '/cron', '/memory'],
-    '🔌 会话': ['/help', '/status', '/start', '/clear', '/quit', '/shutdown'],
+    "💬 对话": [
+      "/compact",
+      "/think",
+      "/model",
+      "/history",
+      "/search",
+      "/export",
+      "/abort",
+    ],
+    "📂 项目 & Git": ["/projects", "/git", "/diff", "/commit"],
+    "🔧 工具 & 扩展": ["/tools", "/mcp", "/skills", "/plugins"],
+    "⚙️ 自动化": ["/task", "/cron", "/memory"],
+    "🔌 会话": ["/help", "/status", "/start", "/clear", "/quit", "/shutdown"],
   };
 
-  let out = '📖 可用命令\n\n';
+  let out = "📖 可用命令\n\n";
   for (const [group, cmds] of Object.entries(groups)) {
     out += `${group}\n`;
     for (const cmd of cmds) {
       const def = registry[cmd];
       if (def) out += `  ${cmd} — ${def.description}\n`;
     }
-    out += '\n';
+    out += "\n";
   }
 
   // Any commands not in groups
   const grouped = new Set(Object.values(groups).flat());
-  const ungrouped = Object.entries(registry).filter(([cmd]) => !grouped.has(cmd));
+  const ungrouped = Object.entries(registry).filter(
+    ([cmd]) => !grouped.has(cmd),
+  );
   if (ungrouped.length > 0) {
     for (const [cmd, def] of ungrouped) {
       out += `${cmd} — ${def.description}\n`;
@@ -412,7 +443,7 @@ export function formatStatus(
 ): string {
   const sessionLine = sessionState.resumed
     ? `🔄 已恢复会话 (${sessionState.messageCount} 条消息)`
-    : '🆕 新会话';
+    : "🆕 新会话";
   return (
     `🐾 BaoClaw Status\n\n` +
     `Daemon   pid=${daemonInfo.pid}\n` +
@@ -443,7 +474,6 @@ export function formatStart(
   return msg;
 }
 
-
 // ═══════════════════════════════════════════════════════════════
 // Search Format Functions (Task 9)
 // ═══════════════════════════════════════════════════════════════
@@ -452,14 +482,20 @@ export function formatStart(
  * Format search results for Telegram display.
  * Truncates output to stay within Telegram's 4096 char limit.
  */
-export function formatSearchResults(results: SearchResult[], query: string): string {
-  if (!results.length) return '未找到匹配内容';
+export function formatSearchResults(
+  results: SearchResult[],
+  query: string,
+): string {
+  if (!results.length) return "未找到匹配内容";
   let out = `🔍 搜索结果: "${query}" (${results.length})\n\n`;
   for (const r of results) {
-    const ts = r.timestamp?.slice(0, 19).replace('T', ' ') || '';
-    const role = r.entry_type === 'UserMessage' ? '用户' : '助手';
-    out += `[${ts}] ${role}\n${r.snippet || r.context || ''}\n\n`;
-    if (out.length > 3800) { out += '…(更多结果已截断)'; break; }
+    const ts = r.timestamp?.slice(0, 19).replace("T", " ") || "";
+    const role = r.entry_type === "UserMessage" ? "用户" : "助手";
+    out += `[${ts}] ${role}\n${r.snippet || r.context || ""}\n\n`;
+    if (out.length > 3800) {
+      out += "…(更多结果已截断)";
+      break;
+    }
   }
   return out;
 }
