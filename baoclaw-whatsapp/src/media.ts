@@ -4,11 +4,11 @@
  * sends files back to WhatsApp conversations, and detects file paths
  * in tool output.
  */
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import * as crypto from 'crypto';
-import { IpcClient } from './ipcClient.js';
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import * as crypto from "crypto";
+import { IpcClient } from "../../ts-ipc/index.js";
 
 export interface MediaFile {
   path: string;
@@ -17,9 +17,9 @@ export interface MediaFile {
   size: number;
 }
 
-const MEDIA_TMP_DIR = path.join(os.tmpdir(), 'baoclaw-whatsapp');
+const MEDIA_TMP_DIR = path.join(os.tmpdir(), "baoclaw-whatsapp");
 const MAX_MEDIA_SIZE = 50 * 1024 * 1024; // 50MB
-const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
 
 export class MediaHandler {
   /**
@@ -35,8 +35,8 @@ export class MediaHandler {
     // 2. 使用 Baileys 的 downloadMediaMessage（从 @whiskeysockets/baileys 动态 import）
     let buffer: Buffer;
     try {
-      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
-      buffer = await downloadMediaMessage(msg, 'buffer', {});
+      const { downloadMediaMessage } = await import("@whiskeysockets/baileys");
+      buffer = await downloadMediaMessage(msg, "buffer", {});
     } catch (err) {
       console.error(`Failed to download media: ${err}`);
       return null;
@@ -50,36 +50,36 @@ export class MediaHandler {
     // 4. 检查文件大小（不超过 MAX_MEDIA_SIZE）
     if (buffer.length > MAX_MEDIA_SIZE) {
       console.error(
-        `Media file too large: ${buffer.length} bytes (max ${MAX_MEDIA_SIZE} bytes)`
+        `Media file too large: ${buffer.length} bytes (max ${MAX_MEDIA_SIZE} bytes)`,
       );
       return null;
     }
 
     // 5. 确定文件名和 MIME 类型（从 msg.message 中提取）
     const message = msg.message ?? {};
-    let mimeType = 'application/octet-stream';
-    let fileName = 'file';
+    let mimeType = "application/octet-stream";
+    let fileName = "file";
 
     if (message.documentMessage) {
       mimeType = message.documentMessage.mimetype ?? mimeType;
       fileName = message.documentMessage.fileName ?? fileName;
     } else if (message.imageMessage) {
-      mimeType = message.imageMessage.mimetype ?? 'image/jpeg';
-      fileName = message.imageMessage.caption ?? 'image';
+      mimeType = message.imageMessage.mimetype ?? "image/jpeg";
+      fileName = message.imageMessage.caption ?? "image";
     } else if (message.videoMessage) {
-      mimeType = message.videoMessage.mimetype ?? 'video/mp4';
-      fileName = 'video';
+      mimeType = message.videoMessage.mimetype ?? "video/mp4";
+      fileName = "video";
     } else if (message.audioMessage) {
-      mimeType = message.audioMessage.mimetype ?? 'audio/ogg';
-      fileName = 'audio';
+      mimeType = message.audioMessage.mimetype ?? "audio/ogg";
+      fileName = "audio";
     } else if (message.stickerMessage) {
-      mimeType = message.stickerMessage.mimetype ?? 'image/webp';
-      fileName = 'sticker';
+      mimeType = message.stickerMessage.mimetype ?? "image/webp";
+      fileName = "sticker";
     }
 
     // 6. 写入临时文件 /tmp/baoclaw-whatsapp/{uuid}.{ext}
     const uuid = crypto.randomUUID();
-    const ext = fileName.includes('.')
+    const ext = fileName.includes(".")
       ? path.extname(fileName)
       : mimeToExtension(mimeType);
     const tmpPath = path.join(MEDIA_TMP_DIR, `${uuid}${ext}`);
@@ -107,7 +107,7 @@ export class MediaHandler {
   async handleDocument(
     sock: any,
     msg: any,
-    ipcClient: IpcClient
+    ipcClient: IpcClient,
   ): Promise<string | null> {
     // 1. 调用 downloadMedia 下载文件
     const mediaFile = await this.downloadMedia(sock, msg);
@@ -121,12 +121,12 @@ export class MediaHandler {
         doc_id?: string;
         document_id?: string;
         id?: string;
-      }>('docUpload', { file_path: mediaFile.path });
+      }>("docUpload", { file_path: mediaFile.path });
 
       // 3. 返回文档 ID (result.doc_id 或类似字段)
       const docId = result?.doc_id ?? result?.document_id ?? result?.id ?? null;
       if (!docId) {
-        console.error('docUpload returned no document ID');
+        console.error("docUpload returned no document ID");
         return null;
       }
       return docId;
@@ -162,7 +162,7 @@ export class MediaHandler {
     sock: any,
     jid: string,
     filePath: string,
-    caption?: string
+    caption?: string,
   ): Promise<void> {
     // 1. 检查文件是否存在
     if (!fs.existsSync(filePath)) {
@@ -214,7 +214,8 @@ export class MediaHandler {
     }
 
     // 匹配模式 3: 绝对路径 (以 / 开头，后跟至少一个 / 或带扩展名)
-    const absPattern = /(?<![a-zA-Z0-9])(\/(?:home|tmp|var|etc|usr|opt|root|mnt|dev|srv)\/[^\s"'`<>,;|&()\[\]{}]+)/g;
+    const absPattern =
+      /(?<![a-zA-Z0-9])(\/(?:home|tmp|var|etc|usr|opt|root|mnt|dev|srv)\/[^\s"'`<>,;|&()\[\]{}]+)/g;
     while ((match = absPattern.exec(output)) !== null) {
       paths.push(match[1]);
     }
@@ -258,73 +259,79 @@ export class MediaHandler {
 /** 从 MIME 类型推断文件扩展名 */
 function mimeToExtension(mime: string): string {
   const map: Record<string, string> = {
-    'application/pdf': '.pdf',
-    'image/png': '.png',
-    'image/jpeg': '.jpg',
-    'image/jpg': '.jpg',
-    'image/webp': '.webp',
-    'image/gif': '.gif',
-    'image/bmp': '.bmp',
-    'image/svg+xml': '.svg',
-    'video/mp4': '.mp4',
-    'video/webm': '.webm',
-    'video/avi': '.avi',
-    'audio/ogg': '.ogg',
-    'audio/mpeg': '.mp3',
-    'audio/mp4': '.m4a',
-    'audio/wav': '.wav',
-    'audio/aac': '.aac',
-    'text/plain': '.txt',
-    'text/csv': '.csv',
-    'text/html': '.html',
-    'application/json': '.json',
-    'application/zip': '.zip',
-    'application/gzip': '.gz',
-    'application/x-tar': '.tar',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-    'application/msword': '.doc',
-    'application/vnd.ms-excel': '.xls',
-    'application/vnd.ms-powerpoint': '.ppt',
+    "application/pdf": ".pdf",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/bmp": ".bmp",
+    "image/svg+xml": ".svg",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/avi": ".avi",
+    "audio/ogg": ".ogg",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/wav": ".wav",
+    "audio/aac": ".aac",
+    "text/plain": ".txt",
+    "text/csv": ".csv",
+    "text/html": ".html",
+    "application/json": ".json",
+    "application/zip": ".zip",
+    "application/gzip": ".gz",
+    "application/x-tar": ".tar",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      ".docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+      ".xlsx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      ".pptx",
+    "application/msword": ".doc",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.ms-powerpoint": ".ppt",
   };
 
   // Normalize: strip parameters after ;
-  const base = mime.split(';')[0].trim().toLowerCase();
-  return map[base] ?? '.bin';
+  const base = mime.split(";")[0].trim().toLowerCase();
+  return map[base] ?? ".bin";
 }
 
 /** 从文件扩展名推断 MIME 类型 */
 function extensionToMime(ext: string): string {
   const map: Record<string, string> = {
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.webp': 'image/webp',
-    '.gif': 'image/gif',
-    '.bmp': 'image/bmp',
-    '.svg': 'image/svg+xml',
-    '.pdf': 'application/pdf',
-    '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.xls': 'application/vnd.ms-excel',
-    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.ppt': 'application/vnd.ms-powerpoint',
-    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    '.txt': 'text/plain',
-    '.csv': 'text/csv',
-    '.html': 'text/html',
-    '.json': 'application/json',
-    '.zip': 'application/zip',
-    '.gz': 'application/gzip',
-    '.tar': 'application/x-tar',
-    '.mp4': 'video/mp4',
-    '.webm': 'video/webm',
-    '.mp3': 'audio/mpeg',
-    '.ogg': 'audio/ogg',
-    '.wav': 'audio/wav',
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx":
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx":
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx":
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".html": "text/html",
+    ".json": "application/json",
+    ".zip": "application/zip",
+    ".gz": "application/gzip",
+    ".tar": "application/x-tar",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
   };
-  return map[ext] ?? 'application/octet-stream';
+  return map[ext] ?? "application/octet-stream";
 }
 
 /** 判断文件是否为图片 */
