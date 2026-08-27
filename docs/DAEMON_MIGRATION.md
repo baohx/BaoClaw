@@ -4,25 +4,25 @@
 
 ## 架构演进
 
-### Phase 0（原始）：PID-based socket
+### Phase 0（原始）：原始 socket命名
 
 - socket 路径：`/tmp/baoclaw-sockets/baoclaw-<PID>.sock`
 - 问题：每个 CLI 启动都 fork 新 daemon，同 cwd 也不能共享 session
 
 ### Phase 1（P1-2，2026-06-19）：cwd-hash socket
 
-- socket 路径：`/tmp/baoclaw-sockets/baoclaw-cwd-<16hex>.sock`
+- socket 路径：`/tmp/baoclaw-sockets/baoclaw-cwd-${hash}.sock`
 - 改进：同一 cwd 的所有客户端共享 daemon
 - 限制：仍依赖 cwd，跨目录要切
 
 ### Phase 2（P3-1c，2026-06-19）：固定 socket + 优雅关闭
 
-- socket 路径：
-  - Linux: `$XDG_RUNTIME_DIR/baoclaw.sock`（/run/user/UID/）
-  - macOS: `/tmp/baoclaw-sockets/baoclaw.sock`
-  - Windows: `%TEMP%/baoclaw-sockets/baoclaw.sock`
-- 改进：机器级单 daemon，所有 session 共享
-- 优雅关闭：SIGTERM/SIGINT 时 persist_all()
+socket 路径：
+
+- Linux/macOS: `$XDG_RUNTIME_DIR/baoclaw.sock`（/run/user/UID/）或 `/tmp/baoclaw-sockets/baoclaw.sock`
+- Windows: `%TEMP%/baoclaw.sock`
+  改进：机器级单 daemon，所有 session 共享
+  优雅关闭：SIGTERM/SIGINT 时 persist_all()
 
 ### Phase 3（P3-1a/b，2026-06-19）：systemd/launchd 服务化
 
