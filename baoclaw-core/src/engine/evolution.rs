@@ -312,7 +312,14 @@ impl EvolutionEngine {
             .iter()
             .filter(|a| !a.is_error)
             .enumerate()
-            .map(|(i, a)| format!("{}. Use `{}`: {}", i + 1, a.tool_name, a.input_summary))
+            .map(|(i, a)| {
+                format!(
+                    "{}. Use `{}`: {}",
+                    i + 1,
+                    a.tool_name,
+                    redact_training_text(&a.input_summary)
+                )
+            })
             .collect();
 
         let procedure = steps.join("\n");
@@ -325,9 +332,15 @@ impl EvolutionEngine {
             name,
             description: format!(
                 "Auto-generated from: {}",
-                trajectory.user_prompt.chars().take(100).collect::<String>()
+                redact_training_text(&trajectory.user_prompt)
+                    .chars()
+                    .take(100)
+                    .collect::<String>()
             ),
-            trigger_pattern: trajectory.user_prompt.chars().take(200).collect(),
+            trigger_pattern: redact_training_text(&trajectory.user_prompt)
+                .chars()
+                .take(200)
+                .collect(),
             procedure,
             source_trajectory_id: trajectory.id.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -367,6 +380,9 @@ impl EvolutionEngine {
         candidate_name: &str,
         skill_content: &str,
     ) -> Result<String, String> {
+        if !is_safe_skill_name(candidate_name) {
+            return Err("Cannot promote skill because the candidate name is invalid. Use letters, numbers, '-' or '_'.".into());
+        }
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         let skills_dir = PathBuf::from(home).join(".baoclaw").join("skills");
         let _ = std::fs::create_dir_all(&skills_dir);
@@ -782,15 +798,25 @@ impl EvolutionEngine {
             let actions_text: String = traj
                 .assistant_actions
                 .iter()
-                .map(|a| format!("[{}] {}", a.tool_name, a.input_summary))
+                .map(|a| {
+                    format!(
+                        "[{}] {}",
+                        a.tool_name,
+                        redact_training_text(&a.input_summary)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
 
             let outcome_text = match &traj.outcome {
-                TrajectoryOutcome::Completed { final_text_preview } => final_text_preview.clone(),
+                TrajectoryOutcome::Completed { final_text_preview } => {
+                    redact_training_text(final_text_preview)
+                }
                 TrajectoryOutcome::MaxTurns => "[max turns reached]".to_string(),
                 TrajectoryOutcome::Aborted => "[aborted by user]".to_string(),
-                TrajectoryOutcome::Error { message, .. } => format!("[error: {}]", message),
+                TrajectoryOutcome::Error { message, .. } => {
+                    format!("[error: {}]", redact_training_text(message))
+                }
             };
 
             let response = format!("{}\n\n{}", actions_text, outcome_text);
@@ -802,13 +828,11 @@ impl EvolutionEngine {
             };
 
             training_pairs.push(serde_json::json!({
-                "prompt": traj.user_prompt,
+                "prompt": redact_training_text(&traj.user_prompt),
                 "response": response,
                 "rating": rating_label,
                 "tool_count": traj.tool_count,
                 "duration_ms": traj.duration_ms,
-                "cwd": traj.cwd,
-                "timestamp": traj.timestamp,
             }));
         }
 
@@ -1326,6 +1350,52 @@ impl EvolutionEngine {
         let stats_path = self.skills_dir.join("skill_stats.json");
         std::fs::write(&stats_path, json).map_err(|e| format!("Failed to write stats: {}", e))?;
         Ok(())
+    }
+}
+
+fn redact_training_text(text: &str) -> String {
+    let patterns = [
+        r"(?i)Bearer\s+[^\s]+",
+        r"(?i)(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+",
+        r"sk-[A-Za-z0-9_-]{12,}",
+        r"(?i)(?:/home/|/Users/|[A-Za-z]:\\Users\\)[^\s]+",
+    ];
+    patterns.iter().fold(text.to_string(), |value, pattern| {
+        regex::Regex::new(pattern)
+            .map(|regex| regex.replace_all(&value, "[REDACTED]").into_owned())
+            .unwrap_or(value)
+    })
+}
+
+fn is_safe_skill_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 80
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        })
+}
+
+#[cfg(test)]
+mod training_export_tests {
+    use super::{is_safe_skill_name, redact_training_text};
+
+    #[test]
+    fn training_export_redacts_credentials_and_paths() {
+        let result = redact_training_text(
+            "Bearer abc123 token=secret /home/alice/project/file.rs sk-test-secret-value",
+        );
+        assert!(!result.contains("abc123"));
+        assert!(!result.contains("secret"));
+        assert!(!result.contains("/home/alice"));
+        assert!(!result.contains("sk-test-secret-value"));
+    }
+
+    #[test]
+    fn skill_names_cannot_escape_the_skills_directory() {
+        assert!(is_safe_skill_name("safe-skill_1"));
+        assert!(!is_safe_skill_name("../outside"));
+        assert!(!is_safe_skill_name("skill.md"));
+        assert!(!is_safe_skill_name(""));
     }
 }
 
