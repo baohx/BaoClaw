@@ -63,6 +63,43 @@ jobs:
       - name: Cargo test
         run: cargo test --manifest-path baoclaw-core/Cargo.toml -- --test-threads=2
 
+  platform-smoke:
+    name: "Platform smoke (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Record platform context
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          {
+            echo "runner_os=${{ runner.os }}"
+            echo "runner_arch=${{ runner.arch }}"
+            rustc --version
+            cargo --version
+          } > artifacts/platform-context.txt
+
+      - name: Cargo check
+        run: cargo check --manifest-path baoclaw-core/Cargo.toml
+
+      - name: Platform-safe tests
+        run: cargo test --manifest-path baoclaw-core/Cargo.toml --lib -- --test-threads=2
+
+      - name: Upload platform context
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-context-${{ matrix.os }}
+          path: artifacts/platform-context.txt
+
   ts-check:
     name: "TypeScript Typecheck + Lint + Test"
     runs-on: ubuntu-latest
