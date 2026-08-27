@@ -5,6 +5,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { securePrivateFile } from "../../ts-ipc/security.js";
+import { validateE164 } from "./allowlist.js";
 
 export interface WhatsAppConfig {
   enabled: boolean;
@@ -49,6 +51,7 @@ export function defaultConfigPath(): string {
  */
 export function loadWhatsAppConfig(configPath?: string): WhatsAppConfig {
   const filePath = configPath ?? defaultConfigPath();
+  securePrivateFile(filePath);
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     const wa = raw?.whatsapp;
@@ -102,6 +105,10 @@ export function loadWhatsAppConfig(configPath?: string): WhatsAppConfig {
   } catch {
     return { ...DEFAULTS };
   }
+}
+
+export function validateAllowFrom(config: WhatsAppConfig): string[] {
+  return config.allowFrom.filter(validateE164);
 }
 
 /**

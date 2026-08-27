@@ -17,6 +17,7 @@ import * as path from "path";
 import * as os from "os";
 import {
   loadWhatsAppConfig,
+  validateAllowFrom,
   watchConfig,
   type WhatsAppConfig,
 } from "./config.js";
@@ -107,26 +108,31 @@ export class WhatsAppGateway {
     }
 
     // Validate allowlist entries
-    const validAllow: string[] = [];
+    const validAllow = validateAllowFrom(this.config);
     for (const entry of this.config.allowFrom) {
-      if (validateE164(entry)) {
-        validAllow.push(entry);
-      } else {
+      if (!validateE164(entry)) {
         logger.warn(`Invalid E.164 number in allowFrom, skipping: ${entry}`);
       }
     }
     this.config.allowFrom = validAllow;
 
     if (validAllow.length === 0) {
-      logger.warn(
-        "Warning: allowFrom is empty — all incoming messages will be rejected.",
+      throw new Error(
+        "Cannot start WhatsApp gateway because allowFrom is empty or invalid. To fix, set at least one E.164 number in config.json.",
       );
     }
 
     // Watch config for hot-reload
     this.configWatcher = watchConfig(this.configPath, (newConfig) => {
+      const validAllow = validateAllowFrom(newConfig);
+      if (validAllow.length === 0) {
+        logger.warn(
+          "Ignoring config reload because allowFrom is empty or invalid.",
+        );
+        return;
+      }
       logger.info("Config reloaded.");
-      this.config = newConfig;
+      this.config = { ...newConfig, allowFrom: validAllow };
     });
 
     // Initialize Baileys session with phone number from config

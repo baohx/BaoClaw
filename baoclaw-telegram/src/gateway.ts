@@ -14,6 +14,7 @@ import {
   type DaemonInfo,
 } from "../../ts-ipc/index.js";
 import { createLogger } from "../../ts-ipc/logger.js";
+import { securePrivateFile } from "../../ts-ipc/security.js";
 import {
   Bot,
   InputFile,
@@ -83,13 +84,19 @@ interface TelegramConfig {
 
 function loadConfig(): TelegramConfig {
   let raw: any = {};
+  securePrivateFile(CONFIG_PATH);
   try {
     raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
   } catch {}
   const tg = raw?.telegram ?? {};
   return {
     token: tg.token || process.env.TELEGRAM_BOT_TOKEN || "",
-    allowedChatIds: Array.isArray(tg.allowedChatIds) ? tg.allowedChatIds : [],
+    allowedChatIds: Array.isArray(tg.allowedChatIds)
+      ? tg.allowedChatIds.filter(
+          (id: unknown): id is number =>
+            typeof id === "number" && Number.isSafeInteger(id),
+        )
+      : [],
   };
 }
 

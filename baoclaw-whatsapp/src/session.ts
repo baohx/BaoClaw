@@ -90,7 +90,7 @@ function printQRAsURL(qr: string) {
     `\n📷 Open this URL in browser to get QR code, then scan with WhatsApp:\n`,
   );
   runtimeLogger.info(
-    `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}\n`,
+    "QR data was not written to logs. Use terminal QR output instead.",
   );
 }
 
@@ -115,7 +115,7 @@ export class SessionManager {
         const mod = await import("socks-proxy-agent");
         const SocksProxyAgent = mod.SocksProxyAgent || (mod as any).default;
         this.proxyAgent = new SocksProxyAgent(this.proxyUrl);
-        runtimeLogger.info(`Using proxy: ${this.proxyUrl}`);
+        runtimeLogger.info("Using configured proxy.");
       } catch (err: any) {
         runtimeLogger.warn(`Failed to create proxy agent: ${err.message}`);
       }

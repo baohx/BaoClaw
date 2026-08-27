@@ -25,6 +25,7 @@ import * as readline from "readline";
 import { randomUUID } from "crypto";
 import { createDaemonConnector, type DaemonInfo } from "./daemon.js";
 import { IpcClient } from "../../ts-ipc/index.js";
+import { securePrivateFile } from "../../ts-ipc/security.js";
 import { logger, setLogLevel, setLogFile } from "./log.js";
 import {
   parseCommand,
@@ -76,6 +77,7 @@ function loadAllowedChatIds(): string[] {
       ".baoclaw",
       "config.json",
     );
+    securePrivateFile(configPath);
     const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     return Array.isArray(raw?.feishu?.allowedChatIds)
       ? raw.feishu.allowedChatIds.filter(

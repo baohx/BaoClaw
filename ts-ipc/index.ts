@@ -7,6 +7,7 @@ export {
   resolveFixedSocket,
 } from "./daemon.js";
 export { logger, createLogger, setLogLevel, setLogFile } from "./logger.js";
+export { securePrivateFile } from "./security.js";
 export type {
   StreamEvent,
   StatePatch,
