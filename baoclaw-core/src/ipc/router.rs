@@ -23,6 +23,8 @@ pub enum ClientMethod {
         model: Option<String>,
         settings: Value,
         #[serde(default)]
+        protocol_version: Option<String>,
+        #[serde(default)]
         resume_session_id: Option<String>,
         #[serde(default)]
         shared_session_id: Option<String>,
@@ -403,6 +405,21 @@ mod tests {
             ClientMethod::Initialize { model, .. } => {
                 assert_eq!(model, None);
             }
+            _ => panic!("Expected Initialize"),
+        }
+    }
+
+    #[test]
+    fn test_parse_initialize_protocol_version() {
+        let req = make_request(
+            "initialize",
+            json!({"cwd": "/tmp", "settings": {}, "protocol_version": "1"}),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::Initialize {
+                protocol_version, ..
+            } => assert_eq!(protocol_version.as_deref(), Some("1")),
             _ => panic!("Expected Initialize"),
         }
     }

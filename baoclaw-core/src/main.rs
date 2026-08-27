@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+const IPC_PROTOCOL_VERSION: &str = "1";
 static MCP_INITIALIZED: AtomicBool = AtomicBool::new(false);
 use std::path::PathBuf;
 use tokio::sync::Mutex as TokioMutex;
@@ -2956,40 +2958,63 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         }
     };
 
-    let (init_id, init_cwd, init_model, _init_resume_session_id, init_shared_session_id) =
-        match init_msg {
-            JsonRpcMessage::Request(req) => {
-                let id = req.id.clone();
-                match parse_client_method(&req) {
-                    Ok(ClientMethod::Initialize {
-                        cwd: c,
-                        model: m,
-                        resume_session_id: r,
-                        shared_session_id: s,
-                        ..
-                    }) => (id, c, m, r, s),
-                    Ok(_) => {
-                        let _ = conn
-                            .send_error(
-                                Some(req.id),
-                                -32600,
-                                "Expected 'initialize' as first request".into(),
-                            )
-                            .await;
-                        return;
-                    }
-                    Err(e) => {
-                        let _ = conn
-                            .send_error(Some(req.id), -32600, format!("Invalid init: {}", e))
-                            .await;
-                        return;
-                    }
+    let (
+        init_id,
+        init_cwd,
+        init_model,
+        _init_resume_session_id,
+        init_shared_session_id,
+        init_protocol_version,
+    ) = match init_msg {
+        JsonRpcMessage::Request(req) => {
+            let id = req.id.clone();
+            match parse_client_method(&req) {
+                Ok(ClientMethod::Initialize {
+                    cwd: c,
+                    model: m,
+                    protocol_version: p,
+                    resume_session_id: r,
+                    shared_session_id: s,
+                    ..
+                }) => (id, c, m, r, s, p),
+                Ok(_) => {
+                    let _ = conn
+                        .send_error(
+                            Some(req.id),
+                            -32600,
+                            "Expected 'initialize' as first request".into(),
+                        )
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = conn
+                        .send_error(Some(req.id), -32600, format!("Invalid init: {}", e))
+                        .await;
+                    return;
                 }
             }
-            _ => {
-                return;
-            }
-        };
+        }
+        _ => {
+            return;
+        }
+    };
+
+    if let Some(protocol_version) = init_protocol_version {
+        if protocol_version != IPC_PROTOCOL_VERSION {
+            let _ = conn
+                .send_error(
+                    Some(init_id),
+                    -32001,
+                    format!(
+                        "Incompatible IPC protocol version '{}'; daemon supports '{}'. Upgrade the client or daemon.",
+                        protocol_version, IPC_PROTOCOL_VERSION
+                    ),
+                )
+                .await;
+            return;
+        }
+    }
 
     let model = init_model
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())

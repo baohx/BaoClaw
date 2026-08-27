@@ -124,6 +124,7 @@ export class DaemonConnector {
     const initParams: Record<string, unknown> = {
       cwd: info.cwd,
       settings: {},
+      protocol_version: "1",
     };
     if (sharedSessionId) {
       initParams.shared_session_id = sharedSessionId;
