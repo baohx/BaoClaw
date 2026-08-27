@@ -57,6 +57,7 @@ import {
   formatSearchResults,
 } from "./commands.js";
 import { splitMessage } from "./messageSplitter.js";
+import { isAllowedChat } from "./authorization.js";
 
 const logger = createLogger("telegram");
 
@@ -1486,7 +1487,7 @@ async function main() {
     const chatId = msg.chat.id;
 
     // Allowlist is validated at startup; reject every non-member.
-    if (!config.allowedChatIds.includes(chatId)) {
+    if (!isAllowedChat(chatId, config.allowedChatIds)) {
       logger.info(`Rejected: chat ${chatId}`);
       return;
     }

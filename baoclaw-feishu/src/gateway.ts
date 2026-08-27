@@ -26,6 +26,7 @@ import { randomUUID } from "crypto";
 import { createDaemonConnector, type DaemonInfo } from "./daemon.js";
 import { IpcClient } from "../../ts-ipc/index.js";
 import { securePrivateFile } from "../../ts-ipc/security.js";
+import { isAllowedChat } from "./authorization.js";
 import { logger, setLogLevel, setLogFile } from "./log.js";
 import {
   parseCommand,
@@ -478,7 +479,7 @@ async function main() {
     if (event.type !== "im.message.receive_v1") return;
     if (event.sender_id === BOT_OPEN_ID) return;
     if (!event.content?.trim()) return;
-    if (!allowedChatIds.includes(event.chat_id)) {
+    if (!isAllowedChat(event.chat_id, allowedChatIds)) {
       logger.warn(`Rejected message from unallowlisted chat ${event.chat_id}`);
       return;
     }
