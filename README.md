@@ -1,6 +1,6 @@
 # 🐾 BaoClaw v2.1.0
 
-**The AI coding agent that remembers, evolves, and follows you everywhere.**
+**An AI coding agent with persistent memory, multi-client access, and experimental self-improvement features.**
 
 [English](#english) · [中文](#中文) · [📖 Book](book/)
 
@@ -10,9 +10,9 @@
 
 ## What is BaoClaw?
 
-BaoClaw is an open-source AI coding agent with a Rust core engine, persistent memory, cross-device session sharing, a cron scheduler, and a self-evolution loop. It runs as a single global daemon on your machine, managing multiple project sessions simultaneously. Your terminal, Telegram, WhatsApp, and Feishu all connect to this one daemon — each routed to the correct project session by working directory.
+BaoClaw is an open-source AI coding agent with a Rust core engine, persistent memory, local multi-client session sharing, a cron scheduler, and experimental self-improvement features. It runs as a single global daemon on your machine, managing multiple project sessions simultaneously. Your terminal, Telegram, WhatsApp, and Feishu can connect to this daemon — each routed to a project session by working directory.
 
-Unlike agents that forget everything when you close the window, BaoClaw builds up knowledge about you and your projects over time. The more you use it, the better it gets.
+BaoClaw can retain selected knowledge about you and your projects over time. Self-improvement features are heuristic and should be reviewed by the user.
 
 ## Key Features
 
@@ -27,12 +27,12 @@ Unlike agents that forget everything when you close the window, BaoClaw builds u
 
 - **One daemon, all projects** — a single daemon process manages sessions for all your project directories
 - **Per-project sessions** — each cwd gets its own session with independent history and memory
-- **Cross-device** — start a task on your laptop terminal, continue on Telegram from your phone
+- **Multi-device access** — continue a task from another device when it can reach the daemon through a configured gateway
 - **Real-time streaming** — all clients see tool calls and responses as they happen
 - **No conflicts** — two CLI terminals in different directories use different sessions, no interference
 - **Session persistence** — conversations survive daemon restarts, auto-resumed per project
 
-### 🔄 Self-Evolution Engine
+### 🔄 Self-Evolution Engine (Experimental)
 
 Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learning loop:
 
@@ -40,9 +40,9 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 - **Skill auto-generation** — complex successful tasks are extracted as reusable skill candidates
 - **Self-evaluation nudge** — every 15 tasks, the agent reflects on patterns and creates/improves skills
 - **User ratings** — rate interactions as good/bad to build preference data
-- **RLHF data export** — export trajectories as JSONL for DPO/RLHF fine-tuning of smaller models
+- **Training-data export** — export trajectories as JSONL in a format that can be adapted for DPO/RLHF fine-tuning
 - **Personal evolution** — skills and trajectories are cross-project (`~/.baoclaw/evolution/`)
-- **Evolve tool** — agent can autonomously create, improve, and promote skills
+- **Evolve tool** — agent can propose, improve, and promote skills; review generated skills before relying on them
 
 ### ⏰ Cron Scheduler
 
@@ -50,7 +50,7 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 - **Flexible schedules** — `every 30m`, `every 2h`, `daily 09:00`, `weekly mon 09:00`
 - **Result broadcast** — cron results pushed to all connected clients (CLI + Telegram)
 - **Persistent** — jobs saved in `~/.baoclaw/cron.json`, survive daemon restarts
-- **Full agent power** — each job runs with complete tool access
+- **Agent tool access** — each job runs with the tools permitted by the daemon configuration
 
 ### 📄 Document Q&A
 
@@ -137,7 +137,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 
 #### 📐 Adaptive Compact (#9)
 
-- `AdaptiveCompactTracker` learns the optimal `keep_recent` from compression history
+- `AdaptiveCompactTracker` adjusts `keep_recent` heuristically from compression history
 - If the user re-asks about pre-compact content → increase `keep_recent` (preserve more)
 - If compression ratio is poor and no information loss → decrease `keep_recent` (compact harder)
 - Range: 6–30 messages, auto-adjusted per session
@@ -240,7 +240,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
   - Syntax-highlighted code blocks
   - Keyboard shortcuts overlay (`Ctrl+H`)
 - **Unix socket IPC**: JSON-RPC 2.0 over Unix domain sockets with NDJSON streaming
-- Auto-discovers daemon socket at `/tmp/baoclaw-sockets/baoclaw-<pid>.sock`
+- Auto-discovers the fixed daemon socket first (`$XDG_RUNTIME_DIR/baoclaw.sock` on Linux, `/tmp/baoclaw-sockets/baoclaw.sock` on macOS), then falls back to the cwd-hash socket
 
 ## Architecture
 
@@ -312,7 +312,7 @@ A per-session rolling summary that persists across the lifetime of a session —
 | Aspect               | Detail                                                      |
 | -------------------- | ----------------------------------------------------------- |
 | **Storage**          | `~/.baoclaw/sessions/{session_id}.memory.md`                |
-| **First update**     | Triggers at **4 messages** (if summary is empty)            |
+| **First update**     | Triggers at **6 messages** (if summary is empty)            |
 | **Refresh interval** | Every **10 messages** after the last update                 |
 | **Thread safety**    | `std::sync::Mutex` — safe to share via `Arc<SessionMemory>` |
 | **Persistence**      | Written to disk on every `update()` call                    |
@@ -327,7 +327,7 @@ A per-session rolling summary that persists across the lifetime of a session —
 
 ### 2. 📐 Context Mechanism
 
-BaoClaw manages a 200K-token context window with a multi-layer compaction strategy and accurate token counting.
+BaoClaw targets a 200K-token context window with a multi-layer compaction strategy and calibrated token counting.
 
 #### Token Counting (`token_counter.rs`)
 
@@ -348,7 +348,7 @@ BaoClaw manages a 200K-token context window with a multi-layer compaction strate
 | **Warning**  | ≥ 147K       | Log warning                       |
 | **Blocking** | ≥ 164K       | MUST compact before next API call |
 
-#### 4-Level Compaction Hierarchy
+#### 5-Level Compaction Hierarchy
 
 Compaction is tried from cheapest to most expensive:
 
@@ -427,7 +427,7 @@ This split ensures the cached system prompt prefix stays stable across turns —
 
 ### 3. 🔄 Evolution Mechanism
 
-The self-evolution engine learns from every interaction to create and improve reusable skills.
+The experimental self-evolution engine records interaction data and can create or improve reusable skill candidates.
 
 #### File Layout
 
@@ -502,7 +502,7 @@ Candidate approved → Move from candidates/ to ~/.baoclaw/skills/{name}.md
 Read all trajectories → Create preference pairs
     Each pair: { prompt, response, rating: chosen/rejected/neutral }
     Output: ~/.baoclaw/evolution/training_export.jsonl
-    Suitable for DPO/RLHF fine-tuning
+    Can be adapted for DPO/RLHF fine-tuning
 ```
 
 #### Full Evolution Loop
@@ -538,7 +538,7 @@ Read all trajectories → Create preference pairs
       ├── Write pending_review.json → next session prompt
       │
       ▼
- Export trajectories → RLHF/DPO fine-tuning for smaller models
+  Export trajectories → data suitable for adapting DPO/RLHF datasets
 ```
 
 ---
@@ -983,7 +983,7 @@ Auto-recorded. Each line is a JSON object:
 }
 ```
 
-Export for RLHF fine-tuning: ask the agent to `export training data` or use the Evolve tool.
+Export training data for later DPO/RLHF dataset preparation: ask the agent to `export training data` or use the Evolve tool.
 
 ## CLI Commands
 
@@ -1081,7 +1081,7 @@ Results are pushed to all connected clients (CLI shows ⏰ notification, Telegra
           Better performance ──→ Loop continues
                    │
                    ▼
-          Export trajectories ──→ RLHF/DPO fine-tuning
+           Export trajectories ──→ DPO/RLHF dataset preparation
                                   for smaller models
 ```
 
@@ -1096,7 +1096,7 @@ Results are pushed to all connected clients (CLI shows ⏰ notification, Telegra
 # Output: ~/.baoclaw/evolution/training_export.jsonl
 ```
 
-Each trajectory contains: prompt, tool actions, outcome, user rating (good/bad/neutral). Rated trajectories can be used as preference pairs for DPO training.
+Each trajectory contains: prompt, tool actions, outcome, user rating (good/bad/neutral). Rated trajectories can be used as inputs when preparing preference pairs for DPO training.
 
 ## License
 
@@ -1106,9 +1106,9 @@ MIT
 
 <a name="中文"></a>
 
-## 🐾 BaoClaw — 会记忆、会进化、跨设备的 AI 编程助手
+## 🐾 BaoClaw — 带持久记忆和多客户端访问的 AI 编程助手
 
-BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持久记忆、跨设备会话共享、定时任务和自我进化能力。它以守护进程方式运行，同时连接终端、Telegram 和 WhatsApp，所有客户端共享同一个对话上下文。
+BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持久记忆、本地多客户端会话共享、定时任务和实验性自我改进功能。它以守护进程方式运行，同时连接终端、Telegram 和 WhatsApp。
 
 和那些关掉窗口就失忆的 Agent 不同，BaoClaw 会随着使用不断积累对你和你项目的了解。用得越多，越好用。
 
@@ -1125,12 +1125,12 @@ BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持�
 
 - 一个守护进程管所有项目 — 单个 daemon 进程管理所有项目目录的会话
 - 项目级会话 — 每个工作目录有独立的会话历史和记忆
-- 跨设备 — 在电脑终端开始任务，用手机 Telegram 继续
+- 多设备访问 — 在配置好的 gateway 可访问 daemon 时，可从其他设备继续任务
 - 实时流式输出 — 所有客户端同步看到工具调用和响应
 - 无冲突 — 两个终端在不同目录工作，使用不同会话，互不干扰
 - 会话持久化 — 对话在守护进程重启后自动恢复，按项目目录绑定
 
-### 🔄 自我进化引擎
+### 🔄 自我进化引擎（实验性）
 
 参考 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的学习循环：
 
@@ -1138,7 +1138,7 @@ BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持�
 - Skill 自动生成 — 复杂的成功任务自动提取为可复用的 skill 候选
 - 自我评估 — 每 15 个任务触发反思，创建或改进 skill
 - 用户评价 — 对交互评分（good/bad），构建偏好数据
-- RLHF 数据导出 — 导出轨迹数据用于小模型的 DPO/RLHF 微调
+- 训练数据导出 — 导出可进一步整理为 DPO/RLHF 数据集的轨迹 JSONL
 - 个人级进化 — skill 和轨迹跨项目积累（`~/.baoclaw/evolution/`）
 - Evolve 工具 — Agent 可自主创建、改进和提升 skill
 
@@ -1325,7 +1325,7 @@ Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
   - 语法高亮代码块
   - 快捷键帮助面板（`Ctrl+H`）
 - **Unix socket IPC**：基于 Unix 域套接字的 JSON-RPC 2.0 + NDJSON 流
-- 自动发现 daemon socket：`/tmp/baoclaw-sockets/baoclaw-<pid>.sock`
+- 自动发现 daemon socket：优先使用固定 socket（Linux 为 `$XDG_RUNTIME_DIR/baoclaw.sock`，macOS 为 `/tmp/baoclaw-sockets/baoclaw.sock`），再回退到 cwd-hash socket
 
 ## 内部机制：引擎工作原理
 
@@ -1371,7 +1371,7 @@ BaoClaw 有两个互补的记忆层：**长期记忆**（跨会话的事实/偏�
 
 ### 2. 📐 上下文机制
 
-BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确的 token 计数。
+BaoClaw 以 200K token 上下文窗口为目标，采用多层压缩策略和校准后的 token 计数。
 
 #### Token 计数 (`token_counter.rs`)
 
@@ -1452,7 +1452,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 
 ### 3. 🔄 进化机制
 
-自我进化引擎从每次交互中学习，创建和改进可复用的技能。
+实验性自我进化引擎记录交互数据，并可创建或改进可复用的技能候选。
 
 #### 文件布局
 
