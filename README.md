@@ -2,7 +2,7 @@
 
 **An AI coding agent with persistent memory, multi-client access, and experimental self-improvement features.**
 
-[English](#english) · [中文](#中文) · [📖 Book](book/)
+[English](#english) · [中文](#中文)
 
 ---
 
@@ -22,6 +22,22 @@ BaoClaw can retain selected knowledge about you and your projects over time. Sel
 - **Global memory** — cross-project facts, preferences, and decisions in `~/.baoclaw/`
 - **Long-term recall** — memories are injected into the system prompt automatically
 - **Manual control** — `/memory add`, `/memory list`, `/memory delete`
+
+## Support Matrix
+
+| Client/platform | Status    | Verified scope and limitations                                                                                                                                                                                             |
+| --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI             | Supported | Unix-socket IPC, project sessions, tools, and streaming; see [`ts-ipc/cli.ts`](ts-ipc/cli.ts) and [`ts-ipc/client.test.ts`](ts-ipc/client.test.ts).                                                                        |
+| Telegram        | Supported | Allowlisted chats and command gateway; see [`gateway.ts`](baoclaw-telegram/src/gateway.ts) and [`authorization.ts`](baoclaw-telegram/src/authorization.ts). Provider credentials and network access are required.          |
+| WhatsApp        | Supported | Allowlist/rate-limit gateway; see [`allowlist.test.ts`](baoclaw-whatsapp/src/allowlist.test.ts). Baileys session credentials are local and provider behavior is external.                                                  |
+| Feishu          | Supported | Exact chat allowlist and command gateway; see [`gateway.ts`](baoclaw-feishu/src/gateway.ts) and [`authorization.test.ts`](baoclaw-feishu/src/authorization.test.ts). Provider credentials and network access are required. |
+| Linux           | Supported | Rust daemon and Unix-socket IPC; CI platform smoke coverage runs on Ubuntu.                                                                                                                                                |
+| macOS           | Supported | Rust daemon and Unix-socket IPC; CI platform smoke coverage runs on macOS.                                                                                                                                                 |
+| Windows/WSL2    | WSL2 only | Run the Unix daemon inside WSL2; native Windows daemon IPC is not supported until named-pipe transport exists.                                                                                                             |
+
+Security boundaries are defense-in-depth, not a guarantee that prompts or tool
+inputs are safe. Review generated skills before promotion and do not provide
+real credentials in examples or test fixtures.
 
 ### 📱 Multi-Client, Global Daemon
 
@@ -91,7 +107,7 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 - **MCP support** — connect external MCP servers for additional tools
 - **Skills** — markdown-based skill files loaded into system prompt (personal + project scope)
 - **Plugins** — directory-based plugin system with tools, skills, and MCP configs
-- **200+ LLM models** — Anthropic native + any OpenAI-compatible API (OpenRouter, Ollama, vLLM, etc.)
+- **Many LLM models** — Anthropic native + compatible OpenAI-style APIs (OpenRouter, Ollama, vLLM, etc.)
 
 ### 🔁 Model Fallback
 
@@ -152,7 +168,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 #### 🎯 Intent Prediction (#11)
 
 - Predicts user intent (coding, debugging, testing, refactoring, git, research…) from message keywords
-- Transition matrix learns what intent typically follows what (e.g., CodeWriting → Testing)
+- Heuristic transition matrix records what intent typically follows what (e.g., CodeWriting → Testing)
 - High-confidence predictions trigger tool preloading hints in the system prompt
 
 #### 🧮 Context Window Allocator (#12)
