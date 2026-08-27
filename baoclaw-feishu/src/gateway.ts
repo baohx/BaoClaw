@@ -349,7 +349,7 @@ async function handleMessage(event: FeishuEvent): Promise<void> {
   const text = event.content.trim();
   const chatLabel = event.chat_type === "p2p" ? "DM" : `group(${chatId})`;
 
-  logger.info(`📩 ${chatLabel} from ${sender}: "${text.slice(0, 80)}"`);
+  logger.info(`📩 message received in ${chatLabel} from ${sender}`);
 
   // ── Slash command detection ──
   const parsed = parseCommand(text);
