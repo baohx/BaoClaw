@@ -5,7 +5,7 @@
 //! connected clients (CLI, Telegram, WhatsApp).
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
@@ -109,8 +109,10 @@ impl CronManager {
         };
 
         let mut jobs = self.jobs.lock().await;
+        let mut persisted_jobs = jobs.clone();
+        persisted_jobs.push(job.clone());
+        self.save_jobs(&persisted_jobs)?;
         jobs.push(job.clone());
-        self.save_jobs(&jobs);
         Ok(job)
     }
 
@@ -120,7 +122,9 @@ impl CronManager {
         let before = jobs.len();
         jobs.retain(|j| j.id != id);
         if jobs.len() < before {
-            self.save_jobs(&jobs);
+            if let Err(error) = self.save_jobs(&jobs) {
+                eprintln!("Cron: failed to persist removed job: {error}");
+            }
             true
         } else {
             false
@@ -139,7 +143,9 @@ impl CronManager {
             }
         }
         if result.is_some() {
-            self.save_jobs(&jobs);
+            if let Err(error) = self.save_jobs(&jobs) {
+                eprintln!("Cron: failed to persist toggled job: {error}");
+            }
         }
         result
     }
@@ -159,20 +165,45 @@ impl CronManager {
                 break;
             }
         }
-        self.save_jobs(&jobs);
+        if let Err(error) = self.save_jobs(&jobs) {
+            eprintln!("Cron: failed to persist job result: {error}");
+        }
     }
 
     fn load_jobs(path: &PathBuf) -> Vec<CronJob> {
         match std::fs::read_to_string(path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-            Err(_) => Vec::new(),
+            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|error| {
+                eprintln!(
+                    "Cron: cannot load {} because the state is malformed: {}. No jobs loaded.",
+                    path.display(),
+                    error
+                );
+                Vec::new()
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => {
+                eprintln!(
+                    "Cron: cannot load {} because the state file could not be read: {}. No jobs loaded.",
+                    path.display(),
+                    error
+                );
+                Vec::new()
+            }
         }
     }
 
-    fn save_jobs(&self, jobs: &[CronJob]) {
-        if let Ok(json) = serde_json::to_string_pretty(jobs) {
-            let _ = std::fs::write(&self.config_path, json);
+    fn save_jobs(&self, jobs: &[CronJob]) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(jobs).map_err(|error| {
+            format!("Cannot save cron jobs because serialization failed: {error}")
+        })?;
+        if let Some(parent) = self.config_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                format!("Cannot save cron jobs because directory creation failed: {error}")
+            })?;
         }
+        atomic_write_json(&self.config_path, &json).map_err(|error| {
+            format!("Cannot save cron jobs because the state file could not be written: {error}")
+        })
     }
 
     /// Start the cron scheduler loop. Runs forever, checking jobs every 30 seconds.
@@ -317,13 +348,19 @@ fn parse_duration(s: &str) -> Result<u64, String> {
                 .parse()
                 .map_err(|_| format!("Invalid number in duration: {}", s))?;
             num_buf.clear();
-            match c {
-                's' => total += n,
-                'm' => total += n * 60,
-                'h' => total += n * 3600,
-                'd' => total += n * 86400,
+            let multiplier = match c {
+                's' => 1,
+                'm' => 60,
+                'h' => 3600,
+                'd' => 86400,
                 _ => return Err(format!("Unknown duration unit: {}", c)),
-            }
+            };
+            total = total
+                .checked_add(
+                    n.checked_mul(multiplier)
+                        .ok_or_else(|| format!("Duration is too large: {s}"))?,
+                )
+                .ok_or_else(|| format!("Duration is too large: {s}"))?;
         }
     }
 
@@ -332,13 +369,24 @@ fn parse_duration(s: &str) -> Result<u64, String> {
         let n: u64 = num_buf
             .parse()
             .map_err(|_| format!("Invalid number: {}", s))?;
-        total += n * 60;
+        total = total
+            .checked_add(
+                n.checked_mul(60)
+                    .ok_or_else(|| format!("Duration is too large: {s}"))?,
+            )
+            .ok_or_else(|| format!("Duration is too large: {s}"))?;
     }
 
     if total == 0 {
         return Err("Duration cannot be zero".to_string());
     }
     Ok(total)
+}
+
+fn atomic_write_json(path: &Path, content: &str) -> std::io::Result<()> {
+    let temp_path = path.with_extension("json.tmp");
+    std::fs::write(&temp_path, content)?;
+    std::fs::rename(temp_path, path)
 }
 
 fn parse_time(s: &str) -> Result<(u32, u32), String> {
@@ -430,5 +478,19 @@ mod tests {
     #[test]
     fn test_reject_invalid_format() {
         assert!(parse_schedule("at midnight").is_err());
+    }
+
+    #[test]
+    fn test_reject_duration_overflow() {
+        assert!(parse_schedule("every 18446744073709551615d").is_err());
+    }
+
+    #[test]
+    fn test_atomic_cron_write_replaces_complete_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cron.json");
+        atomic_write_json(&path, "[1]").unwrap();
+        atomic_write_json(&path, "[2]").unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "[2]");
     }
 }
