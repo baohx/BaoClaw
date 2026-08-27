@@ -93,12 +93,29 @@ describe("IpcClient", () => {
       async (socketPath) => {
         const client = new IpcClient();
         const disconnected = new Promise<void>((resolve) =>
-          client.onDisconnect(resolve),
+          client.onDisconnect(() => resolve()),
         );
         await client.connect(socketPath);
         client.notify("probe");
         await disconnected;
         assert.equal(client.connected, false);
+      },
+    );
+  });
+
+  test("only invokes disconnect handlers once", async () => {
+    await withServer(
+      () => {},
+      async (socketPath) => {
+        const client = new IpcClient();
+        let disconnects = 0;
+        client.onDisconnect(() => {
+          disconnects++;
+        });
+        await client.connect(socketPath);
+        await client.disconnect();
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(disconnects, 1);
       },
     );
   });

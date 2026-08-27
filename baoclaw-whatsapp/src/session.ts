@@ -6,6 +6,11 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as readline from "readline";
+import { createLogger } from "../../ts-ipc/logger.js";
+
+const runtimeLogger = createLogger("whatsapp");
+const log = (level: "info" | "warn" | "error", args: unknown[]) =>
+  runtimeLogger[level](args.map(String).join(" "));
 
 let makeWASocket: any;
 let useMultiFileAuthState: any;
@@ -28,12 +33,12 @@ const usePairingMode = process.argv.includes("--pairing");
 
 const logger = {
   level: "warn" as const,
-  info: () => {},
-  warn: (...args: any[]) => console.warn("[Baileys warn]", ...args),
-  error: (...args: any[]) => console.error("[Baileys error]", ...args),
+  info: (...args: any[]) => log("info", args),
+  warn: (...args: any[]) => log("warn", ["[Baileys warn]", ...args]),
+  error: (...args: any[]) => log("error", ["[Baileys error]", ...args]),
   debug: () => {},
   trace: () => {},
-  fatal: (...args: any[]) => console.error("[Baileys fatal]", ...args),
+  fatal: (...args: any[]) => log("error", ["[Baileys fatal]", ...args]),
   child: () => logger,
 } as any;
 
@@ -81,10 +86,10 @@ function displayQR(qr: string) {
 }
 
 function printQRAsURL(qr: string) {
-  console.log(
+  runtimeLogger.info(
     `\n📷 Open this URL in browser to get QR code, then scan with WhatsApp:\n`,
   );
-  console.log(
+  runtimeLogger.info(
     `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}\n`,
   );
 }
@@ -110,9 +115,9 @@ export class SessionManager {
         const mod = await import("socks-proxy-agent");
         const SocksProxyAgent = mod.SocksProxyAgent || (mod as any).default;
         this.proxyAgent = new SocksProxyAgent(this.proxyUrl);
-        console.log(`Using proxy: ${this.proxyUrl}`);
+        runtimeLogger.info(`Using proxy: ${this.proxyUrl}`);
       } catch (err: any) {
-        console.warn(`Failed to create proxy agent: ${err.message}`);
+        runtimeLogger.warn(`Failed to create proxy agent: ${err.message}`);
       }
     }
   }
@@ -126,7 +131,9 @@ export class SessionManager {
       const latest = await fetchLatestBaileysVersion();
       if (latest?.version) waVersion = latest.version;
     } catch (err: any) {
-      console.warn(`Could not fetch latest WhatsApp version: ${err.message}`);
+      runtimeLogger.warn(
+        `Could not fetch latest WhatsApp version: ${err.message}`,
+      );
     }
 
     fs.mkdirSync(this.authDir, { recursive: true, mode: 0o700 });
@@ -180,24 +187,26 @@ export class SessionManager {
                   );
                 }
                 const cleaned = phone.replace(/[^0-9]/g, "");
-                console.log(`\nRequesting pairing code for +${cleaned}...`);
+                runtimeLogger.info(
+                  `\nRequesting pairing code for +${cleaned}...`,
+                );
                 const code = await sock.requestPairingCode(cleaned);
-                console.log(`\n🔑 Pairing code: ${code}`);
-                console.log(
+                runtimeLogger.info(`\n🔑 Pairing code: ${code}`);
+                runtimeLogger.info(
                   `Open WhatsApp → Settings → Linked Devices → Link a Device`,
                 );
-                console.log(
+                runtimeLogger.info(
                   `Choose "Link with phone number instead" and enter the code.\n`,
                 );
               } catch (err: any) {
-                console.error(`Pairing code failed: ${err.message}`);
-                console.log("\nFalling back to QR code:");
+                runtimeLogger.error(`Pairing code failed: ${err.message}`);
+                runtimeLogger.info("\nFalling back to QR code:");
                 await displayQR(qr);
               }
             } else {
-              console.log("\n📱 Scan this QR code with WhatsApp:");
+              runtimeLogger.info("\n📱 Scan this QR code with WhatsApp:");
               await displayQR(qr);
-              console.log(
+              runtimeLogger.info(
                 "Open WhatsApp → Settings → Linked Devices → Link a Device → Scan QR\n",
               );
             }
@@ -210,7 +219,7 @@ export class SessionManager {
             this.phoneNumber = sock.user?.id
               ? "+" + sock.user.id.split(":")[0]
               : null;
-            console.log(
+            runtimeLogger.info(
               `\n✅ WhatsApp connected${this.phoneNumber ? ` as ${this.phoneNumber}` : ""}.`,
             );
             resolve(sock);
@@ -222,7 +231,7 @@ export class SessionManager {
               ?.statusCode;
             const isLoggedOut = statusCode === DisconnectReason?.loggedOut;
             if (isLoggedOut) {
-              console.log("Logged out. Clearing auth state.");
+              runtimeLogger.info("Logged out. Clearing auth state.");
               this.clearAuthState();
               reject(new Error("Logged out from WhatsApp"));
               return;
@@ -236,7 +245,7 @@ export class SessionManager {
               );
               return;
             }
-            console.log(
+            runtimeLogger.info(
               `Connection closed (status=${statusCode}). Retry ${retries}/${MAX_RETRIES} in 3s...`,
             );
             setTimeout(() => {
@@ -247,7 +256,7 @@ export class SessionManager {
       };
 
       if (!hasAuth) {
-        console.log(
+        runtimeLogger.info(
           `\n📱 Mode: ${usePairingMode ? "Pairing Code" : "QR Code scan"}`,
         );
       }

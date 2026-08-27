@@ -15,6 +15,9 @@
 
 import { SenderTracker, type PermissionRequest } from "./senderTracker.js";
 import { IpcClient } from "../../ts-ipc/index.js";
+import { createLogger } from "../../ts-ipc/logger.js";
+
+const logger = createLogger("whatsapp");
 
 /** Time (ms) before an unanswered permission request is automatically denied. */
 const PERMISSION_TIMEOUT_MS = 60_000; // 60 seconds
@@ -220,7 +223,7 @@ export class PermissionManager {
     } catch (err) {
       // Swallow IPC errors — the daemon may have disconnected. We still
       // clean up the local state so the user is not stuck.
-      console.error(
+      logger.error(
         `Failed to send permissionResponse for ${pending.tool_use_id}: ${err}`,
       );
     }

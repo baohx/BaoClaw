@@ -6,20 +6,22 @@ export {
   getSocketDir,
   resolveFixedSocket,
 } from "./daemon.js";
-export { StreamEvent, StatePatch, QueryResult, ErrorInfo } from "./types.js";
+export { logger, createLogger, setLogLevel, setLogFile } from "./logger.js";
+export type {
+  StreamEvent,
+  StatePatch,
+  QueryResult,
+  ErrorInfo,
+} from "./types.js";
 export {
   setupStreamHandlers,
   applyStatePatch,
   applyStatePatches,
 } from "./streamHandler.js";
-export {
-  startRustCore,
-  startRustCoreWithRestart,
-  RustCoreConfig,
-  RustCoreHandle,
-} from "./rustCore.js";
-export {
-  useRustEngine,
+export { startRustCore, startRustCoreWithRestart } from "./rustCore.js";
+export type { RustCoreConfig, RustCoreHandle } from "./rustCore.js";
+export { useRustEngine } from "./useRustEngine.js";
+export type {
   Message,
   EngineState,
   UseRustEngineReturn,

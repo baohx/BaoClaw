@@ -440,6 +440,7 @@ export function formatStatus(
   daemonInfo: { pid: number; session_id: string; cwd: string },
   botUsername: string,
   sessionState: SessionState,
+  metrics?: { reconnectCount: number; lastConnectAt: Date | null },
 ): string {
   const sessionLine = sessionState.resumed
     ? `🔄 已恢复会话 (${sessionState.messageCount} 条消息)`
@@ -450,6 +451,8 @@ export function formatStatus(
     `Session  ${daemonInfo.session_id}\n` +
     `CWD      ${daemonInfo.cwd}\n` +
     `Bot      @${botUsername}\n\n` +
+    `Reconnects ${metrics?.reconnectCount ?? 0}\n` +
+    `Last connect ${metrics?.lastConnectAt?.toISOString() ?? "never"}\n\n` +
     sessionLine
   );
 }

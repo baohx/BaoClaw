@@ -325,9 +325,14 @@ function formatError(title: string, detail: string): string {
 // ── Daemon info (set by gateway) ──
 
 let _daemonInfo: { pid: number; session_id: string; cwd: string } | null = null;
+let _daemonMetrics = { reconnectCount: 0, lastConnectAt: null as Date | null };
 
 export function setDaemonInfo(info: typeof _daemonInfo): void {
   _daemonInfo = info;
+}
+
+export function setDaemonMetrics(metrics: typeof _daemonMetrics): void {
+  _daemonMetrics = metrics;
 }
 
 // ── Gateway Info Store ──
@@ -499,6 +504,8 @@ async function handleStatus(ctx: CommandContext): Promise<string> {
   if (_daemonInfo) {
     out += `Daemon PID: ${_daemonInfo.pid}\nSession: ${_daemonInfo.session_id}\nCWD: ${_daemonInfo.cwd}\n`;
   }
+  out += `Reconnects: ${_daemonMetrics.reconnectCount}\n`;
+  out += `Last connect: ${_daemonMetrics.lastConnectAt?.toISOString() ?? "never"}\n`;
   return out;
 }
 

@@ -31,6 +31,7 @@ import {
 import { MessageQueue } from "./messageQueue.js";
 import { createDaemonConnector, type DaemonInfo } from "./daemon.js";
 import { IpcClient } from "../../ts-ipc/index.js";
+import { createLogger } from "../../ts-ipc/logger.js";
 import { SessionManager } from "./session.js";
 // New modules
 import { SenderTracker } from "./senderTracker.js";
@@ -42,8 +43,11 @@ import {
   formatHelp,
   COMMAND_REGISTRY,
   setGatewayInfo,
+  setDaemonMetrics,
 } from "./commands.js";
 import { MediaHandler, isImageFile } from "./media.js";
+
+const logger = createLogger("whatsapp");
 
 const PID_FILE = path.join(os.homedir(), ".baoclaw", "whatsapp-gateway.pid");
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -90,13 +94,13 @@ export class WhatsAppGateway {
    * 4.1 — Start the gateway: load config → Baileys init → daemon discover → message loop.
    */
   async start(): Promise<void> {
-    console.log("WhatsApp Gateway starting...");
+    logger.info("WhatsApp Gateway starting...");
 
     // Load config
     this.config = loadWhatsAppConfig(this.configPath);
 
     if (!this.config.enabled) {
-      console.log(
+      logger.info(
         "WhatsApp is disabled in configuration (whatsapp.enabled = false). Exiting.",
       );
       process.exit(0);
@@ -108,20 +112,20 @@ export class WhatsAppGateway {
       if (validateE164(entry)) {
         validAllow.push(entry);
       } else {
-        console.warn(`Invalid E.164 number in allowFrom, skipping: ${entry}`);
+        logger.warn(`Invalid E.164 number in allowFrom, skipping: ${entry}`);
       }
     }
     this.config.allowFrom = validAllow;
 
     if (validAllow.length === 0) {
-      console.warn(
+      logger.warn(
         "Warning: allowFrom is empty — all incoming messages will be rejected.",
       );
     }
 
     // Watch config for hot-reload
     this.configWatcher = watchConfig(this.configPath, (newConfig) => {
-      console.log("Config reloaded.");
+      logger.info("Config reloaded.");
       this.config = newConfig;
     });
 
@@ -131,11 +135,11 @@ export class WhatsAppGateway {
       this.config.phoneNumber ?? undefined,
       this.config.proxy ?? undefined,
     );
-    console.log("Initializing WhatsApp connection...");
+    logger.info("Initializing WhatsApp connection...");
     const sock = await this.session.initialize();
 
     // Discover and connect to daemon (with sharedSessionId)
-    console.log("Discovering BaoClaw daemon...");
+    logger.info("Discovering BaoClaw daemon...");
     const { client, info } = await this.daemonConnector.discoverAndConnect(
       60_000,
       5_000,
@@ -143,7 +147,11 @@ export class WhatsAppGateway {
     );
     this.ipcClient = client;
     this.daemonInfo = info;
-    console.log(
+    setDaemonMetrics({
+      reconnectCount: this.daemonConnector.reconnectCount,
+      lastConnectAt: this.daemonConnector.lastConnectAt,
+    });
+    logger.info(
       `Connected to daemon pid=${info.pid} session=${info.session_id}`,
     );
 
@@ -161,7 +169,7 @@ export class WhatsAppGateway {
     });
 
     // Print registered commands
-    console.log(
+    logger.info(
       `Registered ${COMMAND_REGISTRY ? Object.keys(COMMAND_REGISTRY).length : 0} commands.`,
     );
 
@@ -171,7 +179,7 @@ export class WhatsAppGateway {
     // Set up daemon disconnect handler
     client.onDisconnect(() => {
       if (!this.shuttingDown) {
-        console.warn("Daemon connection lost. Attempting reconnect...");
+        logger.warn("Daemon connection lost. Attempting reconnect...");
         this.reconnectDaemon(sock, 1);
       }
     });
@@ -185,7 +193,7 @@ export class WhatsAppGateway {
     // Set up graceful shutdown (4.4)
     this.setupShutdownHandlers(sock);
 
-    console.log("WhatsApp Gateway is ready.");
+    logger.info("WhatsApp Gateway is ready.");
   }
 
   /**
@@ -227,13 +235,13 @@ export class WhatsAppGateway {
           msg.message?.conversation ??
           msg.message?.extendedTextMessage?.text ??
           "";
-        console.log(
+        logger.info(
           `📥 inbound: replyJid=${replyJid} senderJid=${senderJid} senderPhone=${senderPhone} group=${isGroup} text="${String(previewText).slice(0, 60)}"`,
         );
 
         // Allowlist check
         if (!isAllowed(senderPhone, this.config.allowFrom)) {
-          console.log(
+          logger.info(
             `  ↳ rejected by allowlist (allowFrom=${JSON.stringify(this.config.allowFrom)})`,
           );
           continue;
@@ -241,7 +249,7 @@ export class WhatsAppGateway {
 
         // Rate limit check
         if (!this.rateLimiter.tryConsume(senderPhone)) {
-          console.log(`Rate limited: ${senderPhone}`);
+          logger.info(`Rate limited: ${senderPhone}`);
           try {
             await sock.sendMessage(replyJid, {
               text: "⏳ Rate limit exceeded. Please wait.",
@@ -277,7 +285,7 @@ export class WhatsAppGateway {
                 }
               }
             } catch (err: any) {
-              console.error(`Document handling error: ${err.message}`);
+              logger.error(`Document handling error: ${err.message}`);
             }
           }
           continue;
@@ -302,7 +310,7 @@ export class WhatsAppGateway {
                 }
               }
             } catch (err: any) {
-              console.error(`Image handling error: ${err.message}`);
+              logger.error(`Image handling error: ${err.message}`);
             }
           }
           continue;
@@ -414,7 +422,7 @@ export class WhatsAppGateway {
           });
         }
       } catch (err: any) {
-        console.error(`submitMessage RPC error for ${sender}: ${err.message}`);
+        logger.error(`submitMessage RPC error for ${sender}: ${err.message}`);
         const jid = this.senderTracker.getJid(sender);
         if (jid) {
           try {
@@ -507,7 +515,7 @@ export class WhatsAppGateway {
               try {
                 await this.mediaHandler.sendFile(sock, jid, fp);
               } catch (err) {
-                console.error(`Failed to send file ${fp}: ${err}`);
+                logger.error(`Failed to send file ${fp}: ${err}`);
               }
             }
           }
@@ -602,11 +610,11 @@ export class WhatsAppGateway {
     const shutdown = async (signal: string) => {
       if (this.shuttingDown) return;
       this.shuttingDown = true;
-      console.log(`\nShutdown initiated (${signal}).`);
+      logger.info(`\nShutdown initiated (${signal}).`);
 
       // Force exit after timeout
       const forceTimer = setTimeout(() => {
-        console.warn("Shutdown timeout exceeded (10s). Force exiting.");
+        logger.warn("Shutdown timeout exceeded (10s). Force exiting.");
         process.exit(1);
       }, SHUTDOWN_TIMEOUT_MS);
       forceTimer.unref();
@@ -619,19 +627,19 @@ export class WhatsAppGateway {
       try {
         // Save auth state and disconnect WhatsApp
         await this.session.disconnect();
-        console.log("WhatsApp session saved and disconnected.");
+        logger.info("WhatsApp session saved and disconnected.");
       } catch (err) {
-        console.error(`Error disconnecting WhatsApp: ${err}`);
+        logger.error(`Error disconnecting WhatsApp: ${err}`);
       }
 
       try {
         // Close UDS connection
         if (this.ipcClient) {
           await this.ipcClient.disconnect();
-          console.log("Daemon connection closed.");
+          logger.info("Daemon connection closed.");
         }
       } catch (err) {
-        console.error(`Error disconnecting daemon: ${err}`);
+        logger.error(`Error disconnecting daemon: ${err}`);
       }
 
       // Stop config watcher
@@ -643,7 +651,7 @@ export class WhatsAppGateway {
       this.removePidFile();
 
       clearTimeout(forceTimer);
-      console.log(`Shutdown complete (${signal}).`);
+      logger.info(`Shutdown complete (${signal}).`);
       process.exit(0);
     };
 
@@ -660,7 +668,7 @@ export class WhatsAppGateway {
     const maxMs = this.config.reconnectMaxMs || 300_000;
     const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attempt - 1), maxMs);
 
-    console.warn(`Reconnect attempt ${attempt} in ${delay}ms...`);
+    logger.warn(`Reconnect attempt ${attempt} in ${delay}ms...`);
     await new Promise((r) => setTimeout(r, delay));
 
     try {
@@ -671,16 +679,20 @@ export class WhatsAppGateway {
       );
       this.ipcClient = client;
       this.daemonInfo = info;
+      setDaemonMetrics({
+        reconnectCount: this.daemonConnector.reconnectCount,
+        lastConnectAt: this.daemonConnector.lastConnectAt,
+      });
       this.setupStreamHandler(sock);
       client.onDisconnect(() => {
         if (!this.shuttingDown) {
-          console.warn("Daemon connection lost. Reconnecting...");
+          logger.warn("Daemon connection lost. Reconnecting...");
           this.reconnectDaemon(sock, 1); // reset attempt
         }
       });
-      console.log(`Reconnected to daemon pid=${info.pid}`);
+      logger.info(`Reconnected to daemon pid=${info.pid}`);
     } catch (err) {
-      console.error(`Reconnect attempt ${attempt} failed: ${err}`);
+      logger.error(`Reconnect attempt ${attempt} failed: ${err}`);
       this.reconnectDaemon(sock, attempt + 1);
     }
   }
@@ -699,9 +711,9 @@ export class WhatsAppGateway {
       const dir = path.dirname(PID_FILE);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(PID_FILE, JSON.stringify(pidData, null, 2));
-      console.log(`PID file written: ${PID_FILE}`);
+      logger.info(`PID file written: ${PID_FILE}`);
     } catch (err) {
-      console.warn(`Failed to write PID file: ${err}`);
+      logger.warn(`Failed to write PID file: ${err}`);
     }
   }
 
@@ -717,7 +729,7 @@ export class WhatsAppGateway {
    * Stop the gateway with a reason.
    */
   async stop(reason: string): Promise<void> {
-    console.log(`Stopping gateway: ${reason}`);
+    logger.info(`Stopping gateway: ${reason}`);
     process.emit("SIGTERM" as any);
   }
 }
@@ -728,7 +740,7 @@ async function main() {
   try {
     await gateway.start();
   } catch (err) {
-    console.error(`Gateway failed to start: ${err}`);
+    logger.error(`Gateway failed to start: ${err}`);
     process.exit(1);
   }
 }

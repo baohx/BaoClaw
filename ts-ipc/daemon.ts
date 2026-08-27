@@ -10,6 +10,9 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { IpcClient } from "./client.js";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("ts-ipc");
 
 export interface DaemonInfo {
   pid: number;
@@ -56,6 +59,18 @@ export function selectNewestDaemon(daemons: DaemonInfo[]): DaemonInfo | null {
 
 export class DaemonConnector {
   private readonly sessionTag: string;
+  private reconnectCountValue = 0;
+  private lastDisconnectErrorValue: Error | null = null;
+  private lastConnectAtValue: Date | null = null;
+  get reconnectCount(): number {
+    return this.reconnectCountValue;
+  }
+  get lastDisconnectError(): Error | null {
+    return this.lastDisconnectErrorValue;
+  }
+  get lastConnectAt(): Date | null {
+    return this.lastConnectAtValue;
+  }
 
   constructor(options: DaemonConnectorOptions = {}) {
     this.sessionTag = options.sessionTag ?? "default";
@@ -101,6 +116,11 @@ export class DaemonConnector {
   ): Promise<IpcClient> {
     const client = new IpcClient({ requestTimeoutMs: 0 });
     await client.connect(info.socket);
+    this.lastConnectAtValue = new Date();
+    client.onDisconnect((error) => {
+      this.reconnectCountValue++;
+      this.lastDisconnectErrorValue = error;
+    });
     const initParams: Record<string, unknown> = {
       cwd: info.cwd,
       settings: {},
@@ -140,7 +160,7 @@ export class DaemonConnector {
           return { client, info: fixedInfo };
         } catch (err: any) {
           lastError = err instanceof Error ? err : new Error(String(err));
-          console.warn(
+          logger.warn(
             `Fixed daemon connect failed (socket=${fixedSocket}): ${lastError.message}`,
           );
         }
@@ -153,7 +173,7 @@ export class DaemonConnector {
           return { client, info: best };
         } catch (err: any) {
           lastError = err instanceof Error ? err : new Error(String(err));
-          console.warn(
+          logger.warn(
             `Daemon connect failed (pid=${best.pid}, socket=${best.socket}): ${lastError.message}`,
           );
         }

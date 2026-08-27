@@ -32,6 +32,7 @@ import {
   dispatchCommand,
   COMMAND_REGISTRY,
   setDaemonInfo,
+  setDaemonMetrics,
   setGatewayInfo,
   formatHelp,
 } from "./commands.js";
@@ -314,6 +315,12 @@ class DaemonBridge {
   get ipcClient(): IpcClient | null {
     return this.client;
   }
+  getReconnectCount(): number {
+    return this.connector.reconnectCount;
+  }
+  getLastConnectAt(): Date | null {
+    return this.connector.lastConnectAt;
+  }
   get isProcessing(): boolean {
     return this.processing;
   }
@@ -425,6 +432,10 @@ async function main() {
   // ── Connect to daemon ──
   await bridge.connect();
   logger.info(`Daemon ready (session: ${bridge.daemonInfo?.session_id})`);
+  setDaemonMetrics({
+    reconnectCount: bridge.getReconnectCount(),
+    lastConnectAt: bridge.getLastConnectAt(),
+  });
   logger.info(
     `Registered ${Object.keys(COMMAND_REGISTRY).length} slash commands`,
   );

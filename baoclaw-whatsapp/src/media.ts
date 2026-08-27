@@ -6,6 +6,9 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import { createLogger } from "../../ts-ipc/logger.js";
+
+const logger = createLogger("whatsapp");
 import * as os from "os";
 import * as crypto from "crypto";
 import { IpcClient } from "../../ts-ipc/index.js";
@@ -38,7 +41,7 @@ export class MediaHandler {
       const { downloadMediaMessage } = await import("@whiskeysockets/baileys");
       buffer = await downloadMediaMessage(msg, "buffer", {});
     } catch (err) {
-      console.error(`Failed to download media: ${err}`);
+      logger.error(`Failed to download media: ${err}`);
       return null;
     }
 
@@ -49,7 +52,7 @@ export class MediaHandler {
 
     // 4. 检查文件大小（不超过 MAX_MEDIA_SIZE）
     if (buffer.length > MAX_MEDIA_SIZE) {
-      console.error(
+      logger.error(
         `Media file too large: ${buffer.length} bytes (max ${MAX_MEDIA_SIZE} bytes)`,
       );
       return null;
@@ -87,7 +90,7 @@ export class MediaHandler {
     try {
       fs.writeFileSync(tmpPath, buffer);
     } catch (err) {
-      console.error(`Failed to write media temp file: ${err}`);
+      logger.error(`Failed to write media temp file: ${err}`);
       return null;
     }
 
@@ -126,12 +129,12 @@ export class MediaHandler {
       // 3. 返回文档 ID (result.doc_id 或类似字段)
       const docId = result?.doc_id ?? result?.document_id ?? result?.id ?? null;
       if (!docId) {
-        console.error("docUpload returned no document ID");
+        logger.error("docUpload returned no document ID");
         return null;
       }
       return docId;
     } catch (err) {
-      console.error(`docUpload RPC error: ${err}`);
+      logger.error(`docUpload RPC error: ${err}`);
       return null;
     } finally {
       // 4. 清理临时文件

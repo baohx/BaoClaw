@@ -420,6 +420,8 @@ function formatStatus(
     out += `Session: ${daemonInfo.session_id}\n`;
     out += `CWD: ${daemonInfo.cwd}\n`;
   }
+  out += `Reconnects: ${_daemonMetrics.reconnectCount}\n`;
+  out += `Last connect: ${_daemonMetrics.lastConnectAt?.toISOString() ?? "never"}\n`;
   return out;
 }
 
@@ -434,12 +436,17 @@ function formatError(title: string, detail: string): string {
 // We need a mutable reference to daemonInfo for /status.
 // This will be set by the gateway when it creates the commands module.
 let _daemonInfo: { pid: number; session_id: string; cwd: string } | null = null;
+let _daemonMetrics = { reconnectCount: 0, lastConnectAt: null as Date | null };
 
 /** Set the daemon info reference (called by gateway after connection). */
 export function setDaemonInfo(
   info: { pid: number; session_id: string; cwd: string } | null,
 ): void {
   _daemonInfo = info;
+}
+
+export function setDaemonMetrics(metrics: typeof _daemonMetrics): void {
+  _daemonMetrics = metrics;
 }
 
 // ── Conversation Commands ──

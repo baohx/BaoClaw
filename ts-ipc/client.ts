@@ -14,7 +14,7 @@ interface JsonRpcNotification {
 }
 
 type NotificationHandler = (params: unknown) => void;
-type DisconnectHandler = () => void;
+type DisconnectHandler = (error: Error) => void;
 
 export interface IpcClientOptions {
   /**
@@ -26,6 +26,7 @@ export interface IpcClientOptions {
 
 export class IpcClient {
   private socket: net.Socket | null = null;
+  private disconnectHandled = true;
   private buffer = "";
   private nextId = 1;
   private readonly defaultTimeoutMs: number;
@@ -68,6 +69,7 @@ export class IpcClient {
         this.socket = null;
         this.handleDisconnect(new Error("Connection closed"));
       });
+      this.disconnectHandled = false;
     });
   }
 
@@ -270,6 +272,8 @@ export class IpcClient {
    * Clean up all pending requests on disconnect and notify handlers.
    */
   private handleDisconnect(error: Error): void {
+    if (this.disconnectHandled) return;
+    this.disconnectHandled = true;
     for (const [, pending] of this.pendingRequests) {
       if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error);
@@ -278,7 +282,7 @@ export class IpcClient {
 
     for (const handler of this.disconnectHandlers) {
       try {
-        handler();
+        handler(error);
       } catch {
         // Disconnect handlers should not throw, but don't let one break others
       }

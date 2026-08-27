@@ -13,6 +13,7 @@ import {
   selectNewestDaemon,
   type DaemonInfo,
 } from "../../ts-ipc/index.js";
+import { createLogger } from "../../ts-ipc/logger.js";
 import {
   Bot,
   InputFile,
@@ -56,13 +57,15 @@ import {
 } from "./commands.js";
 import { splitMessage } from "./messageSplitter.js";
 
+const logger = createLogger("telegram");
+
 // ── Global error handlers ──
 process.on("uncaughtException", (err) => {
-  console.error("UNCAUGHT:", err);
+  logger.error(`UNCAUGHT: ${String(err)}`);
   process.exit(1);
 });
 process.on("unhandledRejection", (err) => {
-  console.error("UNHANDLED REJECTION:", err);
+  logger.error(`UNHANDLED REJECTION: ${String(err)}`);
   process.exit(1);
 });
 
@@ -107,6 +110,7 @@ async function connectToDaemon(
   client: IpcClient;
   info: DaemonInfo;
   sessionState: SessionState;
+  connector: DaemonConnector;
 }> {
   const connector = new DaemonConnector({ sessionTag: "telegram" });
   const deadline = Date.now() + maxWaitMs;
@@ -136,10 +140,10 @@ async function connectToDaemon(
           sessionId: result?.session_id ?? "telegram",
           shared: Boolean(result?.shared),
         };
-        return { client, info: fixedInfo, sessionState };
+        return { client, info: fixedInfo, sessionState, connector };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        console.log(
+        logger.info(
           `Fixed socket connection attempt failed: ${lastError.message}`,
         );
       }
@@ -170,25 +174,25 @@ async function connectToDaemon(
               sessionId: result.session_id ?? best.session_id,
               shared: result?.shared ?? false,
             };
-            console.log(
+            logger.info(
               `Resumed session ${sessionState.sessionId} (${sessionState.messageCount} messages)`,
             );
           }
           if (sessionState.shared) {
-            console.log(
+            logger.info(
               `Joined shared session ${sessionState.sessionId} (${sessionState.messageCount} messages)`,
             );
           }
         } catch {
           // Resume extraction failed — silently degrade to new session
         }
-        return { client, info: best, sessionState };
+        return { client, info: best, sessionState, connector };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        console.log(`Connection attempt failed: ${err}. Retrying...`);
+        logger.info(`Connection attempt failed: ${err}. Retrying...`);
       }
     } else {
-      console.log("No daemon found. Waiting...");
+      logger.info("No daemon found. Waiting...");
     }
     await new Promise((r) => setTimeout(r, retryIntervalMs));
   }
@@ -372,36 +376,38 @@ async function main() {
   const config = loadConfig();
 
   if (!config.token) {
-    console.error("Error: Telegram bot token not set.");
-    console.error(
+    logger.error("Error: Telegram bot token not set.");
+    logger.error(
       "Set telegram.token in ~/.baoclaw/config.json or TELEGRAM_BOT_TOKEN env var.",
     );
     process.exit(1);
   }
   if (config.allowedChatIds.length === 0) {
-    console.error(
+    logger.error(
       "Cannot start because no chat allowlist is configured. To fix, set allowedChatIds in config.json.",
     );
     process.exit(1);
   }
 
-  console.log("BaoClaw Telegram Gateway starting (daemon mode)...");
+  logger.info("BaoClaw Telegram Gateway starting (daemon mode)...");
 
   // ── Discover and connect to daemon ──
-  console.log("Discovering BaoClaw daemon...");
+  logger.info("Discovering BaoClaw daemon...");
   let ipcClient: IpcClient;
   let daemonInfo: DaemonInfo;
   let sessionState: SessionState;
+  let daemonConnector: DaemonConnector;
   try {
     const conn = await connectToDaemon();
     ipcClient = conn.client;
     daemonInfo = conn.info;
+    daemonConnector = conn.connector;
     sessionState = conn.sessionState;
-    console.log(
+    logger.info(
       `Connected to daemon pid=${daemonInfo.pid} cwd=${daemonInfo.cwd} session=${daemonInfo.session_id}`,
     );
   } catch (err: any) {
-    console.error(`Failed to connect to daemon: ${err.message}`);
+    logger.error(`Failed to connect to daemon: ${err.message}`);
     process.exit(1);
   }
 
@@ -460,14 +466,14 @@ async function main() {
   let botInfo: User;
   try {
     botInfo = await bot.api.getMe();
-    console.log(`Telegram bot @${botInfo.username} ready.`);
+    logger.info(`Telegram bot @${botInfo.username} ready.`);
   } catch (err: any) {
-    console.error(`Failed to connect to Telegram API: ${err.message}`);
+    logger.error(`Failed to connect to Telegram API: ${err.message}`);
     process.exit(1);
   }
 
   bot.catch((err: unknown) => {
-    console.error(
+    logger.error(
       `Telegram update error: ${err instanceof Error ? err.message : String(err)}`,
     );
   });
@@ -482,7 +488,7 @@ async function main() {
   };
   fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
   fs.writeFileSync(PID_FILE, JSON.stringify(pidData, null, 2));
-  console.log(`PID file: ${PID_FILE}`);
+  logger.info(`PID file: ${PID_FILE}`);
 
   // ── Per-chat state ──
   const chatQueue = new ChatQueue();
@@ -662,7 +668,7 @@ async function main() {
                   await sendToolResultImage(chatId, images[i], i);
                   sent = true;
                 } catch (err) {
-                  console.error(`Failed to send tool result image: ${err}`);
+                  logger.error(`Failed to send tool result image: ${err}`);
                 }
               }
             }
@@ -697,7 +703,7 @@ async function main() {
                 } catch {}
                 sent = true;
               } catch (err) {
-                console.error(
+                logger.error(
                   `Failed to extract/send image from truncated output: ${err}`,
                 );
               }
@@ -733,7 +739,7 @@ async function main() {
           // Extract and send base64 images as real photos
           const { text, images } = extractBase64Images(accumulated);
           if (images.length > 0) {
-            console.log(
+            logger.info(
               `Extracted ${images.length} image(s) from accumulated text (${accumulated.length} chars)`,
             );
           }
@@ -749,7 +755,7 @@ async function main() {
                 try {
                   await sendMessage(chatId, chunk);
                 } catch (err) {
-                  console.error(`Failed to send Telegram message: ${err}`);
+                  logger.error(`Failed to send Telegram message: ${err}`);
                 }
               }
             }
@@ -767,7 +773,7 @@ async function main() {
               });
               fs.unlinkSync(tmpFile);
             } catch (err) {
-              console.error(
+              logger.error(
                 `Failed to send photo (${img.buffer.length} bytes): ${err}`,
               );
             }
@@ -788,7 +794,7 @@ async function main() {
 
   // ── Handle daemon disconnect ──
   ipcClient.onDisconnect(() => {
-    console.warn("Daemon connection lost. Shutting down.");
+    logger.warn("Daemon connection lost. Shutting down.");
     bot.stop();
     try {
       fs.unlinkSync(PID_FILE);
@@ -955,7 +961,10 @@ async function main() {
   }
 
   function handleStatus(): string {
-    return formatStatus(daemonInfo, botInfo.username!, sessionState);
+    return formatStatus(daemonInfo, botInfo.username!, sessionState, {
+      reconnectCount: daemonConnector.reconnectCount,
+      lastConnectAt: daemonConnector.lastConnectAt,
+    });
   }
 
   function handleStart(chatId: number): string {
@@ -983,7 +992,7 @@ async function main() {
   async function handleQuit(chatId: number): Promise<string> {
     // Send goodbye, then shut down the gateway process
     setTimeout(() => {
-      console.log("Quit requested via Telegram");
+      logger.info("Quit requested via Telegram");
       bot.stop();
       ipcClient.disconnect().catch(() => {});
       try {
@@ -1435,7 +1444,7 @@ async function main() {
           );
         } catch {}
       } else {
-        console.error(`submitMessage error for chat ${chatId}: ${msg}`);
+        logger.error(`submitMessage error for chat ${chatId}: ${msg}`);
         try {
           await sendMessage(chatId, `❌ ${msg}`);
         } catch {}
@@ -1471,7 +1480,7 @@ async function main() {
 
     // Allowlist is validated at startup; reject every non-member.
     if (!config.allowedChatIds.includes(chatId)) {
-      console.log(`Rejected: chat ${chatId}`);
+      logger.info(`Rejected: chat ${chatId}`);
       return;
     }
 
@@ -1527,7 +1536,7 @@ async function main() {
           processQueue(chatId);
         }
       } catch (err: any) {
-        console.error(`Document processing error: ${err.message}`);
+        logger.error(`Document processing error: ${err.message}`);
         try {
           await sendMessage(chatId, `❌ 文件处理失败: ${err.message}`);
         } catch {}
@@ -1564,7 +1573,7 @@ async function main() {
           processQueue(chatId);
         }
       } catch (err: any) {
-        console.error(`Photo processing error: ${err.message}`);
+        logger.error(`Photo processing error: ${err.message}`);
         try {
           await sendMessage(chatId, `❌ 图片处理失败: ${err.message}`);
         } catch {}
@@ -1604,7 +1613,7 @@ async function main() {
 
   // ── Graceful shutdown ──
   const shutdown = (signal: string) => {
-    console.log(`Shutdown (${signal})`);
+    logger.info(`Shutdown (${signal})`);
     bot.stop();
     ipcClient.disconnect().catch(() => {});
     try {
@@ -1615,11 +1624,11 @@ async function main() {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
-  console.log("Telegram Gateway ready.");
+  logger.info("Telegram Gateway ready.");
   await run(bot);
 }
 
 main().catch((err) => {
-  console.error(`Gateway failed: ${err.message}`);
+  logger.error(`Gateway failed: ${err.message}`);
   process.exit(1);
 });
