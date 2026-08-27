@@ -33,8 +33,27 @@ impl IpcServer {
     /// Bind to a Unix Domain Socket at the given path.
     /// Sets file permissions to 0600 (owner-only access).
     pub async fn bind(socket_path: &Path) -> std::io::Result<Self> {
-        // Remove existing socket file if present
-        let _ = std::fs::remove_file(socket_path);
+        if socket_path.exists() {
+            match tokio::net::UnixStream::connect(socket_path).await {
+                Ok(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AddrInUse,
+                        format!("IPC socket is already in use: {}", socket_path.display()),
+                    ));
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionRefused
+                            | std::io::ErrorKind::NotFound
+                            | std::io::ErrorKind::ConnectionAborted
+                    ) =>
+                {
+                    std::fs::remove_file(socket_path)?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
 
         let listener = UnixListener::bind(socket_path)?;
 
@@ -284,5 +303,21 @@ mod tests {
         }
         // After drop, socket file should be removed
         assert!(!socket_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_ipc_server_does_not_delete_live_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket_path = dir.path().join("live.sock");
+        let server = IpcServer::bind(&socket_path).await.unwrap();
+
+        let result = IpcServer::bind(&socket_path).await;
+        assert!(matches!(
+            result,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse
+        ));
+        assert!(socket_path.exists());
+
+        drop(server);
     }
 }

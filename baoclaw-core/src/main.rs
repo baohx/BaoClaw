@@ -3554,13 +3554,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create socket: prefer fixed machine-level path (P3-1c), fall back to cwd-hash
     let socket_path = resolve_daemon_socket(&cwd_str);
 
-    // Clean up stale fixed socket if it exists but no daemon is listening
-    if socket_path.exists() && tokio::net::UnixStream::connect(&socket_path).await.is_err() {
-        // No daemon listening — remove stale socket file
-        let _ = std::fs::remove_file(&socket_path);
-    }
-
-    // Bind IPC server
+    // IpcServer::bind probes and removes stale sockets, avoiding a
+    // check-then-delete race during daemon startup.
     let server = IpcServer::bind(&socket_path).await?;
 
     // Output socket path for clients to find
