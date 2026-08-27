@@ -14,15 +14,15 @@ pub struct SandboxConfigFile {
     /// Named sandbox profiles.
     #[serde(default)]
     pub profiles: HashMap<String, SandboxProfile>,
-    
+
     /// Automatic profile selection rules.
     #[serde(default)]
     pub auto_profile: HashMap<String, String>,
-    
+
     /// Default profile name to use.
     #[serde(default = "default_profile")]
     pub default_profile: String,
-    
+
     /// Whether to ask for confirmation on profile upgrade.
     #[serde(default = "default_ask_on_upgrade")]
     pub ask_on_upgrade: bool,
@@ -126,8 +126,11 @@ pub fn load_sandbox_config_from(path: &std::path::Path) -> SandboxConfigFile {
                     defaults
                 }
                 Err(e) => {
-                    eprintln!("Warning: invalid sandbox config JSON at {}: {}, using defaults", 
-                        path.display(), e);
+                    eprintln!(
+                        "Warning: invalid sandbox config JSON at {}: {}, using defaults",
+                        path.display(),
+                        e
+                    );
                     SandboxConfigFile::default()
                 }
             }
@@ -135,26 +138,34 @@ pub fn load_sandbox_config_from(path: &std::path::Path) -> SandboxConfigFile {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // Create default config file
             if let Err(write_err) = save_sandbox_config_to(&SandboxConfigFile::default(), path) {
-                eprintln!("Warning: could not create default sandbox config at {}: {}", 
-                    path.display(), write_err);
+                eprintln!(
+                    "Warning: could not create default sandbox config at {}: {}",
+                    path.display(),
+                    write_err
+                );
             }
             SandboxConfigFile::default()
         }
         Err(e) => {
-            eprintln!("Warning: could not read sandbox config at {}: {}, using defaults", 
-                path.display(), e);
+            eprintln!(
+                "Warning: could not read sandbox config at {}: {}, using defaults",
+                path.display(),
+                e
+            );
             SandboxConfigFile::default()
         }
     }
 }
 
 /// Save sandbox configuration to a specific path.
-pub fn save_sandbox_config_to(config: &SandboxConfigFile, path: &std::path::Path) -> Result<(), std::io::Error> {
+pub fn save_sandbox_config_to(
+    config: &SandboxConfigFile,
+    path: &std::path::Path,
+) -> Result<(), std::io::Error> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(config)
-        .map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(config).map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 
@@ -187,19 +198,19 @@ mod tests {
     #[test]
     fn test_resolve_profile() {
         let config = SandboxConfigFile::default();
-        
+
         // FileRead should use read_only
         assert_eq!(
             config.resolve_profile("FileRead", None),
             Some("read_only".to_string())
         );
-        
+
         // npm install should use web_dev
         assert_eq!(
             config.resolve_profile("Bash", Some("npm install")),
             Some("web_dev".to_string())
         );
-        
+
         // FileWrite should return "ask"
         assert_eq!(
             config.resolve_profile("FileWrite", None),
@@ -238,7 +249,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = config_in(dir.path());
         // Custom config with only a custom profile
-        std::fs::write(&path, r#"{
+        std::fs::write(
+            &path,
+            r#"{
             "profiles": {
                 "custom": {
                     "name": "custom",
@@ -247,19 +260,21 @@ mod tests {
                 }
             },
             "default_profile": "custom"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let config = load_sandbox_config_from(&path);
-        
+
         // Custom profile should exist
         assert!(config.profiles.contains_key("custom"));
         let custom = config.get_profile("custom").unwrap();
         assert!(custom.is_writable("/workspace/file"));
-        
+
         // Preset profiles should still exist
         assert!(config.profiles.contains_key("read_only"));
         assert!(config.profiles.contains_key("web_dev"));
-        
+
         // Default should be custom
         assert_eq!(config.default_profile, "custom");
     }
@@ -272,7 +287,7 @@ mod tests {
         let original = SandboxConfigFile::default();
         save_sandbox_config_to(&original, &path).unwrap();
         let loaded = load_sandbox_config_from(&path);
-        
+
         assert_eq!(original.default_profile, loaded.default_profile);
         assert_eq!(original.ask_on_upgrade, loaded.ask_on_upgrade);
     }

@@ -13,9 +13,7 @@ mod tests {
         // dir contributes zero servers.
         let prefix = dir.path().to_string_lossy().to_string();
         assert!(
-            servers
-                .iter()
-                .all(|s| !s.config_path.starts_with(&prefix)),
+            servers.iter().all(|s| !s.config_path.starts_with(&prefix)),
             "empty project dir produced servers: {:?}",
             servers
         );
@@ -37,7 +35,9 @@ mod tests {
                 }
             }
         }"#;
-        fs::write(baoclaw_dir.join("mcp.json"), config_json).await.unwrap();
+        fs::write(baoclaw_dir.join("mcp.json"), config_json)
+            .await
+            .unwrap();
 
         let servers = discover_mcp_servers(dir.path()).await;
         let proj_server = servers.iter().find(|s| s.name == "test-server");
@@ -63,7 +63,9 @@ mod tests {
                 }
             }
         }"#;
-        fs::write(baoclaw_dir.join("mcp.local.json"), config_json).await.unwrap();
+        fs::write(baoclaw_dir.join("mcp.local.json"), config_json)
+            .await
+            .unwrap();
 
         let servers = discover_mcp_servers(dir.path()).await;
         let local_server = servers.iter().find(|s| s.name == "local-server");

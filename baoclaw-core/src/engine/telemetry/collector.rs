@@ -8,9 +8,7 @@ use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use super::types::{
-    DailyStats, SessionSnapshot, ToolUsageStat, UsageStats,
-};
+use super::types::{DailyStats, SessionSnapshot, ToolUsageStat, UsageStats};
 
 /// Default path for the telemetry database.
 fn default_db_path() -> PathBuf {
@@ -104,8 +102,7 @@ impl TelemetryCollector {
         tools: Vec<String>,
     ) -> Result<(), String> {
         let now = chrono::Utc::now().timestamp();
-        let tools_json = serde_json::to_string(&tools)
-            .unwrap_or_else(|_| "[]".to_string());
+        let tools_json = serde_json::to_string(&tools).unwrap_or_else(|_| "[]".to_string());
 
         let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
         conn.execute(
@@ -443,7 +440,14 @@ mod tests {
             .record_turn("s1", 200, 100, 0.002, 1500, vec!["FileRead".to_string()])
             .unwrap();
         collector
-            .record_turn("s2", 300, 150, 0.003, 2000, vec!["Bash".to_string(), "Grep".to_string()])
+            .record_turn(
+                "s2",
+                300,
+                150,
+                0.003,
+                2000,
+                vec!["Bash".to_string(), "Grep".to_string()],
+            )
             .unwrap();
 
         let stats = collector.get_stats().unwrap();
@@ -495,7 +499,14 @@ mod tests {
             .record_turn("s1", 10, 5, 0.001, 500, vec!["Bash".to_string()])
             .unwrap();
         collector
-            .record_turn("s1", 10, 5, 0.001, 500, vec!["Bash".to_string(), "FileRead".to_string()])
+            .record_turn(
+                "s1",
+                10,
+                5,
+                0.001,
+                500,
+                vec!["Bash".to_string(), "FileRead".to_string()],
+            )
             .unwrap();
         collector
             .record_turn("s2", 10, 5, 0.001, 500, vec!["Grep".to_string()])
@@ -556,7 +567,14 @@ mod tests {
     fn test_stats_most_used_tool() {
         let (collector, _dir) = test_collector();
         collector
-            .record_turn("s1", 10, 5, 0.001, 500, vec!["FileRead".to_string(), "FileRead".to_string()])
+            .record_turn(
+                "s1",
+                10,
+                5,
+                0.001,
+                500,
+                vec!["FileRead".to_string(), "FileRead".to_string()],
+            )
             .unwrap();
         collector
             .record_turn("s1", 10, 5, 0.001, 500, vec!["Bash".to_string()])

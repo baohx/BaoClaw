@@ -79,11 +79,15 @@ pub async fn discover_mcp_servers(cwd: &Path) -> Vec<McpServerInfo> {
 }
 
 /// Scan all plugins in a plugins directory for mcp.json configs.
-async fn scan_plugin_mcp(plugins_dir: &Path) -> Result<Vec<McpServerInfo>, Box<dyn std::error::Error>> {
+async fn scan_plugin_mcp(
+    plugins_dir: &Path,
+) -> Result<Vec<McpServerInfo>, Box<dyn std::error::Error>> {
     let mut servers = Vec::new();
     let mut entries = fs::read_dir(plugins_dir).await?;
     while let Some(entry) = entries.next_entry().await? {
-        if !entry.file_type().await?.is_dir() { continue; }
+        if !entry.file_type().await?.is_dir() {
+            continue;
+        }
         let plugin_name = entry.file_name().to_string_lossy().to_string();
         let mcp_config = entry.path().join("mcp.json");
         let source = format!("plugin:{}", plugin_name);
@@ -106,15 +110,13 @@ async fn load_mcp_config(
         .mcp_servers
         .into_iter()
         .map(|(name, entry)| {
-            let server_type = entry
-                .server_type
-                .unwrap_or_else(|| {
-                    if entry.url.is_some() {
-                        "sse".to_string()
-                    } else {
-                        "stdio".to_string()
-                    }
-                });
+            let server_type = entry.server_type.unwrap_or_else(|| {
+                if entry.url.is_some() {
+                    "sse".to_string()
+                } else {
+                    "stdio".to_string()
+                }
+            });
 
             McpServerInfo {
                 name,

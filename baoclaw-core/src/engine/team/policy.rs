@@ -145,7 +145,6 @@ pub enum BudgetExceededAction {
     AskUser,
 }
 
-
 impl Default for TeamPolicy {
     fn default() -> Self {
         Self {
@@ -332,7 +331,11 @@ impl TeamPolicy {
             tools.sort();
             parts.push(format!(
                 "whitelist=[{}]",
-                tools.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                tools
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
@@ -341,7 +344,11 @@ impl TeamPolicy {
             tools.sort();
             parts.push(format!(
                 "blacklist=[{}]",
-                tools.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                tools
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
@@ -511,7 +518,11 @@ impl AgentPolicy {
             tools.sort();
             parts.push(format!(
                 "tools=[{}]",
-                tools.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                tools
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         } else {
             parts.push("tools=all".to_string());
@@ -522,7 +533,11 @@ impl AgentPolicy {
             tools.sort();
             parts.push(format!(
                 "denied=[{}]",
-                tools.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                tools
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
 
@@ -905,9 +920,9 @@ impl TeamResults {
 mod tests {
     use super::*;
 
-    use crate::engine::team::policy::TeamPolicy;
     use crate::engine::team::policy::AgentPolicy;
     use crate::engine::team::policy::DepthTools;
+    use crate::engine::team::policy::TeamPolicy;
     #[test]
     fn test_team_policy_default() {
         let policy = TeamPolicy::default();
@@ -920,8 +935,8 @@ mod tests {
 
     #[test]
     fn test_team_policy_tool_whitelist() {
-        let policy = TeamPolicy::default()
-            .with_tool_whitelist(vec!["FileRead".into(), "Grep".into()]);
+        let policy =
+            TeamPolicy::default().with_tool_whitelist(vec!["FileRead".into(), "Grep".into()]);
 
         assert!(policy.is_tool_allowed("FileRead", 0));
         assert!(policy.is_tool_allowed("Grep", 0));
@@ -930,8 +945,7 @@ mod tests {
 
     #[test]
     fn test_team_policy_tool_blacklist() {
-        let policy = TeamPolicy::default()
-            .with_tool_blacklist(vec!["WebSearch".into()]);
+        let policy = TeamPolicy::default().with_tool_blacklist(vec!["WebSearch".into()]);
 
         // All tools allowed except WebSearch
         assert!(policy.is_tool_allowed("FileRead", 0));

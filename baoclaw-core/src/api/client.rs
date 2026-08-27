@@ -162,7 +162,9 @@ pub struct SseStream {
 }
 
 impl SseStream {
-    fn new(byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static) -> Self {
+    fn new(
+        byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+    ) -> Self {
         Self {
             inner: Box::pin(byte_stream),
             buffer: String::new(),
@@ -282,10 +284,12 @@ fn parse_next_sse_event(buffer: &mut String) -> Option<Result<ApiStreamEvent, Ap
     // Anthropic SSE event). These arrive as SSE data lines but lack the "type" field.
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
         if let Some(error_obj) = value.get("error") {
-            let code = error_obj.get("code")
+            let code = error_obj
+                .get("code")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let message = error_obj.get("message")
+            let message = error_obj
+                .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown API error");
             return Some(Err(ApiError::BadRequest {
@@ -329,9 +333,7 @@ impl AnthropicClient {
             builder = builder.http1_only();
         }
 
-        let http_client = builder
-            .build()
-            .expect("Failed to build HTTP client");
+        let http_client = builder.build().expect("Failed to build HTTP client");
 
         Self {
             http_client,
@@ -368,7 +370,8 @@ impl AnthropicClient {
             }
         };
 
-        match self.http_client
+        match self
+            .http_client
             .post(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", API_VERSION)
@@ -411,7 +414,10 @@ impl AnthropicClient {
         };
 
         eprintln!("[DEBUG] API call URL: {}", url);
-        eprintln!("[DEBUG] base_url={}, api_path={:?}", self.base_url, self.api_path);
+        eprintln!(
+            "[DEBUG] base_url={}, api_path={:?}",
+            self.base_url, self.api_path
+        );
 
         let response = self
             .http_client
@@ -480,7 +486,8 @@ mod tests {
 
     #[test]
     fn test_deserialize_content_block_start() {
-        let json = r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#;
+        let json =
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#;
         let event: ApiStreamEvent = serde_json::from_str(json).unwrap();
         match event {
             ApiStreamEvent::ContentBlockStart {
@@ -578,8 +585,7 @@ mod tests {
 
     #[test]
     fn test_parse_sse_event_data_only() {
-        let mut buffer =
-            "data: {\"type\":\"ping\"}\n\n".to_string();
+        let mut buffer = "data: {\"type\":\"ping\"}\n\n".to_string();
         let result = parse_next_sse_event(&mut buffer);
         assert!(result.is_some());
         let event = result.unwrap().unwrap();
@@ -604,7 +610,8 @@ mod tests {
 
     #[test]
     fn test_parse_sse_event_multiple_events() {
-        let mut buffer = "data: {\"type\":\"ping\"}\n\ndata: {\"type\":\"message_stop\"}\n\n".to_string();
+        let mut buffer =
+            "data: {\"type\":\"ping\"}\n\ndata: {\"type\":\"message_stop\"}\n\n".to_string();
 
         let first = parse_next_sse_event(&mut buffer);
         assert!(first.is_some());
@@ -763,8 +770,12 @@ mod tests {
         let request = CreateMessageRequest {
             model: "claude-sonnet-4-20250514".to_string(),
             messages: vec![serde_json::json!({"role": "user", "content": "Hello"})],
-            system: Some(vec![serde_json::json!({"type": "text", "text": "You are helpful."})]),
-            tools: Some(vec![serde_json::json!({"name": "bash", "description": "Run bash"})]),
+            system: Some(vec![
+                serde_json::json!({"type": "text", "text": "You are helpful."}),
+            ]),
+            tools: Some(vec![
+                serde_json::json!({"name": "bash", "description": "Run bash"}),
+            ]),
             max_tokens: 8192,
             stream: true,
             thinking: Some(serde_json::json!({"type": "enabled", "budget_tokens": 1024})),
@@ -791,20 +802,19 @@ mod tests {
 
     #[test]
     fn test_api_error_display() {
-        assert_eq!(
-            format!("{}", ApiError::AuthError),
-            "Auth error (401)"
-        );
-        assert_eq!(
-            format!("{}", ApiError::RateLimited),
-            "Rate limited (429)"
-        );
+        assert_eq!(format!("{}", ApiError::AuthError), "Auth error (401)");
+        assert_eq!(format!("{}", ApiError::RateLimited), "Rate limited (429)");
         assert_eq!(
             format!("{}", ApiError::ServerError { status: 503 }),
             "Server error (503)"
         );
         assert_eq!(
-            format!("{}", ApiError::BadRequest { message: "invalid".to_string() }),
+            format!(
+                "{}",
+                ApiError::BadRequest {
+                    message: "invalid".to_string()
+                }
+            ),
             "Bad request (400): invalid"
         );
     }

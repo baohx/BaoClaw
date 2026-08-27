@@ -99,11 +99,7 @@ impl IpcConnection {
     }
 
     /// Send a JSON-RPC notification as NDJSON.
-    pub async fn send_notification(
-        &mut self,
-        method: &str,
-        params: Value,
-    ) -> std::io::Result<()> {
+    pub async fn send_notification(&mut self, method: &str, params: Value) -> std::io::Result<()> {
         let notification = JsonRpcNotification::new(method, params);
         let bytes = encode_ndjson(&notification)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -199,9 +195,12 @@ mod tests {
         }
 
         // 5. Server sends a notification, client receives it
-        conn.send_notification("stream/event", json!({"type": "assistant_chunk", "content": "Hello"}))
-            .await
-            .unwrap();
+        conn.send_notification(
+            "stream/event",
+            json!({"type": "assistant_chunk", "content": "Hello"}),
+        )
+        .await
+        .unwrap();
 
         let mut notif_line = String::new();
         client_reader.read_line(&mut notif_line).await.unwrap();
@@ -244,9 +243,13 @@ mod tests {
         let (client_read, _client_write) = client_stream.into_split();
         let mut client_reader = BufReader::new(client_read);
 
-        conn.send_error(Some(RequestId::Number(5)), -32601, "Method not found".into())
-            .await
-            .unwrap();
+        conn.send_error(
+            Some(RequestId::Number(5)),
+            -32601,
+            "Method not found".into(),
+        )
+        .await
+        .unwrap();
 
         let mut line = String::new();
         client_reader.read_line(&mut line).await.unwrap();

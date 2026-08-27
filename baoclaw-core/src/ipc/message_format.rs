@@ -74,7 +74,11 @@ pub fn message_to_tail_entry(
     opts: TailEntryOptions,
 ) -> Value {
     match &m.content {
-        MessageContent::User { message, tool_use_result, .. } => {
+        MessageContent::User {
+            message,
+            tool_use_result,
+            ..
+        } => {
             let text = content_text(&message.content, opts.include_multimodal_attachments());
             let is_tool_result = tool_use_result.is_some();
             let mut entry = json!({
@@ -97,48 +101,65 @@ pub fn message_to_tail_entry(
             }
             entry
         }
-        MessageContent::Assistant { message, cost_usd, duration_ms, .. } => {
-            let text: String = message.content.iter().filter_map(|b| match b {
-                ContentBlock::Text { text } => Some(text.clone()),
-                _ => None,
-            }).collect::<Vec<_>>().join("");
+        MessageContent::Assistant {
+            message,
+            cost_usd,
+            duration_ms,
+            ..
+        } => {
+            let text: String = message
+                .content
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("");
 
-            let tools: Vec<Value> = message.content.iter().filter_map(|b| match b {
-                ContentBlock::ToolUse { id, name, input } => {
-                    let mut info = json!({"name": name, "id": id});
-                    let mut details: Vec<String> = Vec::new();
-                    if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                        details.push(format!("command: {}", cmd));
-                    }
-                    if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
-                        details.push(format!("path: {}", fp));
-                    }
-                    if opts.include_rich_tool_details {
-                        if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
-                            details.push(format!("pattern: {}", p));
+            let tools: Vec<Value> = message
+                .content
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::ToolUse { id, name, input } => {
+                        let mut info = json!({"name": name, "id": id});
+                        let mut details: Vec<String> = Vec::new();
+                        if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
+                            details.push(format!("command: {}", cmd));
                         }
-                        if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
-                            details.push(format!("query: {}", q));
+                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
+                            details.push(format!("path: {}", fp));
                         }
-                        if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
-                            details.push(format!("url: {}", u));
+                        if opts.include_rich_tool_details {
+                            if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
+                                details.push(format!("pattern: {}", p));
+                            }
+                            if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
+                                details.push(format!("query: {}", q));
+                            }
+                            if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
+                                details.push(format!("url: {}", u));
+                            }
+                            if let Some(p) = input.get("prompt").and_then(|v| v.as_str()) {
+                                details.push(format!(
+                                    "prompt: {}",
+                                    p.chars().take(200).collect::<String>()
+                                ));
+                            }
                         }
-                        if let Some(p) = input.get("prompt").and_then(|v| v.as_str()) {
-                            details.push(format!("prompt: {}", p.chars().take(200).collect::<String>()));
+                        if !details.is_empty() {
+                            info["detail"] = json!(details.join(", "));
                         }
+                        if opts.include_tool_results {
+                            if let Some(result) = tool_results.get(id) {
+                                info["result"] = result.clone();
+                            }
+                        }
+                        Some(info)
                     }
-                    if !details.is_empty() {
-                        info["detail"] = json!(details.join(", "));
-                    }
-                    if opts.include_tool_results {
-                        if let Some(result) = tool_results.get(id) {
-                            info["result"] = result.clone();
-                        }
-                    }
-                    Some(info)
-                }
-                _ => None,
-            }).collect();
+                    _ => None,
+                })
+                .collect();
 
             let mut entry = json!({
                 "role": "assistant",
@@ -179,8 +200,8 @@ impl TailEntryOptions {
 mod tests {
     use super::*;
     use crate::models::message::{
-        ApiAssistantMessage, ApiUserMessage, ContentBlock, Message, MessageContent,
-        ToolUseResult, Usage,
+        ApiAssistantMessage, ApiUserMessage, ContentBlock, Message, MessageContent, ToolUseResult,
+        Usage,
     };
     use std::collections::HashMap;
 
@@ -204,7 +225,10 @@ mod tests {
             uuid: "u1".into(),
             timestamp: "2026-01-01T00:00:00Z".into(),
             content: MessageContent::User {
-                message: ApiUserMessage { role: "user".into(), content },
+                message: ApiUserMessage {
+                    role: "user".into(),
+                    content,
+                },
                 is_meta: false,
                 tool_use_result: tool,
             },
@@ -229,12 +253,21 @@ mod tests {
     }
 
     fn tr(id: &str, output: Value, is_error: bool) -> ToolUseResult {
-        ToolUseResult { tool_use_id: id.into(), output, is_error }
+        ToolUseResult {
+            tool_use_id: id.into(),
+            output,
+            is_error,
+        }
     }
 
     #[test]
     fn user_plain_string() {
-        let r = message_to_tail_entry(&user_msg(json!("hello"), None), 1, &HashMap::new(), TALKTAIL);
+        let r = message_to_tail_entry(
+            &user_msg(json!("hello"), None),
+            1,
+            &HashMap::new(),
+            TALKTAIL,
+        );
         assert_eq!(r["role"], "user");
         assert_eq!(r["text"], "hello");
         assert!(r.get("is_tool_result").is_none());
@@ -249,7 +282,12 @@ mod tests {
             {"type":"document","source":{}}
         ]);
         // rich (TalkTail) keeps markers
-        let rich = message_to_tail_entry(&user_msg(content.clone(), None), 1, &HashMap::new(), TALKTAIL);
+        let rich = message_to_tail_entry(
+            &user_msg(content.clone(), None),
+            1,
+            &HashMap::new(),
+            TALKTAIL,
+        );
         assert!(rich["text"].as_str().unwrap().contains("[image]"));
         assert!(rich["text"].as_str().unwrap().contains("[document]"));
         // lean (Export) skips them
@@ -273,7 +311,10 @@ mod tests {
         let m = user_msg(json!("ok"), Some(tr("t2", json!(null), false)));
         let r = message_to_tail_entry(&m, 1, &HashMap::new(), TALKTAIL);
         assert_eq!(r["is_tool_result"], true);
-        assert_eq!(r["is_error"], false, "is_error must be present and false for TalkTail");
+        assert_eq!(
+            r["is_error"], false,
+            "is_error must be present and false for TalkTail"
+        );
     }
 
     #[test]
@@ -281,8 +322,14 @@ mod tests {
         let m = user_msg(json!("ok"), Some(tr("t1", json!({"ok":true}), true)));
         let r = message_to_tail_entry(&m, 1, &HashMap::new(), EXPORT);
         assert_eq!(r["is_tool_result"], true);
-        assert!(r.get("tool_use_id").is_none(), "Export must not emit tool_use_id");
-        assert!(r.get("result_output").is_none(), "Export must not emit result_output");
+        assert!(
+            r.get("tool_use_id").is_none(),
+            "Export must not emit tool_use_id"
+        );
+        assert!(
+            r.get("result_output").is_none(),
+            "Export must not emit result_output"
+        );
         assert!(r.get("is_error").is_none(), "Export must not emit is_error");
     }
 
@@ -308,11 +355,17 @@ mod tests {
             name: "bash".into(),
             input: json!({"command":"ls"}),
         };
-        let blocks = vec![ContentBlock::Text { text: "done".into() }, tool];
+        let blocks = vec![
+            ContentBlock::Text {
+                text: "done".into(),
+            },
+            tool,
+        ];
         let mut results = HashMap::new();
         results.insert("tu1".into(), json!("file listing"));
         // TalkTail attaches result
-        let rich = message_to_tail_entry(&assistant_msg(blocks.clone(), None), 2, &results, TALKTAIL);
+        let rich =
+            message_to_tail_entry(&assistant_msg(blocks.clone(), None), 2, &results, TALKTAIL);
         assert_eq!(rich["text"], "done");
         assert_eq!(rich["tools"][0]["name"], "bash");
         assert_eq!(rich["tools"][0]["result"], "file listing");
@@ -344,7 +397,12 @@ mod tests {
             }),
         };
         let blocks = vec![tool];
-        let rich = message_to_tail_entry(&assistant_msg(blocks.clone(), None), 2, &HashMap::new(), TALKTAIL);
+        let rich = message_to_tail_entry(
+            &assistant_msg(blocks.clone(), None),
+            2,
+            &HashMap::new(),
+            TALKTAIL,
+        );
         let rich_tool = &rich["tools"][0];
         // 300-char prompt is truncated to 200; build the expected 200-char suffix.
         let expected_prompt = "prompt: ".to_string() + &"x".repeat(200);
@@ -352,13 +410,23 @@ mod tests {
         assert_eq!(rich_tool["detail"], expected_detail);
         // prompt truncated to 200 chars
         let prompt_part = expected_prompt.strip_prefix("prompt: ").unwrap();
-        assert_eq!(prompt_part.len(), 200, "prompt must be truncated to 200 chars");
+        assert_eq!(
+            prompt_part.len(),
+            200,
+            "prompt must be truncated to 200 chars"
+        );
 
         // Export (lean) must drop the rich fields, keeping only command + path
         let lean = message_to_tail_entry(&assistant_msg(blocks, None), 2, &HashMap::new(), EXPORT);
         assert_eq!(lean["tools"][0]["detail"], "command: rg, path: src/main.rs");
-        assert!(!lean["tools"][0]["detail"].as_str().unwrap().contains("pattern:"));
-        assert!(!lean["tools"][0]["detail"].as_str().unwrap().contains("prompt:"));
+        assert!(!lean["tools"][0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("pattern:"));
+        assert!(!lean["tools"][0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("prompt:"));
     }
 
     #[test]

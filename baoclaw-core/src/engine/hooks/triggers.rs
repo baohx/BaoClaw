@@ -222,7 +222,11 @@ impl TriggerContext {
     }
 
     /// Create context for tool-result event.
-    pub fn tool_result(tool: impl Into<String>, input: impl Into<String>, output: impl Into<String>) -> Self {
+    pub fn tool_result(
+        tool: impl Into<String>,
+        input: impl Into<String>,
+        output: impl Into<String>,
+    ) -> Self {
         Self {
             tool: Some(tool.into()),
             tool_input: Some(input.into()),
@@ -290,8 +294,16 @@ impl TriggerContext {
     /// Get a variable value by name for template substitution.
     pub fn get_variable(&self, name: &str) -> Option<String> {
         match name {
-            "file" => self.file.as_ref().and_then(|p| p.to_str()).map(|s| s.to_string()),
-            "cwd" => self.cwd.as_ref().and_then(|p| p.to_str()).map(|s| s.to_string()),
+            "file" => self
+                .file
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .map(|s| s.to_string()),
+            "cwd" => self
+                .cwd
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .map(|s| s.to_string()),
             "tool" => self.tool.clone(),
             "input" => self.tool_input.clone(),
             "output" => self.tool_output.clone(),
@@ -414,8 +426,8 @@ mod tests {
 
     #[test]
     fn test_trigger_matches() {
-        let trigger = Trigger::new(TriggerType::FileEdited)
-            .with_filter(Filter::file_pattern("*.ts"));
+        let trigger =
+            Trigger::new(TriggerType::FileEdited).with_filter(Filter::file_pattern("*.ts"));
 
         let ctx = TriggerContext::file_edited("src/main.ts", "/project");
         assert!(trigger.matches(&TriggerType::FileEdited, &ctx));

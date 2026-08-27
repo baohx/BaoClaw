@@ -304,7 +304,11 @@ mod tests {
                     .unwrap();
                 let log_stdout = String::from_utf8(log.stdout).unwrap();
                 let count = log_stdout.lines().count();
-                assert_eq!(count, 1, "Expected 1 commit after squash, got: {}", log_stdout);
+                assert_eq!(
+                    count, 1,
+                    "Expected 1 commit after squash, got: {}",
+                    log_stdout
+                );
             }
             Err(_) => {
                 // In some git versions, soft reset with HEAD~N when N >= total commits

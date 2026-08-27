@@ -245,8 +245,8 @@ mod tests {
 
         assert_eq!(cache.len(), 2);
         assert_eq!(cache.check(&f1), CacheStatus::Miss); // evicted
-        assert_eq!(cache.check(&f2), CacheStatus::Hit);  // still present
-        assert_eq!(cache.check(&f3), CacheStatus::Hit);  // just added
+        assert_eq!(cache.check(&f2), CacheStatus::Hit); // still present
+        assert_eq!(cache.check(&f3), CacheStatus::Hit); // just added
     }
 
     #[test]

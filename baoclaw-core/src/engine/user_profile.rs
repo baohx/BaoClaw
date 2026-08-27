@@ -140,10 +140,7 @@ fn parse_user_md(content: &str) -> UserProfile {
             "Projects" => parse_projects(&lines, &mut profile.project_preferences),
             "Stats" => parse_stats(&lines, &mut profile.stats),
             "Custom Instructions" => {
-                let text: Vec<String> = lines
-                    .iter()
-                    .map(|l| l.to_string())
-                    .collect();
+                let text: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
                 profile.custom_instructions = text.join("\n").trim().to_string();
             }
             _ => {} // Ignore unknown sections (including the top-level "# User Profile")
@@ -582,7 +579,10 @@ impl UserProfileManager {
             parts.push(format!("The user's name is **{}**.", name));
         }
         if let Some(ref lang) = p.preferred_language {
-            parts.push(format!("Respond in **{}** unless the user writes in another language.", lang));
+            parts.push(format!(
+                "Respond in **{}** unless the user writes in another language.",
+                lang
+            ));
         }
         if !p.coding_style.is_empty() {
             parts.push("\n## Coding Style Preferences".to_string());

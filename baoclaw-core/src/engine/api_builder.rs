@@ -6,7 +6,6 @@ use crate::engine::query_engine::{CachedRule, QueryLoopConfig, ThinkingConfig};
 use crate::engine::query_loop::validate_and_fix_tool_messages;
 use crate::models::message::{ContentBlock, Message, MessageContent};
 
-
 /// Load project instructions from BAOCLAW.md files.
 ///
 /// Scans `.baoclaw/BAOCLAW.md` first, then `BAOCLAW.md` in the given directory.
@@ -68,11 +67,22 @@ pub fn load_rules_with_paths(cwd: &Path, recent_file_paths: &[String]) -> Vec<St
                     Ok(glob_pattern) => {
                         recent_file_paths.iter().any(|fp| {
                             // Try matching against the full path or just the filename
-                            glob_pattern.matches(fp) || glob_pattern.matches(std::path::Path::new(fp).file_name().and_then(|n| n.to_str()).unwrap_or(""))
+                            glob_pattern.matches(fp)
+                                || glob_pattern.matches(
+                                    std::path::Path::new(fp)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or(""),
+                                )
                         })
                     }
                     Err(e) => {
-                        eprintln!("Warning: invalid glob pattern '{}' in {}: {}", pattern, path.display(), e);
+                        eprintln!(
+                            "Warning: invalid glob pattern '{}' in {}: {}",
+                            pattern,
+                            path.display(),
+                            e
+                        );
                         // If pattern is invalid, include the rule anyway
                         true
                     }
@@ -83,7 +93,9 @@ pub fn load_rules_with_paths(cwd: &Path, recent_file_paths: &[String]) -> Vec<St
         if should_include && !rule.content.trim().is_empty() {
             matched_rules.push(format!(
                 "# Rule: {}\n\n{}",
-                path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown"),
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown"),
                 rule.content
             ));
         }
@@ -113,23 +125,21 @@ pub fn parse_rule_file(content: &str) -> RuleFile {
                 let body = rest[end_idx + 3..].trim();
 
                 // Parse paths from frontmatter (simple line-based parsing)
-                let paths_pattern = frontmatter
-                    .lines()
-                    .find_map(|line| {
-                        let line = line.trim();
-                        if line.starts_with("paths:") || line.starts_with("paths :") {
-                            let value = line.split_once(':')?.1.trim();
-                            // Strip quotes if present
-                            let value = value.trim_matches('"').trim_matches('\'');
-                            if value.is_empty() {
-                                None
-                            } else {
-                                Some(value.to_string())
-                            }
-                        } else {
+                let paths_pattern = frontmatter.lines().find_map(|line| {
+                    let line = line.trim();
+                    if line.starts_with("paths:") || line.starts_with("paths :") {
+                        let value = line.split_once(':')?.1.trim();
+                        // Strip quotes if present
+                        let value = value.trim_matches('"').trim_matches('\'');
+                        if value.is_empty() {
                             None
+                        } else {
+                            Some(value.to_string())
                         }
-                    });
+                    } else {
+                        None
+                    }
+                });
 
                 return RuleFile {
                     content: body.to_string(),
@@ -167,7 +177,11 @@ pub fn load_all_rule_files(cwd: &Path) -> Vec<CachedRule> {
             Err(_) => continue,
         };
         let rule = parse_rule_file(&content);
-        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
         rules.push(CachedRule {
             filename,
             content: rule.content,
@@ -180,19 +194,22 @@ pub fn load_all_rule_files(cwd: &Path) -> Vec<CachedRule> {
 /// Filter cached rules against recent file paths using glob matching.
 /// Replaces `load_rules_with_paths` for in-memory cached rules.
 pub fn filter_cached_rules(cached: &[CachedRule], recent_file_paths: &[String]) -> Vec<String> {
-    cached.iter()
+    cached
+        .iter()
         .filter(|rule| {
             match &rule.paths_pattern {
                 None => true,
                 Some(pattern) => {
                     match glob::Pattern::new(pattern) {
-                        Ok(glob_pattern) => {
-                            recent_file_paths.iter().any(|fp| {
-                                glob_pattern.matches(fp) || glob_pattern.matches(
-                                    std::path::Path::new(fp).file_name().and_then(|n| n.to_str()).unwrap_or("")
+                        Ok(glob_pattern) => recent_file_paths.iter().any(|fp| {
+                            glob_pattern.matches(fp)
+                                || glob_pattern.matches(
+                                    std::path::Path::new(fp)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or(""),
                                 )
-                            })
-                        }
+                        }),
                         Err(_) => true, // Invalid pattern → include anyway
                     }
                 }
@@ -230,10 +247,15 @@ pub fn extract_recent_file_paths(messages: &[Message], max_messages: usize) -> V
                 if let Value::String(text) = &message.content {
                     // Simple heuristic: extract path-like strings from text
                     for word in text.split_whitespace() {
-                        if (word.contains('/') || word.contains(".rs") || word.contains(".ts")
-                            || word.contains(".js") || word.contains(".py")
-                            || word.contains(".md") || word.contains(".toml"))
-                            && word.len() > 5 && word.len() < 300
+                        if (word.contains('/')
+                            || word.contains(".rs")
+                            || word.contains(".ts")
+                            || word.contains(".js")
+                            || word.contains(".py")
+                            || word.contains(".md")
+                            || word.contains(".toml"))
+                            && word.len() > 5
+                            && word.len() < 300
                         {
                             paths.push(word.to_string());
                         }
@@ -275,52 +297,54 @@ pub fn build_api_request(messages: &[Message], config: &QueryLoopConfig) -> Crea
     let validated_messages = validate_and_fix_tool_messages(messages);
 
     // Convert messages to API format
-    let mut api_messages: Vec<Value> = validated_messages.iter().filter_map(|msg| {
-        match &msg.content {
-            MessageContent::User { message, .. } => {
-                // Skip empty user messages
-                let is_empty = match &message.content {
-                    Value::String(s) => s.trim().is_empty(),
-                    Value::Array(arr) => arr.is_empty(),
-                    _ => message.content.is_null(),
-                };
-                if is_empty {
-                    eprintln!("Skipping empty user message");
-                    return None;
+    let mut api_messages: Vec<Value> = validated_messages
+        .iter()
+        .filter_map(|msg| {
+            match &msg.content {
+                MessageContent::User { message, .. } => {
+                    // Skip empty user messages
+                    let is_empty = match &message.content {
+                        Value::String(s) => s.trim().is_empty(),
+                        Value::Array(arr) => arr.is_empty(),
+                        _ => message.content.is_null(),
+                    };
+                    if is_empty {
+                        eprintln!("Skipping empty user message");
+                        return None;
+                    }
+                    Some(serde_json::json!({
+                        "role": message.role,
+                        "content": message.content,
+                    }))
                 }
-                Some(serde_json::json!({
-                    "role": message.role,
-                    "content": message.content,
-                }))
-            }
-            MessageContent::Assistant { message, .. } => {
-                // Skip empty assistant messages
-                if message.content.is_empty() {
-                    eprintln!("Skipping empty assistant message");
-                    return None;
-                }
-                // Also check if all content blocks are empty
-                let has_content = message.content.iter().any(|block| {
-                    match block {
+                MessageContent::Assistant { message, .. } => {
+                    // Skip empty assistant messages
+                    if message.content.is_empty() {
+                        eprintln!("Skipping empty assistant message");
+                        return None;
+                    }
+                    // Also check if all content blocks are empty
+                    let has_content = message.content.iter().any(|block| match block {
                         ContentBlock::Text { text } => !text.trim().is_empty(),
                         ContentBlock::Thinking { thinking } => !thinking.trim().is_empty(),
                         ContentBlock::ToolUse { .. } => true,
                         _ => false,
+                    });
+                    if !has_content {
+                        eprintln!("Skipping assistant message with no valid content");
+                        return None;
                     }
-                });
-                if !has_content {
-                    eprintln!("Skipping assistant message with no valid content");
-                    return None;
+                    let content_value =
+                        serde_json::to_value(&message.content).unwrap_or(Value::Array(vec![]));
+                    Some(serde_json::json!({
+                        "role": message.role,
+                        "content": content_value,
+                    }))
                 }
-                let content_value = serde_json::to_value(&message.content).unwrap_or(Value::Array(vec![]));
-                Some(serde_json::json!({
-                    "role": message.role,
-                    "content": content_value,
-                }))
+                _ => None,
             }
-            _ => None,
-        }
-    }).collect();
+        })
+        .collect();
 
     // Inject dynamic <system-reminder> into the last user message to avoid
     // invalidating the cached system prompt prefix.  Git status, session
@@ -392,32 +416,38 @@ pub fn build_tools_list(config: &QueryLoopConfig) -> Option<Vec<Value>> {
     if config.tools.is_empty() {
         return None;
     }
-    let mut tool_list: Vec<Value> = config.tools.iter().map(|t| {
-        if t.is_deferred() {
-            serde_json::json!({
-                "name": t.name(),
-                "description": t.short_description(),
-                "defer_loading": true,
-            })
-        } else {
-            let schema = t.input_schema();
-            serde_json::json!({
-                "name": t.name(),
-                "description": t.prompt(),
-                "input_schema": schema,
-            })
-        }
-    }).collect();
+    let mut tool_list: Vec<Value> = config
+        .tools
+        .iter()
+        .map(|t| {
+            if t.is_deferred() {
+                serde_json::json!({
+                    "name": t.name(),
+                    "description": t.short_description(),
+                    "defer_loading": true,
+                })
+            } else {
+                let schema = t.input_schema();
+                serde_json::json!({
+                    "name": t.name(),
+                    "description": t.prompt(),
+                    "input_schema": schema,
+                })
+            }
+        })
+        .collect();
     tool_list.sort_by(|a, b| {
         let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
         name_a.cmp(name_b)
     });
     if let Some(last_tool) = tool_list.last_mut() {
-        if let Some(obj) = last_tool.as_object_mut() { obj.insert(
+        if let Some(obj) = last_tool.as_object_mut() {
+            obj.insert(
                 "cache_control".to_string(),
                 serde_json::json!({ "type": "ephemeral" }),
-            ); }
+            );
+        }
     }
     Some(tool_list)
 }
@@ -513,7 +543,10 @@ pub fn build_dynamic_reminder(config: &QueryLoopConfig) -> Option<String> {
                 change_lines.push(format!("Modified: {}", git_info.modified_files.join(", ")));
             }
             if !git_info.untracked_files.is_empty() {
-                change_lines.push(format!("Untracked: {}", git_info.untracked_files.join(", ")));
+                change_lines.push(format!(
+                    "Untracked: {}",
+                    git_info.untracked_files.join(", ")
+                ));
             }
             git_parts.push(format!("Changed files:\n{}", change_lines.join("\n")));
         }
@@ -533,6 +566,9 @@ pub fn build_dynamic_reminder(config: &QueryLoopConfig) -> Option<String> {
     if parts.is_empty() {
         None
     } else {
-        Some(format!("<system-reminder>\n{}\n</system-reminder>", parts.join("\n\n")))
+        Some(format!(
+            "<system-reminder>\n{}\n</system-reminder>",
+            parts.join("\n\n")
+        ))
     }
 }

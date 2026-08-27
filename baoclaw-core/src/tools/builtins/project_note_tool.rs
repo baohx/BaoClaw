@@ -14,14 +14,20 @@ impl Default for ProjectNoteTool {
 }
 
 impl ProjectNoteTool {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 #[async_trait]
 impl Tool for ProjectNoteTool {
-    fn name(&self) -> &str { "ProjectNoteTool" }
+    fn name(&self) -> &str {
+        "ProjectNoteTool"
+    }
 
-    fn aliases(&self) -> Vec<&str> { vec!["ProjectNote", "SaveProjectRule"] }
+    fn aliases(&self) -> Vec<&str> {
+        vec!["ProjectNote", "SaveProjectRule"]
+    }
 
     fn input_schema(&self) -> JsonSchema {
         JsonSchema {
@@ -49,12 +55,16 @@ impl Tool for ProjectNoteTool {
         context: &ToolContext,
         _progress: &dyn ProgressSender,
     ) -> Result<ToolResult, ToolError> {
-        let note = input.get("note").and_then(|v| v.as_str())
+        let note = input
+            .get("note")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'note'".into()))?;
 
         // Write to <cwd>/BAOCLAW.md (create if not exists)
         let baoclaw_path = context.cwd.join("BAOCLAW.md");
-        let existing = tokio::fs::read_to_string(&baoclaw_path).await.unwrap_or_default();
+        let existing = tokio::fs::read_to_string(&baoclaw_path)
+            .await
+            .unwrap_or_default();
 
         let new_content = if existing.is_empty() {
             format!("# Project Notes\n\n- {}\n", note)
@@ -62,8 +72,11 @@ impl Tool for ProjectNoteTool {
             format!("{}\n- {}\n", existing.trim_end(), note)
         };
 
-        tokio::fs::write(&baoclaw_path, &new_content).await
-            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write BAOCLAW.md: {}", e)))?;
+        tokio::fs::write(&baoclaw_path, &new_content)
+            .await
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to write BAOCLAW.md: {}", e))
+            })?;
 
         Ok(ToolResult {
             data: json!({ "saved": true, "path": baoclaw_path.to_string_lossy(), "note": note }),

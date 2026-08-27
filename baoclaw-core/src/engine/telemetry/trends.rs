@@ -102,8 +102,7 @@ impl TrendAnalyzer {
 
         for metric in &metrics {
             let current_value = self.query_metric(&conn, metric, current_start, current_end)?;
-            let previous_value =
-                self.query_metric(&conn, metric, previous_start, previous_end)?;
+            let previous_value = self.query_metric(&conn, metric, previous_start, previous_end)?;
             trends.push(Trend::new(*metric, current_value, previous_value));
         }
 
@@ -130,8 +129,7 @@ impl TrendAnalyzer {
 
         for metric in &metrics {
             let current_value = self.query_metric(&conn, metric, current_start, current_end)?;
-            let previous_value =
-                self.query_metric(&conn, metric, previous_start, previous_end)?;
+            let previous_value = self.query_metric(&conn, metric, previous_start, previous_end)?;
             trends.push(Trend::new(*metric, current_value, previous_value));
         }
 
@@ -245,17 +243,13 @@ impl TrendAnalyzer {
                         )
                         .map_err(|e| format!("Prepare error: {}", e))?;
                     let rows: Vec<String> = stmt
-                        .query_map(rusqlite::params![start, end], |row| {
-                            row.get::<_, String>(0)
-                        })
+                        .query_map(rusqlite::params![start, end], |row| row.get::<_, String>(0))
                         .map_err(|e| format!("Query error: {}", e))?
                         .filter_map(|r| r.ok())
                         .collect();
                     let mut total = 0u64;
                     for row in &rows {
-                        if let Ok(tools) =
-                            serde_json::from_str::<Vec<String>>(row)
-                        {
+                        if let Ok(tools) = serde_json::from_str::<Vec<String>>(row) {
                             total += tools.len() as u64;
                         }
                     }
@@ -359,9 +353,9 @@ mod tests {
         let (_collector, _dir) = setup_test_db();
         let analyzer = TrendAnalyzer::new();
         // When no data, both periods return 0, so trend is flat.
-        let trend = analyzer.analyze("turns", 7).unwrap_or_else(|_| {
-            Trend::new("turns", 0.0, 0.0)
-        });
+        let trend = analyzer
+            .analyze("turns", 7)
+            .unwrap_or_else(|_| Trend::new("turns", 0.0, 0.0));
         assert_eq!(trend.direction, TrendDirection::Flat);
     }
 
@@ -384,9 +378,7 @@ mod tests {
         if let Ok(trends) = trends {
             assert_eq!(trends.len(), 4);
             for trend in &trends {
-                assert!(
-                    ["turns", "tokens", "cost", "tools"].contains(&trend.metric.as_str())
-                );
+                assert!(["turns", "tokens", "cost", "tools"].contains(&trend.metric.as_str()));
             }
         }
     }

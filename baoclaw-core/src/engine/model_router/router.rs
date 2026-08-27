@@ -33,8 +33,8 @@ impl ModelRouter {
                 "claude-sonnet-4-20250514",
                 "anthropic",
                 200_000,
-                0.003,  // $3.00 / 1M tokens → $0.003 / 1K
-                0.015,  // $15.00 / 1M tokens → $0.015 / 1K
+                0.003, // $3.00 / 1M tokens → $0.003 / 1K
+                0.015, // $15.00 / 1M tokens → $0.015 / 1K
             )
             .with_capabilities(vec![
                 "code".into(),
@@ -65,11 +65,7 @@ impl ModelRouter {
                 0.0008, // $0.80 / 1M tokens → $0.0008 / 1K
                 0.004,  // $4.00 / 1M tokens → $0.004 / 1K
             )
-            .with_capabilities(vec![
-                "code".into(),
-                "tool_use".into(),
-                "fast".into(),
-            ])
+            .with_capabilities(vec!["code".into(), "tool_use".into(), "fast".into()])
             .with_priority(1),
         ];
 
@@ -136,15 +132,14 @@ impl ModelRouter {
 
         // Sort rules by priority descending, then by ID for determinism
         let mut sorted_rules: Vec<&RoutingRule> = self.rules.iter().filter(|r| r.enabled).collect();
-        sorted_rules.sort_by(|a, b| {
-            b.priority
-                .cmp(&a.priority)
-                .then_with(|| a.id.cmp(&b.id))
-        });
+        sorted_rules.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.id.cmp(&b.id)));
 
         // Try each rule in priority order
         for rule in &sorted_rules {
-            if rule.condition.matches(prompt, file_count, complexity, current_hour) {
+            if rule
+                .condition
+                .matches(prompt, file_count, complexity, current_hour)
+            {
                 // Verify the target model exists
                 if self.get_model(&rule.target_model).is_some() {
                     return RoutingDecision::new(
@@ -248,8 +243,14 @@ mod tests {
     #[test]
     fn test_add_model_replaces_existing() {
         let mut router = make_router();
-        let updated = ModelInfo::new("claude-sonnet-4-20250514", "anthropic", 300_000, 0.002, 0.01)
-            .with_priority(20);
+        let updated = ModelInfo::new(
+            "claude-sonnet-4-20250514",
+            "anthropic",
+            300_000,
+            0.002,
+            0.01,
+        )
+        .with_priority(20);
         router.add_model(updated);
         let m = router.get_model("claude-sonnet-4-20250514").unwrap();
         assert_eq!(m.max_tokens, 300_000);
@@ -289,10 +290,7 @@ mod tests {
         router.add_rule(RoutingRule {
             id: "simple-to-haiku".into(),
             description: "Simple tasks use Haiku".into(),
-            condition: RouteCondition::TaskComplexity {
-                min: 0.0,
-                max: 0.3,
-            },
+            condition: RouteCondition::TaskComplexity { min: 0.0, max: 0.3 },
             target_model: "claude-3-5-haiku-20241022".into(),
             priority: 100,
             enabled: true,
@@ -308,10 +306,7 @@ mod tests {
         router.add_rule(RoutingRule {
             id: "complex-to-opus".into(),
             description: "Complex tasks use Opus".into(),
-            condition: RouteCondition::TaskComplexity {
-                min: 0.7,
-                max: 1.0,
-            },
+            condition: RouteCondition::TaskComplexity { min: 0.7, max: 1.0 },
             target_model: "claude-opus-4-20250514".into(),
             priority: 100,
             enabled: true,

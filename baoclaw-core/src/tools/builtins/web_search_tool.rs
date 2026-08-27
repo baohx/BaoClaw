@@ -29,9 +29,7 @@ impl WebSearchTool {
             builder = builder.http1_only();
         }
 
-        let http_client = builder
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        let http_client = builder.build().unwrap_or_else(|_| reqwest::Client::new());
 
         Self {
             http_client,
@@ -154,7 +152,12 @@ async fn search(
         if attempt > 0 {
             // Exponential backoff: 2s, 4s, 8s
             let delay = std::time::Duration::from_secs(2u64.pow(attempt as u32));
-            eprintln!("WebSearch: retrying in {}s (attempt {}/{})", delay.as_secs(), attempt, max_retries);
+            eprintln!(
+                "WebSearch: retrying in {}s (attempt {}/{})",
+                delay.as_secs(),
+                attempt,
+                max_retries
+            );
             tokio::time::sleep(delay).await;
         }
 
@@ -191,7 +194,10 @@ async fn search(
         let body: Value = match response.json().await {
             Ok(b) => b,
             Err(e) => {
-                return Err(ToolError::ExecutionFailed(format!("Failed to parse response: {}", e)));
+                return Err(ToolError::ExecutionFailed(format!(
+                    "Failed to parse response: {}",
+                    e
+                )));
             }
         };
 

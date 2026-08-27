@@ -217,7 +217,12 @@ impl TokenCounter {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .ok()?;
-        Some(PathBuf::from(home).join(".baoclaw").join("sessions").join(format!("{}.baseline.json", session_id)))
+        Some(
+            PathBuf::from(home)
+                .join(".baoclaw")
+                .join("sessions")
+                .join(format!("{}.baseline.json", session_id)),
+        )
     }
 }
 

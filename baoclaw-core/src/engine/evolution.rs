@@ -42,7 +42,7 @@ pub struct SessionSummary {
 
 const EVOLUTION_DIR: &str = "evolution";
 const SKILL_CREATION_THRESHOLD: usize = 3; // min tool calls to consider a task "complex"
-const SELF_EVAL_INTERVAL: usize = 15;      // evaluate every N completed tasks
+const SELF_EVAL_INTERVAL: usize = 15; // evaluate every N completed tasks
 const TRAJECTORY_FILE: &str = "trajectories.jsonl";
 const SKILL_STATS_FILE: &str = "skill_stats.json";
 const SESSION_SUMMARIES_FILE: &str = "session_summaries.jsonl";
@@ -270,14 +270,19 @@ impl EvolutionEngine {
             if let TrajectoryOutcome::Completed { .. } = &trajectory.outcome {
                 let candidate = self.extract_skill_candidate(&trajectory);
                 self.save_skill_candidate(&dir, &candidate).await;
-                eprintln!("Evolution: skill candidate '{}' extracted from trajectory {}",
-                    candidate.name, trajectory.id);
+                eprintln!(
+                    "Evolution: skill candidate '{}' extracted from trajectory {}",
+                    candidate.name, trajectory.id
+                );
             }
         }
 
         // Check if we should trigger self-evaluation
         if *count % SELF_EVAL_INTERVAL == 0 && *count > 0 {
-            eprintln!("Evolution: self-evaluation triggered at task count {}", *count);
+            eprintln!(
+                "Evolution: self-evaluation triggered at task count {}",
+                *count
+            );
             // Self-evaluation is done asynchronously by the LLM in the next interaction
             // We write a nudge file that gets picked up by the system prompt builder
             let nudge_path = dir.join("pending_eval.json");
@@ -286,8 +291,15 @@ impl EvolutionEngine {
                 "task_count": *count,
                 "timestamp": chrono::Utc::now().to_rfc3339(),
             });
-            if let Err(e) = std::fs::write(&nudge_path, serde_json::to_string_pretty(&nudge).unwrap_or_default()) {
-                eprintln!("[evolution] WARNING: could not write nudge file {}: {}", nudge_path.display(), e);
+            if let Err(e) = std::fs::write(
+                &nudge_path,
+                serde_json::to_string_pretty(&nudge).unwrap_or_default(),
+            ) {
+                eprintln!(
+                    "[evolution] WARNING: could not write nudge file {}: {}",
+                    nudge_path.display(),
+                    e
+                );
             }
         }
     }
@@ -295,7 +307,9 @@ impl EvolutionEngine {
     /// Extract a skill candidate from a successful trajectory.
     fn extract_skill_candidate(&self, trajectory: &Trajectory) -> SkillCandidate {
         // Build a procedure description from the tool actions
-        let steps: Vec<String> = trajectory.assistant_actions.iter()
+        let steps: Vec<String> = trajectory
+            .assistant_actions
+            .iter()
             .filter(|a| !a.is_error)
             .enumerate()
             .map(|(i, a)| format!("{}. Use `{}`: {}", i + 1, a.tool_name, a.input_summary))
@@ -309,8 +323,10 @@ impl EvolutionEngine {
 
         SkillCandidate {
             name,
-            description: format!("Auto-generated from: {}", 
-                trajectory.user_prompt.chars().take(100).collect::<String>()),
+            description: format!(
+                "Auto-generated from: {}",
+                trajectory.user_prompt.chars().take(100).collect::<String>()
+            ),
             trigger_pattern: trajectory.user_prompt.chars().take(200).collect(),
             procedure,
             source_trajectory_id: trajectory.id.clone(),
@@ -322,7 +338,11 @@ impl EvolutionEngine {
     async fn save_skill_candidate(&self, dir: &Path, candidate: &SkillCandidate) {
         let candidates_dir = dir.join("candidates");
         if let Err(e) = std::fs::create_dir_all(&candidates_dir) {
-            eprintln!("[evolution] WARNING: could not create candidates dir {}: {}", candidates_dir.display(), e);
+            eprintln!(
+                "[evolution] WARNING: could not create candidates dir {}: {}",
+                candidates_dir.display(),
+                e
+            );
         }
 
         let filename = format!("{}.json", candidate.name);
@@ -330,15 +350,23 @@ impl EvolutionEngine {
 
         if let Ok(json) = serde_json::to_string_pretty(candidate) {
             if let Err(e) = std::fs::write(&path, json) {
-                eprintln!("[evolution] WARNING: could not write candidate {}: {}", path.display(), e);
+                eprintln!(
+                    "[evolution] WARNING: could not write candidate {}: {}",
+                    path.display(),
+                    e
+                );
             }
         }
     }
 
     /// Promote a skill candidate to an actual skill file.
     /// Skills go to ~/.baoclaw/skills/ (personal, cross-project) by default.
-    pub async fn promote_skill(&self, _cwd: &Path, candidate_name: &str, 
-                                skill_content: &str) -> Result<String, String> {
+    pub async fn promote_skill(
+        &self,
+        _cwd: &Path,
+        candidate_name: &str,
+        skill_content: &str,
+    ) -> Result<String, String> {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         let skills_dir = PathBuf::from(home).join(".baoclaw").join("skills");
         let _ = std::fs::create_dir_all(&skills_dir);
@@ -349,10 +377,16 @@ impl EvolutionEngine {
 
         // Remove the candidate file
         let dir = self.base_dir.lock().await;
-        let candidate_path = dir.join("candidates").join(format!("{}.json", candidate_name));
+        let candidate_path = dir
+            .join("candidates")
+            .join(format!("{}.json", candidate_name));
         let _ = std::fs::remove_file(&candidate_path);
 
-        eprintln!("Evolution: promoted skill '{}' to {}", candidate_name, skill_path.display());
+        eprintln!(
+            "Evolution: promoted skill '{}' to {}",
+            candidate_name,
+            skill_path.display()
+        );
         Ok(skill_path.to_string_lossy().to_string())
     }
 
@@ -363,7 +397,8 @@ impl EvolutionEngine {
 
         // Read all trajectories, update the last one, rewrite
         if let Ok(content) = std::fs::read_to_string(&traj_path) {
-            let mut lines: Vec<String> = content.lines()
+            let mut lines: Vec<String> = content
+                .lines()
                 .filter(|l| !l.trim().is_empty())
                 .map(|l| l.to_string())
                 .collect();
@@ -374,7 +409,11 @@ impl EvolutionEngine {
                     if let Ok(updated) = serde_json::to_string(&traj) {
                         *last = updated;
                         if let Err(e) = std::fs::write(&traj_path, lines.join("\n") + "\n") {
-                            eprintln!("[evolution] WARNING: could not update trajectory {}: {}", traj_path.display(), e);
+                            eprintln!(
+                                "[evolution] WARNING: could not update trajectory {}: {}",
+                                traj_path.display(),
+                                e
+                            );
                         }
                     }
                 }
@@ -430,9 +469,16 @@ impl EvolutionEngine {
                     // Consume the review file
                     let _ = std::fs::remove_file(&review_path);
 
-                    let session_id = review.get("session_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-                    let turn_count = review.get("turn_count").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let topics = review.get("user_topics")
+                    let session_id = review
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let turn_count = review
+                        .get("turn_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let topics = review
+                        .get("user_topics")
                         .and_then(|v| v.as_array())
                         .map(|arr| {
                             arr.iter()
@@ -441,7 +487,8 @@ impl EvolutionEngine {
                                 .collect::<Vec<_>>()
                         })
                         .unwrap_or_default();
-                    let tools = review.get("tools_used")
+                    let tools = review
+                        .get("tools_used")
                         .and_then(|v| v.as_array())
                         .map(|arr| {
                             arr.iter()
@@ -450,24 +497,30 @@ impl EvolutionEngine {
                                 .collect::<Vec<_>>()
                         })
                         .unwrap_or_default();
-                    let errors_count = review.get("errors_count").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let skills = review.get("skills_used")
+                    let errors_count = review
+                        .get("errors_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let skills = review
+                        .get("skills_used")
                         .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str())
-                                .collect::<Vec<_>>()
-                        })
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
                         .unwrap_or_default();
 
                     let topics_str = if topics.is_empty() {
                         "  (none)".to_string()
                     } else {
-                        topics.iter()
+                        topics
+                            .iter()
                             .enumerate()
-                            .map(|(i, t)| format!("  {}. {}{}", i + 1,
-                                t.chars().take(100).collect::<String>(),
-                                if t.len() > 100 { "..." } else { "" }))
+                            .map(|(i, t)| {
+                                format!(
+                                    "  {}. {}{}",
+                                    i + 1,
+                                    t.chars().take(100).collect::<String>(),
+                                    if t.len() > 100 { "..." } else { "" }
+                                )
+                            })
                             .collect::<Vec<_>>()
                             .join("\n")
                     };
@@ -475,7 +528,11 @@ impl EvolutionEngine {
                     let tools_str = if tools.is_empty() {
                         "  (none)".to_string()
                     } else {
-                        tools.iter().map(|t| format!("  - {}", t)).collect::<Vec<_>>().join("\n")
+                        tools
+                            .iter()
+                            .map(|t| format!("  - {}", t))
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     };
 
                     parts.push(format!(
@@ -565,17 +622,22 @@ impl EvolutionEngine {
         total_cost_usd: f64,
         session_duration_secs: u64,
     ) {
-        use crate::models::message::{MessageContent, ContentBlock};
+        use crate::models::message::{ContentBlock, MessageContent};
 
         let mut user_topics: Vec<String> = Vec::new();
-        let mut tool_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut tool_counts: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
         let mut errors: Vec<(String, String)> = Vec::new();
         let mut skills_used: Vec<String> = Vec::new();
         let mut turn_count: usize = 0;
 
         for msg in messages {
             match &msg.content {
-                MessageContent::User { message, tool_use_result, .. } => {
+                MessageContent::User {
+                    message,
+                    tool_use_result,
+                    ..
+                } => {
                     // Extract user text topics
                     if tool_use_result.is_none() {
                         let text = extract_text_from_value(&message.content);
@@ -606,7 +668,8 @@ impl EvolutionEngine {
                                 // Detect skill loading (Skill tool calls)
                                 if name == "Skill" {
                                     if let Some(s) = input.get("skill").and_then(|v| v.as_str()) {
-                                        if s != "__list__" && !skills_used.contains(&s.to_string()) {
+                                        if s != "__list__" && !skills_used.contains(&s.to_string())
+                                        {
                                             skills_used.push(s.to_string());
                                         }
                                     }
@@ -687,8 +750,11 @@ impl EvolutionEngine {
 
         eprintln!(
             "Evolution: session-close hook for '{}' — {} turns, {} tools, {} errors, ${:.4} cost",
-            session_id, summary.turn_count, summary.tool_usage.len(),
-            summary.errors.len(), summary.total_cost_usd
+            session_id,
+            summary.turn_count,
+            summary.tool_usage.len(),
+            summary.errors.len(),
+            summary.total_cost_usd
         );
     }
 
@@ -704,7 +770,8 @@ impl EvolutionEngine {
             Err(_) => return training_pairs,
         };
 
-        let trajectories: Vec<Trajectory> = content.lines()
+        let trajectories: Vec<Trajectory> = content
+            .lines()
             .filter(|l| !l.trim().is_empty())
             .filter_map(|l| serde_json::from_str(l).ok())
             .collect();
@@ -712,7 +779,9 @@ impl EvolutionEngine {
         // Group by similar prompts and create preference pairs
         // Good-rated completions are "chosen", bad-rated are "rejected"
         for traj in &trajectories {
-            let actions_text: String = traj.assistant_actions.iter()
+            let actions_text: String = traj
+                .assistant_actions
+                .iter()
                 .map(|a| format!("[{}] {}", a.tool_name, a.input_summary))
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -866,14 +935,19 @@ impl EvolutionEngine {
         let evaluation = self.evaluate_skill(skill_name).await;
         let mut suggestions = Vec::new();
 
-        if matches!(evaluation.suggested_action, SuggestedAction::None | SuggestedAction::MinorTweak) {
+        if matches!(
+            evaluation.suggested_action,
+            SuggestedAction::None | SuggestedAction::MinorTweak
+        ) {
             return suggestions; // nothing to improve
         }
 
         // Analyze failure patterns from trajectories
         let trajectories = self.trajectories.lock().await;
-        let mut failure_tools: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-        let mut failure_keywords: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut failure_tools: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        let mut failure_keywords: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
 
         for traj in trajectories.iter() {
             // Match by user_prompt containing skill_name (Trajectory has no skill_name field)
@@ -948,7 +1022,11 @@ impl EvolutionEngine {
         let mut sorted_keywords: Vec<_> = failure_keywords.iter().collect();
         sorted_keywords.sort_by(|a, b| b.1.cmp(a.1));
         if sorted_keywords.len() >= 2 {
-            let top_kw: Vec<&str> = sorted_keywords.iter().take(3).map(|(k, _)| k.as_str()).collect();
+            let top_kw: Vec<&str> = sorted_keywords
+                .iter()
+                .take(3)
+                .map(|(k, _)| k.as_str())
+                .collect();
             suggestions.push(ImprovementSuggestion {
                 priority: 1,
                 category: "scope".into(),
@@ -965,14 +1043,18 @@ impl EvolutionEngine {
                 suggestions.push(ImprovementSuggestion {
                     priority: 2,
                     category: "trigger".into(),
-                    description: "Improve trigger condition specificity to reduce irrelevant activations".into(),
+                    description:
+                        "Improve trigger condition specificity to reduce irrelevant activations"
+                            .into(),
                 });
             }
             if diag.contains("success rate") {
                 suggestions.push(ImprovementSuggestion {
                     priority: 2,
                     category: "instructions".into(),
-                    description: "Strengthen step-by-step instructions to improve execution success rate".into(),
+                    description:
+                        "Strengthen step-by-step instructions to improve execution success rate"
+                            .into(),
                 });
             }
         }
@@ -1045,7 +1127,10 @@ impl EvolutionEngine {
 
         // Check 4: Has step-by-step instructions
         let has_steps = content.lines().any(|l| {
-            l.starts_with("1.") || l.starts_with("- ") || l.starts_with("* ") || l.starts_with("Step")
+            l.starts_with("1.")
+                || l.starts_with("- ")
+                || l.starts_with("* ")
+                || l.starts_with("Step")
         });
         if !has_steps {
             issues.push(ValidationIssue {
@@ -1059,12 +1144,18 @@ impl EvolutionEngine {
         if line_count < 5 {
             issues.push(ValidationIssue {
                 severity: Severity::Warning,
-                message: format!("Skill is very short ({} lines) — may be incomplete", line_count),
+                message: format!(
+                    "Skill is very short ({} lines) — may be incomplete",
+                    line_count
+                ),
             });
         } else if line_count > 500 {
             issues.push(ValidationIssue {
                 severity: Severity::Warning,
-                message: format!("Skill is very long ({} lines) — consider splitting", line_count),
+                message: format!(
+                    "Skill is very long ({} lines) — consider splitting",
+                    line_count
+                ),
             });
         }
 
@@ -1078,7 +1169,9 @@ impl EvolutionEngine {
             }
         }
 
-        let valid = issues.iter().all(|i| !matches!(i.severity, Severity::Error));
+        let valid = issues
+            .iter()
+            .all(|i| !matches!(i.severity, Severity::Error));
         ValidationResult {
             skill_name: skill_name.to_string(),
             valid,
@@ -1166,12 +1259,15 @@ impl EvolutionEngine {
                     );
                     let _ = self.retire_skill(name, &reason).await;
                     report.skills_retired += 1;
-                    report.actions.push(format!("RETIRE: {} ({})", name, reason));
+                    report
+                        .actions
+                        .push(format!("RETIRE: {} ({})", name, reason));
                 }
                 SuggestedAction::MajorRevision | SuggestedAction::Improve => {
                     report.skills_improved += 1;
                     let suggestions = self.suggest_improvements(name).await;
-                    let sug_summary: Vec<String> = suggestions.iter()
+                    let sug_summary: Vec<String> = suggestions
+                        .iter()
                         .take(3)
                         .map(|s| format!("[{}] {}", s.category, s.description))
                         .collect();
@@ -1200,7 +1296,8 @@ impl EvolutionEngine {
     /// Helper: get or create stats for a skill.
     async fn get_or_create_stats(&self, skill_name: &str) -> SkillStats {
         let mut stats = self.skill_stats.lock().await;
-        stats.entry(skill_name.to_string())
+        stats
+            .entry(skill_name.to_string())
             .or_insert_with(|| SkillStats::new(skill_name))
             .clone()
     }
@@ -1208,7 +1305,8 @@ impl EvolutionEngine {
     /// Record a skill invocation outcome (success or failure).
     pub async fn record_skill_outcome(&self, skill_name: &str, success: bool) {
         let mut stats = self.skill_stats.lock().await;
-        let entry = stats.entry(skill_name.to_string())
+        let entry = stats
+            .entry(skill_name.to_string())
             .or_insert_with(|| SkillStats::new(skill_name));
         if success {
             entry.times_succeeded += 1;
@@ -1226,8 +1324,7 @@ impl EvolutionEngine {
         let json = serde_json::to_string_pretty(&*stats)
             .map_err(|e| format!("Failed to serialize stats: {}", e))?;
         let stats_path = self.skills_dir.join("skill_stats.json");
-        std::fs::write(&stats_path, json)
-            .map_err(|e| format!("Failed to write stats: {}", e))?;
+        std::fs::write(&stats_path, json).map_err(|e| format!("Failed to write stats: {}", e))?;
         Ok(())
     }
 }
@@ -1252,8 +1349,15 @@ fn extract_text_from_value(value: &Value) -> String {
 
 /// Simple slugify: lowercase, replace non-alphanumeric with hyphens, trim.
 fn slugify(s: &str) -> String {
-    let slug: String = s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+    let slug: String = s
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let slug = slug.trim_matches('-').to_lowercase();
     // Collapse multiple hyphens
@@ -1261,13 +1365,21 @@ fn slugify(s: &str) -> String {
     let mut prev_hyphen = false;
     for c in slug.chars() {
         if c == '-' {
-            if !prev_hyphen { result.push(c); }
+            if !prev_hyphen {
+                result.push(c);
+            }
             prev_hyphen = true;
         } else {
             result.push(c);
             prev_hyphen = false;
         }
     }
-    if result.len() > 60 { result.truncate(60); }
-    if result.is_empty() { "auto-skill".to_string() } else { result }
+    if result.len() > 60 {
+        result.truncate(60);
+    }
+    if result.is_empty() {
+        "auto-skill".to_string()
+    } else {
+        result
+    }
 }

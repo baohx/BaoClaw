@@ -470,8 +470,8 @@ mod tests {
     use super::*;
 
     use crate::engine::team::agent::BudgetEnforcer;
-    use crate::engine::team::policy::TeamPolicy;
     use crate::engine::team::policy::AgentPolicy;
+    use crate::engine::team::policy::TeamPolicy;
     #[test]
     fn test_execution_tracker() {
         let mut tracker = ExecutionTracker::new();

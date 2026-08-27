@@ -96,8 +96,12 @@ pub struct BaoclawConfig {
     pub extra: HashMap<String, Value>,
 }
 
-fn default_api_type() -> String { "anthropic".to_string() }
-pub fn default_tool_output_threshold_chars() -> usize { 200_000 }
+fn default_api_type() -> String {
+    "anthropic".to_string()
+}
+pub fn default_tool_output_threshold_chars() -> usize {
+    200_000
+}
 
 impl Default for BaoclawConfig {
     fn default() -> Self {
@@ -140,27 +144,39 @@ pub fn load_config_from(path: &std::path::Path) -> BaoclawConfig {
         Ok(content) => match serde_json::from_str::<BaoclawConfig>(&content) {
             Ok(config) => config,
             Err(e) => {
-                eprintln!("Warning: invalid config JSON at {}: {}, using defaults", path.display(), e);
+                eprintln!(
+                    "Warning: invalid config JSON at {}: {}, using defaults",
+                    path.display(),
+                    e
+                );
                 BaoclawConfig::default()
             }
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // Create default config file
             if let Err(write_err) = save_default_config_to(path) {
-                eprintln!("Warning: could not create default config at {}: {}", path.display(), write_err);
+                eprintln!(
+                    "Warning: could not create default config at {}: {}",
+                    path.display(),
+                    write_err
+                );
             }
             BaoclawConfig::default()
         }
         Err(e) => {
-            eprintln!("Warning: could not read config at {}: {}, using defaults", path.display(), e);
+            eprintln!(
+                "Warning: could not read config at {}: {}, using defaults",
+                path.display(),
+                e
+            );
             BaoclawConfig::default()
         }
     };
 
     // Normalize: auto-migrate old format to profiles if needed
     normalize_profiles(&mut config);
-      // Sync new format back to old format for backward compatibility
-      sync_profiles_to_legacy(&mut config);
+    // Sync new format back to old format for backward compatibility
+    sync_profiles_to_legacy(&mut config);
     config
 }
 
@@ -211,7 +227,7 @@ pub fn sync_profiles_to_legacy(config: &mut BaoclawConfig) {
     if config.model_profiles.is_empty() {
         return; // Nothing to sync
     }
-    
+
     // Sync primary model
     if let Some(ref primary_name) = config.primary_profile {
         if let Some(primary_profile) = config.model_profiles.get(primary_name.as_str()) {
@@ -221,7 +237,7 @@ pub fn sync_profiles_to_legacy(config: &mut BaoclawConfig) {
             config.auto_compact_threshold_ratio = primary_profile.auto_compact_threshold_ratio;
         }
     }
-    
+
     // Sync fallback_models from fallback_profiles
     config.fallback_models.clear();
     for fallback_name in config.fallback_profiles.iter() {
@@ -242,12 +258,14 @@ pub fn save_default_config_to(path: &std::path::Path) -> Result<(), std::io::Err
 }
 
 /// Save a configuration to a specific path.
-pub fn save_config_to(config: &BaoclawConfig, path: &std::path::Path) -> Result<(), std::io::Error> {
+pub fn save_config_to(
+    config: &BaoclawConfig,
+    path: &std::path::Path,
+) -> Result<(), std::io::Error> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(config)
-        .map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(config).map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 
@@ -323,17 +341,24 @@ mod tests {
     fn test_unknown_fields_preserved() {
         let dir = TempDir::new().unwrap();
         let path = config_in(dir.path());
-        std::fs::write(&path, r#"{
+        std::fs::write(
+            &path,
+            r#"{
             "model": "claude-sonnet-4-20250514",
             "fallback_models": [],
             "max_retries_per_model": 2,
             "future_feature": true,
             "theme": "dark"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let config = load_config_from(&path);
         assert_eq!(config.extra.get("future_feature"), Some(&Value::Bool(true)));
-        assert_eq!(config.extra.get("theme"), Some(&Value::String("dark".to_string())));
+        assert_eq!(
+            config.extra.get("theme"),
+            Some(&Value::String("dark".to_string()))
+        );
     }
 
     #[test]
@@ -365,7 +390,10 @@ mod tests {
 
         let mut original = BaoclawConfig {
             model: "claude-opus-4-20250514".to_string(),
-            fallback_models: vec!["claude-sonnet-4-20250514".to_string(), "claude-3-5-haiku-20241022".to_string()],
+            fallback_models: vec![
+                "claude-sonnet-4-20250514".to_string(),
+                "claude-3-5-haiku-20241022".to_string(),
+            ],
             max_retries_per_model: 3,
             api_type: "anthropic".to_string(),
             openai_base_url: None,
@@ -377,7 +405,10 @@ mod tests {
             fallback_profiles: Vec::new(),
             extra: {
                 let mut m = HashMap::new();
-                m.insert("custom_key".to_string(), Value::String("custom_value".to_string()));
+                m.insert(
+                    "custom_key".to_string(),
+                    Value::String("custom_value".to_string()),
+                );
                 m
             },
         };
@@ -395,12 +426,16 @@ mod tests {
         let path = config_in(dir.path());
 
         // Old-format config: only model + fallback_models (no model_profiles)
-        std::fs::write(&path, r#"{
+        std::fs::write(
+            &path,
+            r#"{
             "model": "claude-sonnet-4-20250514",
             "fallback_models": ["claude-3-5-haiku-20241022", "claude-opus-4-20250514"],
             "api_type": "anthropic",
             "context_window": 200000
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let config = load_config_from(&path);
 

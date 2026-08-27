@@ -57,7 +57,10 @@ pub struct PrInfo {
     /// Head branch (source, e.g. "feature/auth")
     pub head_branch: String,
     /// Author username (extracted from gh CLI `author{login}` or GitLab `author{username}`)
-    #[serde(deserialize_with = "deserialize_author", serialize_with = "serialize_author")]
+    #[serde(
+        deserialize_with = "deserialize_author",
+        serialize_with = "serialize_author"
+    )]
     pub author: String,
     /// ISO-8601 creation timestamp
     pub created_at: String,

@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{broadcast, Mutex};
 
 const CRON_FILE: &str = "cron.json";
 
@@ -68,7 +68,11 @@ impl CronManager {
         let config_path = PathBuf::from(&home).join(".baoclaw").join(CRON_FILE);
         let jobs = Self::load_jobs(&config_path);
         let (result_tx, _) = broadcast::channel(64);
-        eprintln!("Cron: loaded {} jobs from {}", jobs.len(), config_path.display());
+        eprintln!(
+            "Cron: loaded {} jobs from {}",
+            jobs.len(),
+            config_path.display()
+        );
         Self {
             jobs: Mutex::new(jobs),
             config_path,
@@ -82,7 +86,13 @@ impl CronManager {
     }
 
     /// Add a new cron job.
-    pub async fn add_job(&self, name: String, prompt: String, schedule: String, cwd: Option<String>) -> Result<CronJob, String> {
+    pub async fn add_job(
+        &self,
+        name: String,
+        prompt: String,
+        schedule: String,
+        cwd: Option<String>,
+    ) -> Result<CronJob, String> {
         // Validate schedule
         parse_schedule(&schedule).map_err(|e| format!("Invalid schedule '{}': {}", schedule, e))?;
 
@@ -170,10 +180,13 @@ impl CronManager {
     /// and broadcasts the result to all subscribers.
     pub async fn start_scheduler(
         self: Arc<Self>,
-        run_fn: Arc<dyn Fn(String, Option<String>) -> tokio::task::JoinHandle<String> + Send + Sync>,
+        run_fn: Arc<
+            dyn Fn(String, Option<String>) -> tokio::task::JoinHandle<String> + Send + Sync,
+        >,
     ) {
         eprintln!("Cron: scheduler started");
-        let mut last_check: std::collections::HashMap<String, std::time::Instant> = std::collections::HashMap::new();
+        let mut last_check: std::collections::HashMap<String, std::time::Instant> =
+            std::collections::HashMap::new();
 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
@@ -193,9 +206,9 @@ impl CronManager {
 
                 let should_run = match &schedule {
                     Schedule::Interval(secs) => {
-                        let last = last_check.get(&job.id)
-                            .copied()
-                            .unwrap_or_else(|| std::time::Instant::now() - std::time::Duration::from_secs(*secs));
+                        let last = last_check.get(&job.id).copied().unwrap_or_else(|| {
+                            std::time::Instant::now() - std::time::Duration::from_secs(*secs)
+                        });
                         last.elapsed().as_secs() >= *secs
                     }
                     Schedule::Daily { hour, minute } => {
@@ -227,10 +240,14 @@ impl CronManager {
 
                     tokio::spawn(async move {
                         let handle = run_fn_clone(job_clone.prompt.clone(), job_clone.cwd.clone());
-                        let result_text = handle.await.unwrap_or_else(|e| format!("Cron job error: {}", e));
+                        let result_text = handle
+                            .await
+                            .unwrap_or_else(|e| format!("Cron job error: {}", e));
 
                         // Update job stats
-                        self_clone.update_job_result(&job_clone.id, &result_text).await;
+                        self_clone
+                            .update_job_result(&job_clone.id, &result_text)
+                            .await;
 
                         // Broadcast result to all clients
                         let cron_result = CronResult {
@@ -275,10 +292,17 @@ fn parse_schedule(s: &str) -> Result<Schedule, String> {
         }
         let day = parse_day(parts[0])?;
         let (h, m) = parse_time(parts[1])?;
-        return Ok(Schedule::Weekly { day, hour: h, minute: m });
+        return Ok(Schedule::Weekly {
+            day,
+            hour: h,
+            minute: m,
+        });
     }
 
-    Err(format!("Unknown schedule format: '{}'. Use: every <duration>, daily <HH:MM>, weekly <day> <HH:MM>", s))
+    Err(format!(
+        "Unknown schedule format: '{}'. Use: every <duration>, daily <HH:MM>, weekly <day> <HH:MM>",
+        s
+    ))
 }
 
 fn parse_duration(s: &str) -> Result<u64, String> {
@@ -289,7 +313,9 @@ fn parse_duration(s: &str) -> Result<u64, String> {
         if c.is_ascii_digit() {
             num_buf.push(c);
         } else {
-            let n: u64 = num_buf.parse().map_err(|_| format!("Invalid number in duration: {}", s))?;
+            let n: u64 = num_buf
+                .parse()
+                .map_err(|_| format!("Invalid number in duration: {}", s))?;
             num_buf.clear();
             match c {
                 's' => total += n,
@@ -303,7 +329,9 @@ fn parse_duration(s: &str) -> Result<u64, String> {
 
     // Handle bare number (assume minutes)
     if !num_buf.is_empty() {
-        let n: u64 = num_buf.parse().map_err(|_| format!("Invalid number: {}", s))?;
+        let n: u64 = num_buf
+            .parse()
+            .map_err(|_| format!("Invalid number: {}", s))?;
         total += n * 60;
     }
 
@@ -318,8 +346,12 @@ fn parse_time(s: &str) -> Result<(u32, u32), String> {
     if parts.len() != 2 {
         return Err(format!("Expected HH:MM, got: {}", s));
     }
-    let h: u32 = parts[0].parse().map_err(|_| format!("Invalid hour: {}", parts[0]))?;
-    let m: u32 = parts[1].parse().map_err(|_| format!("Invalid minute: {}", parts[1]))?;
+    let h: u32 = parts[0]
+        .parse()
+        .map_err(|_| format!("Invalid hour: {}", parts[0]))?;
+    let m: u32 = parts[1]
+        .parse()
+        .map_err(|_| format!("Invalid minute: {}", parts[1]))?;
     if h > 23 || m > 59 {
         return Err(format!("Time out of range: {}:{}", h, m));
     }

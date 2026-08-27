@@ -25,7 +25,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{watch, RwLock};
 use tokio::task::JoinSet;
 
 use crate::api::unified::UnifiedClient;
@@ -220,7 +220,8 @@ impl TeamExecutor {
 
         // Store max_turns if specified
         if let Some(max_turns) = config.max_turns {
-            team.shared_state.set("max_turns", serde_json::json!(max_turns));
+            team.shared_state
+                .set("max_turns", serde_json::json!(max_turns));
         }
 
         // Store the team
@@ -241,7 +242,10 @@ impl TeamExecutor {
         if team.status != TeamStatus::Pending {
             return Err(TeamError {
                 code: "invalid_state".to_string(),
-                message: format!("Team is already {} and cannot accept new agents", team.status),
+                message: format!(
+                    "Team is already {} and cannot accept new agents",
+                    team.status
+                ),
                 agent_id: None,
             });
         }
@@ -258,15 +262,14 @@ impl TeamExecutor {
     }
 
     /// Add a sub-agent to a team.
-    pub async fn add_agent(
-        &self,
-        team: &mut AgentTeam,
-        agent: SubAgent,
-    ) -> Result<(), TeamError> {
+    pub async fn add_agent(&self, team: &mut AgentTeam, agent: SubAgent) -> Result<(), TeamError> {
         if team.status != TeamStatus::Pending {
             return Err(TeamError {
                 code: "invalid_state".to_string(),
-                message: format!("Team is already {} and cannot accept new agents", team.status),
+                message: format!(
+                    "Team is already {} and cannot accept new agents",
+                    team.status
+                ),
                 agent_id: None,
             });
         }
@@ -351,8 +354,6 @@ impl TeamExecutor {
         mut team: AgentTeam,
         abort_rx: watch::Receiver<bool>,
     ) -> TeamResult {
-        
-
         let shared_state = Arc::new(RwLock::new(team.shared_state.clone()));
         let cwd = team
             .cwd
@@ -543,10 +544,10 @@ impl TeamExecutor {
                         previous_result = Some(text.clone());
 
                         // Store result in shared state
-                        shared_state
-                            .write()
-                            .await
-                            .set(format!("agent_{}_result", agent.id), serde_json::json!(text));
+                        shared_state.write().await.set(
+                            format!("agent_{}_result", agent.id),
+                            serde_json::json!(text),
+                        );
                     } else {
                         agent.fail(agent_result.error.clone().unwrap_or_default());
                         any_failed = true;
@@ -647,7 +648,10 @@ impl TeamExecutor {
                 for agent in &mut team.agents {
                     if agent.status == SubAgentStatus::Pending {
                         agent.skip("Team aborted".to_string());
-                        if scheduler.fail_node(&agent.id, Some("Team aborted")).is_err() {
+                        if scheduler
+                            .fail_node(&agent.id, Some("Team aborted"))
+                            .is_err()
+                        {
                             // Ignore errors during abort
                         }
                     }
@@ -698,10 +702,8 @@ impl TeamExecutor {
                 let cwd_clone = cwd.clone();
                 let model = self.default_model.clone();
                 let shared_state_clone = Arc::clone(&shared_state);
-                let agent_policy = crate::engine::team::policy::AgentPolicy::from_team_policy(
-                    &team_policy,
-                    1,
-                );
+                let agent_policy =
+                    crate::engine::team::policy::AgentPolicy::from_team_policy(&team_policy, 1);
                 let agent_id_for_result = agent_id.clone();
                 let ctx_window = self.context_window;
                 let compact_ratio = self.auto_compact_threshold_ratio;
@@ -747,7 +749,11 @@ impl TeamExecutor {
                                         if let Some(agent) = team.get_agent_mut(&agent_id) {
                                             agent.complete(
                                                 result.text.clone().unwrap_or_default(),
-                                                result.usage.as_ref().map(|u| u.total()).unwrap_or(0),
+                                                result
+                                                    .usage
+                                                    .as_ref()
+                                                    .map(|u| u.total())
+                                                    .unwrap_or(0),
                                                 result.cost_usd,
                                             );
                                         }
@@ -761,16 +767,12 @@ impl TeamExecutor {
                                         }
                                     } else {
                                         // Mark as failed in scheduler
-                                        let _ = scheduler.fail_node(
-                                            &agent_id,
-                                            result.error.as_deref(),
-                                        );
+                                        let _ =
+                                            scheduler.fail_node(&agent_id, result.error.as_deref());
 
                                         // Skip all dependents
-                                        let _ = scheduler.skip_dependents(
-                                            &agent_id,
-                                            "Dependency failed",
-                                        );
+                                        let _ = scheduler
+                                            .skip_dependents(&agent_id, "Dependency failed");
 
                                         // Update agent status
                                         if let Some(agent) = team.get_agent_mut(&agent_id) {
@@ -781,7 +783,8 @@ impl TeamExecutor {
                                         for team_agent in &mut team.agents {
                                             if let Some(node) = scheduler.get_node(&team_agent.id) {
                                                 if node.status == NodeStatus::Skipped {
-                                                    team_agent.skip("Dependency failed".to_string());
+                                                    team_agent
+                                                        .skip("Dependency failed".to_string());
                                                 }
                                             }
                                         }
@@ -794,10 +797,8 @@ impl TeamExecutor {
                                     let _ = scheduler.fail_node(&agent_id, Some(&e.message));
 
                                     // Skip all dependents
-                                    let _ = scheduler.skip_dependents(
-                                        &agent_id,
-                                        "Dependency failed",
-                                    );
+                                    let _ =
+                                        scheduler.skip_dependents(&agent_id, "Dependency failed");
 
                                     // Update agent status
                                     if let Some(agent) = team.get_agent_mut(&agent_id) {
@@ -875,13 +876,8 @@ impl TeamExecutor {
         let start_time = std::time::Instant::now();
 
         // Get policy constraints or use defaults
-        let max_turns = agent_policy
-            .as_ref()
-            .map(|p| p.max_turns)
-            .unwrap_or(10);
-        let max_budget = agent_policy
-            .as_ref()
-            .and_then(|p| p.max_cost_usd);
+        let max_turns = agent_policy.as_ref().map(|p| p.max_turns).unwrap_or(10);
+        let max_budget = agent_policy.as_ref().and_then(|p| p.max_cost_usd);
 
         // Filter tools based on policy
         let filtered_tools = if let Some(ref policy) = agent_policy {
@@ -1069,9 +1065,10 @@ impl TeamExecutor {
                         AgentResult::failure(agent.id.clone(), "Agent was skipped".to_string());
                     result.metadata.insert(
                         "skip_reason".to_string(),
-                        serde_json::json!(
-                            agent.metadata.get("skip_reason").unwrap_or(&"Unknown".to_string())
-                        ),
+                        serde_json::json!(agent
+                            .metadata
+                            .get("skip_reason")
+                            .unwrap_or(&"Unknown".to_string())),
                     );
                     result
                 }
@@ -1085,12 +1082,7 @@ impl TeamExecutor {
     }
 
     /// Get the policy for a team.
-    pub fn get_team_policy(
-        &self,
-        team: &AgentTeam,
-    ) -> crate::engine::team::policy::TeamPolicy {
-        
-
+    pub fn get_team_policy(&self, team: &AgentTeam) -> crate::engine::team::policy::TeamPolicy {
         team.shared_state
             .get("policy")
             .and_then(|v| serde_json::from_value(v.clone()).ok())

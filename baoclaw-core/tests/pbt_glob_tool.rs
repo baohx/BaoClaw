@@ -33,21 +33,19 @@ fn valid_glob_pattern_strategy() -> impl Strategy<Value = String> {
 
 /// Strategy for generating a set of unique file names with a given extension.
 fn file_names_strategy(ext: &'static str) -> impl Strategy<Value = Vec<String>> {
-    prop::collection::vec(
-        prop::string::string_regex("[a-z]{1,10}").unwrap(),
-        1..10,
+    prop::collection::vec(prop::string::string_regex("[a-z]{1,10}").unwrap(), 1..10).prop_map(
+        move |names| {
+            // Deduplicate names to avoid writing to the same file twice
+            let mut unique: Vec<String> = names
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .map(|n| format!("{}.{}", n, ext))
+                .collect();
+            unique.sort();
+            unique
+        },
     )
-    .prop_map(move |names| {
-        // Deduplicate names to avoid writing to the same file twice
-        let mut unique: Vec<String> = names
-            .into_iter()
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .map(|n| format!("{}.{}", n, ext))
-            .collect();
-        unique.sort();
-        unique
-    })
 }
 
 proptest! {

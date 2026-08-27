@@ -41,10 +41,10 @@
 //! Similarly, `engine::permission_gate::types::PermissionDecision` has been renamed
 //! to [`types::EnginePermissionDecision`].
 
-pub mod types;
 pub mod cache;
 pub mod gate;
 pub mod interactive;
+pub mod types;
 
 // ── Re-export canonical types from top-level `permissions` module ──────────
 // These are the single source of truth for permission primitives.

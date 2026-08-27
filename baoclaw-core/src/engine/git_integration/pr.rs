@@ -76,8 +76,14 @@ impl PrManager {
         Self::ensure_gh().await?;
         Self::ensure_git_repo().await?;
 
-        let args = ["pr", "create", "--title", title, "--json",
-            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url"];
+        let args = [
+            "pr",
+            "create",
+            "--title",
+            title,
+            "--json",
+            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
+        ];
 
         let mut dynamic_args: Vec<String> = Vec::new();
         if let Some(b) = body {
@@ -121,8 +127,12 @@ impl PrManager {
         Self::ensure_gh().await?;
         Self::ensure_git_repo().await?;
 
-        let args = ["pr", "list", "--json",
-            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url"];
+        let args = [
+            "pr",
+            "list",
+            "--json",
+            "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
+        ];
 
         let mut dynamic_args: Vec<String> = Vec::new();
         if let Some(s) = state {
@@ -157,7 +167,10 @@ impl PrManager {
         let output = run_command_async(
             "gh",
             &[
-                "pr", "view", &number_str, "--json",
+                "pr",
+                "view",
+                &number_str,
+                "--json",
                 "number,title,body,state,baseRefName,headRefName,author{login},createdAt,url",
             ],
             None,

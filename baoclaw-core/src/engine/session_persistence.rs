@@ -97,12 +97,13 @@ fn archive_dir(sessions_dir: &Path) -> PathBuf {
 pub fn load_registry(sessions_dir: &Path) -> SessionRegistryIndex {
     let path = registry_file_path(sessions_dir);
     match fs::read_to_string(&path) {
-        Ok(content) => {
-            serde_json::from_str(&content).unwrap_or_else(|e| {
-                eprintln!("[session-persist] WARNING: registry.json corrupted: {}. Starting fresh.", e);
-                SessionRegistryIndex::default()
-            })
-        }
+        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+            eprintln!(
+                "[session-persist] WARNING: registry.json corrupted: {}. Starting fresh.",
+                e
+            );
+            SessionRegistryIndex::default()
+        }),
         Err(_) => SessionRegistryIndex::default(),
     }
 }
@@ -127,7 +128,11 @@ pub fn upsert_registry_entry(
     let mut index = load_registry(sessions_dir);
     let now = last_active.to_string();
 
-    if let Some(entry) = index.sessions.iter_mut().find(|e| e.session_id == session_id) {
+    if let Some(entry) = index
+        .sessions
+        .iter_mut()
+        .find(|e| e.session_id == session_id)
+    {
         entry.cwd = cwd.to_string();
         entry.last_active = now;
     } else {
@@ -176,18 +181,16 @@ pub fn persist_session_state(sessions_dir: &Path, state: &PersistedSession) -> i
 pub fn load_session_state(sessions_dir: &Path, session_id: &str) -> Option<PersistedSession> {
     let path = session_file_path(sessions_dir, session_id);
     match fs::read_to_string(&path) {
-        Ok(content) => {
-            match serde_json::from_str::<PersistedSession>(&content) {
-                Ok(state) => Some(state),
-                Err(e) => {
-                    eprintln!(
-                        "[session-persist] WARNING: session {} state corrupted: {}. Skipping.",
-                        session_id, e
-                    );
-                    None
-                }
+        Ok(content) => match serde_json::from_str::<PersistedSession>(&content) {
+            Ok(state) => Some(state),
+            Err(e) => {
+                eprintln!(
+                    "[session-persist] WARNING: session {} state corrupted: {}. Skipping.",
+                    session_id, e
+                );
+                None
             }
-        }
+        },
         Err(_) => None,
     }
 }
@@ -208,9 +211,13 @@ pub fn archive_stale_sessions(sessions_dir: &Path, max_age_days: u64) -> io::Res
 
     for entry in &index.sessions {
         // Parse last_active timestamp
-        let last_active = entry.last_active
+        let last_active = entry
+            .last_active
             .parse::<DateTime<Utc>>()
-            .or_else(|_| chrono::NaiveDateTime::parse_from_str(&entry.last_active, "%Y-%m-%dT%H:%M:%S%.fZ").map(|ndt| DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc)))
+            .or_else(|_| {
+                chrono::NaiveDateTime::parse_from_str(&entry.last_active, "%Y-%m-%dT%H:%M:%S%.fZ")
+                    .map(|ndt| DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+            })
             .ok();
 
         let last_active = match last_active {
@@ -240,7 +247,9 @@ pub fn archive_stale_sessions(sessions_dir: &Path, max_age_days: u64) -> io::Res
     // Remove archived sessions from the registry index
     if !archived.is_empty() {
         let mut new_index = index;
-        new_index.sessions.retain(|e| !archived.contains(&e.session_id));
+        new_index
+            .sessions
+            .retain(|e| !archived.contains(&e.session_id));
         save_registry(sessions_dir, &new_index)?;
     }
 
@@ -261,7 +270,11 @@ pub fn delete_session(sessions_dir: &Path, session_id: &str) -> io::Result<()> {
         if e.kind() != std::io::ErrorKind::NotFound {
             // Deletion failed for a real reason (permissions, read-only fs):
             // surface it, but don't abort registry cleanup.
-            eprintln!("[session-persist] WARNING: could not delete {}: {}", path.display(), e);
+            eprintln!(
+                "[session-persist] WARNING: could not delete {}: {}",
+                path.display(),
+                e
+            );
         }
     }
 
@@ -344,17 +357,38 @@ mod tests {
         let sessions_dir = dir.path().join("sessions");
 
         // First insert
-        upsert_registry_entry(&sessions_dir, "s1", "/a", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z").unwrap();
+        upsert_registry_entry(
+            &sessions_dir,
+            "s1",
+            "/a",
+            "2025-01-01T00:00:00Z",
+            "2025-01-01T00:00:00Z",
+        )
+        .unwrap();
         let idx = load_registry(&sessions_dir);
         assert_eq!(idx.sessions.len(), 1);
 
         // Second insert
-        upsert_registry_entry(&sessions_dir, "s2", "/b", "2025-01-02T00:00:00Z", "2025-01-02T00:00:00Z").unwrap();
+        upsert_registry_entry(
+            &sessions_dir,
+            "s2",
+            "/b",
+            "2025-01-02T00:00:00Z",
+            "2025-01-02T00:00:00Z",
+        )
+        .unwrap();
         let idx = load_registry(&sessions_dir);
         assert_eq!(idx.sessions.len(), 2);
 
         // Update existing (should not add new)
-        upsert_registry_entry(&sessions_dir, "s1", "/a", "2025-01-01T00:00:00Z", "2025-01-03T00:00:00Z").unwrap();
+        upsert_registry_entry(
+            &sessions_dir,
+            "s1",
+            "/a",
+            "2025-01-01T00:00:00Z",
+            "2025-01-03T00:00:00Z",
+        )
+        .unwrap();
         let idx = load_registry(&sessions_dir);
         assert_eq!(idx.sessions.len(), 2);
         let s1 = idx.sessions.iter().find(|e| e.session_id == "s1").unwrap();

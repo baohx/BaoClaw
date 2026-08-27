@@ -34,8 +34,7 @@ fn valid_regex_strategy() -> impl Strategy<Value = String> {
 /// Strategy for generating file content lines that may or may not match patterns.
 fn file_content_strategy() -> impl Strategy<Value = String> {
     prop::collection::vec(
-        prop::string::string_regex("[a-zA-Z0-9 _.,;:!?(){}\\[\\]=#/-]{0,80}")
-            .unwrap(),
+        prop::string::string_regex("[a-zA-Z0-9 _.,;:!?(){}\\[\\]=#/-]{0,80}").unwrap(),
         1..20,
     )
     .prop_map(|lines| lines.join("\n"))

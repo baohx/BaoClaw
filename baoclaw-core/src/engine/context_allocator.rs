@@ -178,7 +178,9 @@ impl ContextAllocator {
 
     /// Convenience: compute frequency score from usage count.
     pub fn compute_frequency(usage_count: u32, max_observed: u32) -> f64 {
-        if max_observed == 0 { return 0.0; }
+        if max_observed == 0 {
+            return 0.0;
+        }
         (usage_count as f64 / max_observed as f64).min(1.0)
     }
 }

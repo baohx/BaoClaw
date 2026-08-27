@@ -141,7 +141,12 @@ impl Action {
                 let var_name = &result[open_idx + 1..close_idx];
 
                 if let Some(value) = ctx.get_variable(var_name) {
-                    result = format!("{}{}{}", &result[..open_idx], value, &result[close_idx + 1..]);
+                    result = format!(
+                        "{}{}{}",
+                        &result[..open_idx],
+                        value,
+                        &result[close_idx + 1..]
+                    );
                     // Continue from the same position since we modified the string
                     start = open_idx + value.len();
                 } else {
@@ -231,7 +236,11 @@ impl ActionExecutor {
     ///
     /// Returns the action result, or a pending action for actions that need
     /// to be processed by the main agent (ask_agent, send_notification).
-    pub async fn execute(&self, action: &Action, ctx: &TriggerContext) -> (ActionResult, Option<PendingAction>) {
+    pub async fn execute(
+        &self,
+        action: &Action,
+        ctx: &TriggerContext,
+    ) -> (ActionResult, Option<PendingAction>) {
         match action.action_type {
             ActionType::RunCommand => self.execute_command(action, ctx).await,
             ActionType::AskAgent => self.prepare_ask_agent(action, ctx).await,
@@ -239,7 +248,11 @@ impl ActionExecutor {
         }
     }
 
-    async fn execute_command(&self, action: &Action, ctx: &TriggerContext) -> (ActionResult, Option<PendingAction>) {
+    async fn execute_command(
+        &self,
+        action: &Action,
+        ctx: &TriggerContext,
+    ) -> (ActionResult, Option<PendingAction>) {
         let command = match &action.command {
             Some(cmd) => cmd,
             None => return (ActionResult::failure("No command specified"), None),
@@ -284,15 +297,28 @@ impl ActionExecutor {
                     };
                     (result, None)
                 } else {
-                    (ActionResult::failure(format!("Command failed: {}", stderr)), None)
+                    (
+                        ActionResult::failure(format!("Command failed: {}", stderr)),
+                        None,
+                    )
                 }
             }
-            Ok(Err(e)) => (ActionResult::failure(format!("Failed to execute command: {}", e)), None),
-            Err(_) => (ActionResult::failure(format!("Command timed out after {}s", action.timeout_secs)), None),
+            Ok(Err(e)) => (
+                ActionResult::failure(format!("Failed to execute command: {}", e)),
+                None,
+            ),
+            Err(_) => (
+                ActionResult::failure(format!("Command timed out after {}s", action.timeout_secs)),
+                None,
+            ),
         }
     }
 
-    async fn prepare_ask_agent(&self, action: &Action, ctx: &TriggerContext) -> (ActionResult, Option<PendingAction>) {
+    async fn prepare_ask_agent(
+        &self,
+        action: &Action,
+        ctx: &TriggerContext,
+    ) -> (ActionResult, Option<PendingAction>) {
         let prompt = match &action.prompt {
             Some(p) => p,
             None => return (ActionResult::failure("No prompt specified"), None),
@@ -310,7 +336,11 @@ impl ActionExecutor {
         )
     }
 
-    async fn prepare_notification(&self, action: &Action, ctx: &TriggerContext) -> (ActionResult, Option<PendingAction>) {
+    async fn prepare_notification(
+        &self,
+        action: &Action,
+        ctx: &TriggerContext,
+    ) -> (ActionResult, Option<PendingAction>) {
         let message = match &action.message {
             Some(m) => m,
             None => return (ActionResult::failure("No message specified"), None),
@@ -355,7 +385,10 @@ mod tests {
     fn test_action_type_display() {
         assert_eq!(ActionType::RunCommand.to_string(), "run_command");
         assert_eq!(ActionType::AskAgent.to_string(), "ask_agent");
-        assert_eq!(ActionType::SendNotification.to_string(), "send_notification");
+        assert_eq!(
+            ActionType::SendNotification.to_string(),
+            "send_notification"
+        );
     }
 
     #[test]
@@ -450,7 +483,8 @@ mod tests {
         let action = Action::send_notification("Session {session_id}: {turns} turns, ${cost}");
         let ctx = TriggerContext::session_end("abc123", 42, 5.25);
 
-        let result = action.substitute_variables("Session {session_id}: {turns} turns, ${cost}", &ctx);
+        let result =
+            action.substitute_variables("Session {session_id}: {turns} turns, ${cost}", &ctx);
         assert_eq!(result, "Session abc123: 42 turns, $5.25");
     }
 
@@ -612,17 +646,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_command_with_env() {
-        let executor = ActionExecutor::new("/tmp")
-            .with_env("MY_VAR", "test_value");
+        let executor = ActionExecutor::new("/tmp").with_env("MY_VAR", "test_value");
         // Use env command to verify environment variable is set
         let action = Action::run_command("env");
         let ctx = TriggerContext::new();
 
         let (result, pending) = executor.execute(&action, &ctx).await;
-        assert!(result.success, "Command should succeed, error: {:?}", result.error);
+        assert!(
+            result.success,
+            "Command should succeed, error: {:?}",
+            result.error
+        );
         assert!(pending.is_none());
         let output = result.output.unwrap();
-        assert!(output.contains("MY_VAR=test_value"), "Output should contain MY_VAR=test_value, got partial: {}", &output[..output.len().min(500)]);
+        assert!(
+            output.contains("MY_VAR=test_value"),
+            "Output should contain MY_VAR=test_value, got partial: {}",
+            &output[..output.len().min(500)]
+        );
     }
 
     #[tokio::test]
@@ -683,21 +724,27 @@ mod tests {
         assert!(pending.is_some());
         let pending = pending.unwrap();
         assert!(pending.prompt.is_empty());
-        assert_eq!(pending.notification, Some("File src/main.ts was edited".to_string()));
+        assert_eq!(
+            pending.notification,
+            Some("File src/main.ts was edited".to_string())
+        );
         assert_eq!(pending.channels, vec!["telegram", "cli"]);
     }
 
     #[tokio::test]
     async fn test_prepare_notification_with_error_context() {
         let executor = ActionExecutor::new("/tmp");
-        let action = Action::send_notification("Error: {error}")
-            .with_channels(vec!["email".to_string()]);
+        let action =
+            Action::send_notification("Error: {error}").with_channels(vec!["email".to_string()]);
         let ctx = TriggerContext::error("Build failed", Some("Bash".to_string()));
 
         let (result, pending) = executor.execute(&action, &ctx).await;
         assert!(result.success);
         let pending = pending.unwrap();
-        assert_eq!(pending.notification, Some("Error: Build failed".to_string()));
+        assert_eq!(
+            pending.notification,
+            Some("Error: Build failed".to_string())
+        );
     }
 
     #[tokio::test]
@@ -765,9 +812,8 @@ mod tests {
     async fn test_full_workflow_send_notification() {
         // Simulate: session ended -> send notification
         let executor = ActionExecutor::new("/tmp");
-        let action = Action::send_notification(
-            "Session complete: {turns} turns, cost ${cost}"
-        ).with_channels(vec!["telegram".to_string()]);
+        let action = Action::send_notification("Session complete: {turns} turns, cost ${cost}")
+            .with_channels(vec!["telegram".to_string()]);
         let ctx = TriggerContext::session_end("sess-001", 25, 3.50);
 
         let (result, pending) = executor.execute(&action, &ctx).await;

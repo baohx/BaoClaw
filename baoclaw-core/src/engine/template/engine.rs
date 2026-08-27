@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::types::{Template, WorkflowAction, WorkflowStep};
 use super::builtins::builtin_templates;
+use super::types::{Template, WorkflowAction, WorkflowStep};
 
 /// Result of variable collection — either resolved or needs user input.
 #[derive(Clone, Debug)]
@@ -101,9 +101,7 @@ impl TemplateEngine {
 
     /// Find a template matching the given slash command.
     pub fn match_trigger(&self, command: &str) -> Option<&Template> {
-        self.templates
-            .values()
-            .find(|t| t.matches_trigger(command))
+        self.templates.values().find(|t| t.matches_trigger(command))
     }
 
     /// Find a template by name.
@@ -169,7 +167,11 @@ impl TemplateEngine {
     }
 
     /// Generate the augmented system prompt from the template.
-    pub fn build_system_prompt(&self, template: &Template, vars: &HashMap<String, String>) -> String {
+    pub fn build_system_prompt(
+        &self,
+        template: &Template,
+        vars: &HashMap<String, String>,
+    ) -> String {
         if template.system_prompt_addon.is_empty() {
             return String::new();
         }
@@ -189,7 +191,10 @@ impl TemplateEngine {
                 if let Some(ref cond) = step.condition {
                     let expanded = template.substitute(cond, vars);
                     // Simple true/false evaluation
-                    !matches!(expanded.trim().to_lowercase().as_str(), "false" | "0" | "no")
+                    !matches!(
+                        expanded.trim().to_lowercase().as_str(),
+                        "false" | "0" | "no"
+                    )
                 } else {
                     true
                 }
@@ -205,10 +210,7 @@ impl TemplateEngine {
                     },
                     WorkflowAction::Analyze { prompt, files } => WorkflowAction::Analyze {
                         prompt: template.substitute(prompt, vars),
-                        files: files
-                            .iter()
-                            .map(|f| template.substitute(f, vars))
-                            .collect(),
+                        files: files.iter().map(|f| template.substitute(f, vars)).collect(),
                     },
                     WorkflowAction::Format { template: ref tpl } => WorkflowAction::Format {
                         template: template.substitute(tpl, vars),
@@ -233,7 +235,10 @@ impl TemplateEngine {
                         options: options.clone(),
                         default: template.substitute(default, vars),
                     },
-                    WorkflowAction::SubTemplate { name, variables: ref tvars } => {
+                    WorkflowAction::SubTemplate {
+                        name,
+                        variables: ref tvars,
+                    } => {
                         let mut expanded_vars = HashMap::new();
                         for (k, v) in tvars {
                             expanded_vars.insert(k.clone(), template.substitute(v, vars));
@@ -248,7 +253,10 @@ impl TemplateEngine {
                 WorkflowStep {
                     step: template.substitute(&step.step, vars),
                     action: expanded_action,
-                    condition: step.condition.as_ref().map(|c| template.substitute(c, vars)),
+                    condition: step
+                        .condition
+                        .as_ref()
+                        .map(|c| template.substitute(c, vars)),
                 }
             })
             .collect()
@@ -268,10 +276,10 @@ impl TemplateEngine {
 
         let json = serde_json::to_string_pretty(template)
             .map_err(|e| format!("Failed to serialize template: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write template: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write template: {}", e))?;
 
-        self.templates.insert(template.name.clone(), template.clone());
+        self.templates
+            .insert(template.name.clone(), template.clone());
         Ok(())
     }
 
@@ -292,8 +300,7 @@ impl TemplateEngine {
         let path = self.template_path(name);
         let json = serde_json::to_string_pretty(template)
             .map_err(|e| format!("Failed to serialize template: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write template: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write template: {}", e))?;
 
         self.templates.insert(name.to_string(), template.clone());
         Ok(())
@@ -327,14 +334,13 @@ impl TemplateEngine {
             .get(name)
             .ok_or_else(|| format!("Template '{}' not found", name))?;
 
-        serde_json::to_string_pretty(template)
-            .map_err(|e| format!("Failed to serialize: {}", e))
+        serde_json::to_string_pretty(template).map_err(|e| format!("Failed to serialize: {}", e))
     }
 
     /// Import a template from a JSON string or URL.
     pub fn import_template_json(&mut self, json: &str) -> Result<Template, String> {
-        let template: Template = serde_json::from_str(json)
-            .map_err(|e| format!("Invalid template JSON: {}", e))?;
+        let template: Template =
+            serde_json::from_str(json).map_err(|e| format!("Invalid template JSON: {}", e))?;
 
         if template.name.is_empty() || template.trigger.is_empty() {
             return Err("Template must have a name and trigger".to_string());
@@ -458,7 +464,10 @@ mod tests {
 
         // Broad query matches several builtins (name/description/tags);
         // just verify the expected template is among them.
-        assert!(engine.search("code").iter().any(|t| t.name == "Code Review"));
+        assert!(engine
+            .search("code")
+            .iter()
+            .any(|t| t.name == "Code Review"));
     }
 
     #[test]
@@ -530,13 +539,16 @@ mod tests {
             }],
             variables: {
                 let mut m = HashMap::new();
-                m.insert("name".to_string(), Variable {
-                    default: "world".into(),
-                    prompt: "Name?".into(),
-                    required: true,
-                    pattern: None,
-                    help: String::new(),
-                });
+                m.insert(
+                    "name".to_string(),
+                    Variable {
+                        default: "world".into(),
+                        prompt: "Name?".into(),
+                        required: true,
+                        pattern: None,
+                        help: String::new(),
+                    },
+                );
                 m
             },
             ..Template::new("ExportTest", "/export")
@@ -622,13 +634,16 @@ mod tests {
             ],
             variables: {
                 let mut m = HashMap::new();
-                m.insert("flag".to_string(), Variable {
-                    default: "true".into(),
-                    prompt: String::new(),
-                    required: false,
-                    pattern: None,
-                    help: String::new(),
-                });
+                m.insert(
+                    "flag".to_string(),
+                    Variable {
+                        default: "true".into(),
+                        prompt: String::new(),
+                        required: false,
+                        pattern: None,
+                        help: String::new(),
+                    },
+                );
                 m
             },
             ..Template::new("Conditional", "/cond")

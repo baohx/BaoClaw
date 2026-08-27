@@ -75,9 +75,9 @@ impl Tool for TodoWriteTool {
 
         // Load existing items
         let mut items: Vec<TodoItem> = if todo_path.exists() {
-            let content = tokio::fs::read_to_string(&todo_path)
-                .await
-                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read todo.json: {}", e)))?;
+            let content = tokio::fs::read_to_string(&todo_path).await.map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to read todo.json: {}", e))
+            })?;
             serde_json::from_str(&content).unwrap_or_default()
         } else {
             Vec::new()
@@ -85,12 +85,9 @@ impl Tool for TodoWriteTool {
 
         let result = match operation {
             "add" => {
-                let text = input
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ToolError::ExecutionFailed("Missing 'text' for add operation".to_string())
-                    })?;
+                let text = input.get("text").and_then(|v| v.as_str()).ok_or_else(|| {
+                    ToolError::ExecutionFailed("Missing 'text' for add operation".to_string())
+                })?;
                 let priority = input
                     .get("priority")
                     .and_then(|v| v.as_str())
@@ -109,13 +106,14 @@ impl Tool for TodoWriteTool {
                 let index = input
                     .get("index")
                     .and_then(|v| {
-                        v.as_u64().or_else(|| {
-                            v.as_str().and_then(|s| s.parse::<u64>().ok())
-                        })
+                        v.as_u64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
                     })
                     .map(|v| v as usize)
                     .ok_or_else(|| {
-                        ToolError::ExecutionFailed("Missing 'index' for complete operation".to_string())
+                        ToolError::ExecutionFailed(
+                            "Missing 'index' for complete operation".to_string(),
+                        )
                     })?;
                 if index >= items.len() {
                     return Err(ToolError::ExecutionFailed(format!(
@@ -131,13 +129,14 @@ impl Tool for TodoWriteTool {
                 let index = input
                     .get("index")
                     .and_then(|v| {
-                        v.as_u64().or_else(|| {
-                            v.as_str().and_then(|s| s.parse::<u64>().ok())
-                        })
+                        v.as_u64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
                     })
                     .map(|v| v as usize)
                     .ok_or_else(|| {
-                        ToolError::ExecutionFailed("Missing 'index' for remove operation".to_string())
+                        ToolError::ExecutionFailed(
+                            "Missing 'index' for remove operation".to_string(),
+                        )
                     })?;
                 if index >= items.len() {
                     return Err(ToolError::ExecutionFailed(format!(
@@ -162,14 +161,16 @@ impl Tool for TodoWriteTool {
 
         // Persist changes (except for list which is read-only)
         if operation != "list" {
-            tokio::fs::create_dir_all(&todo_dir)
-                .await
-                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create .baoclaw dir: {}", e)))?;
+            tokio::fs::create_dir_all(&todo_dir).await.map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to create .baoclaw dir: {}", e))
+            })?;
             let serialized = serde_json::to_string_pretty(&items)
                 .map_err(|e| ToolError::ExecutionFailed(format!("Failed to serialize: {}", e)))?;
             tokio::fs::write(&todo_path, serialized)
                 .await
-                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write todo.json: {}", e)))?;
+                .map_err(|e| {
+                    ToolError::ExecutionFailed(format!("Failed to write todo.json: {}", e))
+                })?;
         }
 
         Ok(ToolResult {
@@ -271,7 +272,11 @@ mod tests {
         .unwrap();
 
         let result = tool
-            .call(json!({"operation": "complete", "index": 0}), &ctx, &progress)
+            .call(
+                json!({"operation": "complete", "index": 0}),
+                &ctx,
+                &progress,
+            )
             .await
             .unwrap();
 
@@ -312,7 +317,11 @@ mod tests {
         let progress = NoopProgress;
 
         let result = tool
-            .call(json!({"operation": "complete", "index": 0}), &ctx, &progress)
+            .call(
+                json!({"operation": "complete", "index": 0}),
+                &ctx,
+                &progress,
+            )
             .await;
 
         assert!(result.is_err());

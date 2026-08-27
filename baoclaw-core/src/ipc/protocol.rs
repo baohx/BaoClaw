@@ -251,7 +251,8 @@ mod tests {
 
     #[test]
     fn test_error_response_constructor() {
-        let err = JsonRpcErrorResponse::new(Some(RequestId::Number(2)), -32600, "Invalid Request".into());
+        let err =
+            JsonRpcErrorResponse::new(Some(RequestId::Number(2)), -32600, "Invalid Request".into());
         assert_eq!(err.jsonrpc, "2.0");
         assert_eq!(err.error.code, -32600);
         assert_eq!(err.error.message, "Invalid Request");
@@ -344,7 +345,8 @@ mod tests {
 
     #[test]
     fn test_message_deserialize_error_response() {
-        let json_str = r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":1}"#;
+        let json_str =
+            r#"{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":1}"#;
         let msg: JsonRpcMessage = serde_json::from_str(json_str).unwrap();
         match msg {
             JsonRpcMessage::ErrorResponse(err) => {
@@ -357,7 +359,8 @@ mod tests {
 
     #[test]
     fn test_message_deserialize_error_response_null_id() {
-        let json_str = r#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}"#;
+        let json_str =
+            r#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}"#;
         let msg: JsonRpcMessage = serde_json::from_str(json_str).unwrap();
         match msg {
             JsonRpcMessage::ErrorResponse(err) => {
@@ -499,7 +502,10 @@ mod tests {
 
     #[test]
     fn test_ndjson_roundtrip_notification() {
-        let notif = JsonRpcNotification::new("stream/event", json!({"type": "assistant_chunk", "content": "Hello"}));
+        let notif = JsonRpcNotification::new(
+            "stream/event",
+            json!({"type": "assistant_chunk", "content": "Hello"}),
+        );
         let bytes = encode_ndjson(&notif).unwrap();
         let line = std::str::from_utf8(&bytes).unwrap();
         let msg = decode_ndjson_line(line).unwrap();
@@ -514,7 +520,10 @@ mod tests {
 
     #[test]
     fn test_ndjson_roundtrip_response() {
-        let resp = JsonRpcResponse::success(RequestId::String("r-42".into()), json!({"status": "complete"}));
+        let resp = JsonRpcResponse::success(
+            RequestId::String("r-42".into()),
+            json!({"status": "complete"}),
+        );
         let bytes = encode_ndjson(&resp).unwrap();
         let line = std::str::from_utf8(&bytes).unwrap();
         let msg = decode_ndjson_line(line).unwrap();
@@ -529,7 +538,8 @@ mod tests {
 
     #[test]
     fn test_ndjson_roundtrip_error_response() {
-        let err = JsonRpcErrorResponse::new(Some(RequestId::Number(5)), -32600, "Invalid Request".into());
+        let err =
+            JsonRpcErrorResponse::new(Some(RequestId::Number(5)), -32600, "Invalid Request".into());
         let bytes = encode_ndjson(&err).unwrap();
         let line = std::str::from_utf8(&bytes).unwrap();
         let msg = decode_ndjson_line(line).unwrap();

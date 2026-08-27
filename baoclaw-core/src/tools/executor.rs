@@ -153,24 +153,19 @@ pub async fn execute_tool_with_permission(
 
     // Step 2: Check permissions via PermissionManager
     let input_description = serde_json::to_string(&request.input).ok();
-    let perm_result = permission_manager.check_permission(
-        &tool_name,
-        input_description.as_deref(),
-    );
+    let perm_result = permission_manager.check_permission(&tool_name, input_description.as_deref());
 
     match perm_result {
         PermissionResult::Allow => {
             // Direct execution
             call_tool_and_wrap(tool, request, context, progress).await
         }
-        PermissionResult::Deny { message } => {
-            ToolExecutionResult {
-                tool_use_id,
-                tool_name,
-                output: Value::String(format!("Permission denied: {}", message)),
-                is_error: true,
-            }
-        }
+        PermissionResult::Deny { message } => ToolExecutionResult {
+            tool_use_id,
+            tool_name,
+            output: Value::String(format!("Permission denied: {}", message)),
+            is_error: true,
+        },
         PermissionResult::Ask { .. } => {
             // Send PermissionRequest event to CLI
             let _ = event_tx
@@ -186,7 +181,7 @@ pub async fn execute_tool_with_permission(
             let decision = match tokio::time::timeout(Duration::from_secs(300), rx).await {
                 Ok(Ok(decision)) => decision,
                 Ok(Err(_)) => PermissionDecision::Deny, // channel closed
-                Err(_) => PermissionDecision::Deny,      // timeout → auto-deny
+                Err(_) => PermissionDecision::Deny,     // timeout → auto-deny
             };
 
             match decision {
@@ -268,7 +263,12 @@ fn truncate_if_needed(data: Value, max_size_chars: usize) -> Value {
 /// output exceeds the threshold, the full content is written to a file and
 /// the in-context value is replaced with a `<persisted-output>` block.
 /// Otherwise the old truncation logic is used.
-fn maybe_persist_or_truncate(data: Value, max_size_chars: usize, context: &ToolContext, tool_use_id: &str) -> Value {
+fn maybe_persist_or_truncate(
+    data: Value,
+    max_size_chars: usize,
+    context: &ToolContext,
+    tool_use_id: &str,
+) -> Value {
     let serialized = match serde_json::to_string(&data) {
         Ok(s) => s,
         Err(_) => return data,
@@ -480,11 +480,7 @@ mod tests {
             self.max_result_size
         }
 
-        async fn validate_input(
-            &self,
-            _input: &Value,
-            _context: &ToolContext,
-        ) -> ValidationResult {
+        async fn validate_input(&self, _input: &Value, _context: &ToolContext) -> ValidationResult {
             self.validation_result
                 .lock()
                 .unwrap()
@@ -497,13 +493,11 @@ mod tests {
             _input: &Value,
             _context: &ToolContext,
         ) -> ToolPermissionCheckResult {
-            self.permission_result
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap_or(ToolPermissionCheckResult::Allow {
+            self.permission_result.lock().unwrap().take().unwrap_or(
+                ToolPermissionCheckResult::Allow {
                     updated_input: Value::Null,
-                })
+                },
+            )
         }
 
         async fn call(
@@ -592,10 +586,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_tool_permission_denied() {
-        let tool =
-            MockTool::new("TestTool").with_permission(ToolPermissionCheckResult::Deny {
-                message: "not allowed".to_string(),
-            });
+        let tool = MockTool::new("TestTool").with_permission(ToolPermissionCheckResult::Deny {
+            message: "not allowed".to_string(),
+        });
         let ctx = make_context();
         let progress = MockProgressSender;
         let request = make_request("req-3", "TestTool");
@@ -603,7 +596,11 @@ mod tests {
         let result = execute_tool(&tool, &request, &ctx, &progress).await;
 
         assert!(result.is_error);
-        assert!(result.output.as_str().unwrap().contains("Permission denied"));
+        assert!(result
+            .output
+            .as_str()
+            .unwrap()
+            .contains("Permission denied"));
         assert!(result.output.as_str().unwrap().contains("not allowed"));
         assert_eq!(tool.call_count.load(Ordering::SeqCst), 0);
     }
@@ -671,8 +668,9 @@ mod tests {
 
     #[test]
     fn test_find_tool_by_alias() {
-        let tools: Vec<Arc<dyn Tool>> =
-            vec![Arc::new(MockTool::new("FileRead").with_aliases(vec!["Read", "FR"]))];
+        let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(
+            MockTool::new("FileRead").with_aliases(vec!["Read", "FR"]),
+        )];
 
         assert!(find_tool(&tools, "Read").is_some());
         assert!(find_tool(&tools, "fr").is_some());

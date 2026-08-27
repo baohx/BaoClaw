@@ -12,18 +12,10 @@
 // Re-export everything from the canonical engine::telemetry module.
 
 // Also re-export the sub-modules for deep-import compatibility.
-pub mod collector {
-    
-}
-pub mod export {
-    
-}
-pub mod trends {
-    
-}
-pub mod types {
-    
-}
+pub mod collector {}
+pub mod export {}
+pub mod trends {}
+pub mod types {}
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -4,7 +4,6 @@
 //! When a tool requests an action, the gate checks cache first,
 //! then evaluates rules in priority order, and returns a decision.
 
-
 use super::cache::PermissionCache;
 use super::types::{DecisionType, EnginePermissionDecision, PermissionRequest, PermissionRule};
 
@@ -42,25 +41,43 @@ impl RuleBasedPermissionGate {
     /// Load the default safety rules.
     fn load_default_rules(&mut self) {
         // ── FileRead: always allowed ──
-        self.rules.push(
-            PermissionRule::new("default-fileread-allow", "FileRead is always allowed", "FileRead", "*"),
-        );
+        self.rules.push(PermissionRule::new(
+            "default-fileread-allow",
+            "FileRead is always allowed",
+            "FileRead",
+            "*",
+        ));
 
         // ── FileWrite: require confirmation, deny dangerous patterns ──
         self.rules.push(
-            PermissionRule::new("default-filewrite-deny-env", "Deny writing to .env files", "FileWrite", "*")
-                .with_target("*.env")
-                .with_auto_deny(),
+            PermissionRule::new(
+                "default-filewrite-deny-env",
+                "Deny writing to .env files",
+                "FileWrite",
+                "*",
+            )
+            .with_target("*.env")
+            .with_auto_deny(),
         );
         self.rules.push(
-            PermissionRule::new("default-filewrite-deny-git", "Deny writing to .git directory", "FileWrite", "*")
-                .with_target(".git/*")
-                .with_auto_deny(),
+            PermissionRule::new(
+                "default-filewrite-deny-git",
+                "Deny writing to .git directory",
+                "FileWrite",
+                "*",
+            )
+            .with_target(".git/*")
+            .with_auto_deny(),
         );
         self.rules.push(
-            PermissionRule::new("default-filewrite-deny-ssh", "Deny writing to SSH keys", "FileWrite", "*")
-                .with_target("*/.ssh/*")
-                .with_auto_deny(),
+            PermissionRule::new(
+                "default-filewrite-deny-ssh",
+                "Deny writing to SSH keys",
+                "FileWrite",
+                "*",
+            )
+            .with_target("*/.ssh/*")
+            .with_auto_deny(),
         );
         self.rules.push(
             PermissionRule::new(
@@ -69,7 +86,7 @@ impl RuleBasedPermissionGate {
                 "FileWrite",
                 "*",
             )
-            .with_target("*.md")
+            .with_target("*.md"),
         );
         self.rules.push(
             PermissionRule::new(
@@ -96,8 +113,13 @@ impl RuleBasedPermissionGate {
 
         for (id, cmd) in dangerous_commands {
             self.rules.push(
-                PermissionRule::new(id, &format!("Auto-deny dangerous command: {}", cmd), "Bash", cmd)
-                    .with_auto_deny(),
+                PermissionRule::new(
+                    id,
+                    &format!("Auto-deny dangerous command: {}", cmd),
+                    "Bash",
+                    cmd,
+                )
+                .with_auto_deny(),
             );
         }
 
@@ -119,18 +141,13 @@ impl RuleBasedPermissionGate {
         ];
 
         for cmd in safe_commands {
-            let id = format!(
-                "default-bash-allow-{}",
-                cmd.trim().replace(' ', "-")
-            );
-            self.rules.push(
-                PermissionRule::new(
-                    &id,
-                    &format!("Allow safe command: {}", cmd.trim()),
-                    "Bash",
-                    cmd,
-                ),
-            );
+            let id = format!("default-bash-allow-{}", cmd.trim().replace(' ', "-"));
+            self.rules.push(PermissionRule::new(
+                &id,
+                &format!("Allow safe command: {}", cmd.trim()),
+                "Bash",
+                cmd,
+            ));
         }
 
         // Bash default: require confirmation
@@ -206,14 +223,12 @@ impl RuleBasedPermissionGate {
         );
 
         // ── WebSearch: allowed ──
-        self.rules.push(
-            PermissionRule::new(
-                "default-websearch-allow",
-                "WebSearch is always allowed",
-                "WebSearch",
-                "*",
-            ),
-        );
+        self.rules.push(PermissionRule::new(
+            "default-websearch-allow",
+            "WebSearch is always allowed",
+            "WebSearch",
+            "*",
+        ));
     }
 
     /// Check a permission request against the cache and rules.
@@ -297,7 +312,8 @@ impl RuleBasedPermissionGate {
         match decision {
             DecisionType::AllowSession => {
                 let ttl = duration_secs.or(Some(3600 * 24)); // Default: 24 hours
-                self.cache.store(tool, action, target, DecisionType::AllowSession, ttl);
+                self.cache
+                    .store(tool, action, target, DecisionType::AllowSession, ttl);
             }
             DecisionType::AllowPermanent => {
                 self.cache
@@ -501,7 +517,13 @@ mod tests {
         assert_eq!(gate.rule_count(), original_count + 1);
 
         // Grant something
-        gate.grant("Bash", "custom-cmd", ".", DecisionType::AllowPermanent, None);
+        gate.grant(
+            "Bash",
+            "custom-cmd",
+            ".",
+            DecisionType::AllowPermanent,
+            None,
+        );
 
         // Reset
         gate.reset();

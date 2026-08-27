@@ -12,10 +12,7 @@ pub async fn backup_file_before_write(path: &Path, cwd: &Path) -> Result<(), std
     tokio::fs::create_dir_all(&backup_dir).await?;
 
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-    let filename = path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
+    let filename = path.file_name().unwrap_or_default().to_string_lossy();
     let backup_path = backup_dir.join(format!("{}_{}", filename, timestamp));
 
     tokio::fs::copy(path, &backup_path).await?;
@@ -33,7 +30,9 @@ mod tests {
         let file_path = dir.path().join("test.txt");
         std::fs::write(&file_path, "original content").unwrap();
 
-        backup_file_before_write(&file_path, dir.path()).await.unwrap();
+        backup_file_before_write(&file_path, dir.path())
+            .await
+            .unwrap();
 
         let backup_dir = dir.path().join(".baoclaw").join("backups");
         assert!(backup_dir.exists());

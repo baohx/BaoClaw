@@ -20,7 +20,6 @@ pub enum TeamMode {
     Dag,
 }
 
-
 impl std::fmt::Display for TeamMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -62,7 +61,6 @@ pub enum TeamStatus {
     Aborted,
 }
 
-
 impl std::fmt::Display for TeamStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -92,7 +90,6 @@ pub enum SubAgentStatus {
     /// Agent was skipped (e.g., in DAG mode when dependency failed).
     Skipped,
 }
-
 
 impl std::fmt::Display for SubAgentStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -206,7 +203,10 @@ impl SubAgent {
     /// Check if this agent is ready to run (all dependencies satisfied).
     pub fn is_ready(&self, completed: &std::collections::HashSet<&str>) -> bool {
         self.status == SubAgentStatus::Pending
-            && self.dependencies.iter().all(|dep| completed.contains(dep.as_str()))
+            && self
+                .dependencies
+                .iter()
+                .all(|dep| completed.contains(dep.as_str()))
     }
 }
 
@@ -265,7 +265,12 @@ impl SharedState {
     }
 
     /// Report progress from an agent.
-    pub fn report_progress(&mut self, agent_id: impl Into<String>, message: impl Into<String>, progress: f64) {
+    pub fn report_progress(
+        &mut self,
+        agent_id: impl Into<String>,
+        message: impl Into<String>,
+        progress: f64,
+    ) {
         self.progress.push(ProgressReport {
             agent_id: agent_id.into(),
             message: message.into(),
@@ -401,7 +406,10 @@ impl AgentTeam {
     /// Create parallel agents with the same prompt.
     pub fn create_parallel_agents(&mut self, count: usize, prompt_prefix: &str) {
         for i in 0..count {
-            let agent = SubAgent::new(format!("agent-{}", i), format!("{} (part {})", prompt_prefix, i + 1));
+            let agent = SubAgent::new(
+                format!("agent-{}", i),
+                format!("{} (part {})", prompt_prefix, i + 1),
+            );
             self.agents.push(agent);
         }
     }
@@ -433,14 +441,16 @@ impl AgentTeam {
     pub fn fail(&mut self, error: impl Into<String>) {
         self.status = TeamStatus::Failed;
         self.completed_at = Some(chrono::Utc::now().to_rfc3339());
-        self.shared_state.set("error", serde_json::json!(error.into()));
+        self.shared_state
+            .set("error", serde_json::json!(error.into()));
     }
 
     /// Abort the team execution.
     pub fn abort(&mut self, reason: impl Into<String>) {
         self.status = TeamStatus::Aborted;
         self.completed_at = Some(chrono::Utc::now().to_rfc3339());
-        self.shared_state.set("abort_reason", serde_json::json!(reason.into()));
+        self.shared_state
+            .set("abort_reason", serde_json::json!(reason.into()));
     }
 
     /// Calculate total tokens and cost from all agents.
@@ -543,7 +553,10 @@ mod tests {
     fn test_team_mode_from_str() {
         assert_eq!(TeamMode::from_str("parallel").unwrap(), TeamMode::Parallel);
         assert_eq!(TeamMode::from_str("sequence").unwrap(), TeamMode::Sequence);
-        assert_eq!(TeamMode::from_str("sequential").unwrap(), TeamMode::Sequence);
+        assert_eq!(
+            TeamMode::from_str("sequential").unwrap(),
+            TeamMode::Sequence
+        );
         assert_eq!(TeamMode::from_str("dag").unwrap(), TeamMode::Dag);
         assert!(TeamMode::from_str("invalid").is_err());
     }
@@ -576,10 +589,10 @@ mod tests {
     #[test]
     fn test_sub_agent_lifecycle() {
         let mut agent = SubAgent::new("agent-1", "Do something");
-        
+
         agent.start();
         assert_eq!(agent.status, SubAgentStatus::Running);
-        
+
         agent.complete("Result text".to_string(), 100, 0.01);
         assert_eq!(agent.status, SubAgentStatus::Completed);
         assert_eq!(agent.result, Some("Result text".to_string()));
@@ -597,20 +610,18 @@ mod tests {
 
     #[test]
     fn test_sub_agent_dependencies() {
-        let agent = SubAgent::new("agent-2", "Dependent task")
-            .with_dependency("agent-1");
+        let agent = SubAgent::new("agent-2", "Dependent task").with_dependency("agent-1");
         assert_eq!(agent.dependencies, vec!["agent-1"]);
     }
 
     #[test]
     fn test_sub_agent_is_ready() {
-        let agent = SubAgent::new("agent-2", "Dependent task")
-            .with_dependency("agent-1");
-        
+        let agent = SubAgent::new("agent-2", "Dependent task").with_dependency("agent-1");
+
         // Not ready if dependency not completed
         let completed: std::collections::HashSet<&str> = std::collections::HashSet::new();
         assert!(!agent.is_ready(&completed));
-        
+
         // Ready if dependency completed
         let mut completed: std::collections::HashSet<&str> = std::collections::HashSet::new();
         completed.insert("agent-1");
@@ -629,8 +640,7 @@ mod tests {
 
     #[test]
     fn test_agent_team_with_mode() {
-        let team = AgentTeam::new("team-123", "Task")
-            .with_mode(TeamMode::Sequence);
+        let team = AgentTeam::new("team-123", "Task").with_mode(TeamMode::Sequence);
         assert_eq!(team.mode, TeamMode::Sequence);
     }
 
@@ -638,7 +648,7 @@ mod tests {
     fn test_agent_team_create_parallel_agents() {
         let mut team = AgentTeam::new("team-1", "Task");
         team.create_parallel_agents(3, "Analyze module");
-        
+
         assert_eq!(team.agents.len(), 3);
         assert_eq!(team.agents[0].id, "agent-0");
         assert_eq!(team.agents[1].id, "agent-1");
@@ -648,11 +658,11 @@ mod tests {
     #[test]
     fn test_agent_team_lifecycle() {
         let mut team = AgentTeam::new("team-1", "Task");
-        
+
         team.start();
         assert_eq!(team.status, TeamStatus::Running);
         assert!(team.started_at.is_some());
-        
+
         team.complete();
         assert_eq!(team.status, TeamStatus::Completed);
         assert!(team.completed_at.is_some());
@@ -663,21 +673,21 @@ mod tests {
         let mut team = AgentTeam::new("team-1", "Task");
         team.start();
         team.abort("User cancelled".to_string());
-        
+
         assert_eq!(team.status, TeamStatus::Aborted);
     }
 
     #[test]
     fn test_agent_team_collect_results() {
         let mut team = AgentTeam::new("team-1", "Task");
-        
+
         let mut agent1 = SubAgent::new("agent-1", "Task 1");
         agent1.complete("Result 1".to_string(), 100, 0.01);
         team.add_agent(agent1);
-        
+
         let agent2 = SubAgent::new("agent-2", "Task 2");
         team.add_agent(agent2);
-        
+
         let results = team.collect_results();
         assert_eq!(results.len(), 1);
         assert_eq!(results.get("agent-1"), Some(&"Result 1".to_string()));
@@ -685,47 +695,46 @@ mod tests {
 
     #[test]
     fn test_team_budget_exceeded() {
-        let mut team = AgentTeam::new("team-1", "Task")
-            .with_budget(TeamBudget {
-                max_cost_usd: Some(0.1),
-                max_tokens: None,
-                max_time_secs: None,
-            });
-        
+        let mut team = AgentTeam::new("team-1", "Task").with_budget(TeamBudget {
+            max_cost_usd: Some(0.1),
+            max_tokens: None,
+            max_time_secs: None,
+        });
+
         let mut agent = SubAgent::new("agent-1", "Task");
         agent.complete("Result".to_string(), 100, 0.05);
         team.add_agent(agent);
         team.calculate_totals();
-        
+
         assert!(!team.is_budget_exceeded());
-        
+
         // Add another agent to exceed budget
         let mut agent2 = SubAgent::new("agent-2", "Task");
         agent2.complete("Result".to_string(), 100, 0.06);
         team.add_agent(agent2);
         team.calculate_totals();
-        
+
         assert!(team.is_budget_exceeded());
     }
 
     #[test]
     fn test_team_summary() {
         let mut team = AgentTeam::new("team-1", "Task");
-        
+
         let mut agent1 = SubAgent::new("agent-1", "Task 1");
         agent1.complete("Result".to_string(), 100, 0.01);
         team.add_agent(agent1);
-        
+
         let mut agent2 = SubAgent::new("agent-2", "Task 2");
         agent2.fail("Error".to_string());
         team.add_agent(agent2);
-        
+
         let agent3 = SubAgent::new("agent-3", "Task 3");
         team.add_agent(agent3);
-        
+
         team.calculate_totals();
         let summary = team.summary();
-        
+
         assert_eq!(summary.total_agents, 3);
         assert_eq!(summary.completed_count, 1);
         assert_eq!(summary.failed_count, 1);
@@ -737,10 +746,10 @@ mod tests {
     #[test]
     fn test_shared_state() {
         let mut state = SharedState::new();
-        
+
         state.set("key1", serde_json::json!("value1"));
         assert_eq!(state.get("key1"), Some(&serde_json::json!("value1")));
-        
+
         state.report_progress("agent-1", "50% done", 0.5);
         assert_eq!(state.progress.len(), 1);
         assert_eq!(state.progress[0].agent_id, "agent-1");
@@ -752,10 +761,10 @@ mod tests {
         let team = AgentTeam::new("team-1", "Test task")
             .with_mode(TeamMode::Parallel)
             .with_name("Test Team");
-        
+
         let json = serde_json::to_string(&team).expect("Failed to serialize");
         let deserialized: AgentTeam = serde_json::from_str(&json).expect("Failed to deserialize");
-        
+
         assert_eq!(deserialized.id, "team-1");
         assert_eq!(deserialized.task, "Test task");
         assert_eq!(deserialized.mode, TeamMode::Parallel);
@@ -764,12 +773,11 @@ mod tests {
 
     #[test]
     fn test_sub_agent_json_serialization() {
-        let agent = SubAgent::new("agent-1", "Test prompt")
-            .with_dependency("agent-0");
-        
+        let agent = SubAgent::new("agent-1", "Test prompt").with_dependency("agent-0");
+
         let json = serde_json::to_string(&agent).expect("Failed to serialize");
         let deserialized: SubAgent = serde_json::from_str(&json).expect("Failed to deserialize");
-        
+
         assert_eq!(deserialized.id, "agent-1");
         assert_eq!(deserialized.prompt, "Test prompt");
         assert_eq!(deserialized.dependencies, vec!["agent-0"]);

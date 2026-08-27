@@ -157,10 +157,7 @@ pub fn glob_search(
         }
     }
 
-    Ok(GlobResult {
-        files,
-        truncated,
-    })
+    Ok(GlobResult { files, truncated })
 }
 
 /// Result of a glob search operation.
@@ -239,7 +236,11 @@ mod tests {
         assert_eq!(result.files.len(), 1);
         // Path should be relative (not absolute)
         let path = &result.files[0];
-        assert!(!std::path::Path::new(path).is_absolute(), "Path should be relative: {}", path);
+        assert!(
+            !std::path::Path::new(path).is_absolute(),
+            "Path should be relative: {}",
+            path
+        );
         assert!(path.contains("src"), "Path should contain 'src': {}", path);
     }
 
@@ -345,7 +346,11 @@ mod tests {
         let progress = NoopProgress;
 
         let result = tool
-            .call(json!({"pattern": "*.rs", "path": "subdir"}), &ctx, &progress)
+            .call(
+                json!({"pattern": "*.rs", "path": "subdir"}),
+                &ctx,
+                &progress,
+            )
             .await
             .unwrap();
 

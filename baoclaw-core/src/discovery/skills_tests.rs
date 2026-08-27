@@ -25,7 +25,9 @@ mod tests {
         let skills_dir = dir.path().join(".baoclaw").join("skills");
         fs::create_dir_all(&skills_dir).await.unwrap();
 
-        fs::write(skills_dir.join("test-skill.md"), "Skill content").await.unwrap();
+        fs::write(skills_dir.join("test-skill.md"), "Skill content")
+            .await
+            .unwrap();
 
         let skills = discover_skills(dir.path()).await;
         let s = skills.iter().find(|s| s.name == "test-skill");

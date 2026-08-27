@@ -64,7 +64,9 @@ impl Tool for WebFetchTool {
                 }
             })),
             required: Some(vec!["url".to_string()]),
-            description: Some("Fetch web page content, supports HTML to plain text conversion".to_string()),
+            description: Some(
+                "Fetch web page content, supports HTML to plain text conversion".to_string(),
+            ),
         }
     }
 
@@ -112,10 +114,7 @@ impl Tool for WebFetchTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'url' field".to_string()))?;
 
-        let raw = input
-            .get("raw")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let raw = input.get("raw").and_then(|v| v.as_bool()).unwrap_or(false);
 
         let abort_signal = context.abort_signal.clone();
         let result = tokio::select! {
@@ -232,7 +231,6 @@ fn html_to_text(html: &str) -> String {
 
     text.trim().to_string()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -353,9 +351,7 @@ mod tests {
     async fn test_validate_rejects_empty_url() {
         let tool = WebFetchTool::new();
         let ctx = make_context();
-        let result = tool
-            .validate_input(&json!({"url": ""}), &ctx)
-            .await;
+        let result = tool.validate_input(&json!({"url": ""}), &ctx).await;
         assert!(matches!(result, ValidationResult::Invalid { .. }));
     }
 
@@ -401,7 +397,8 @@ mod tests {
 
     #[test]
     fn test_html_to_text_removes_all_tags() {
-        let html = "<html><body><span class=\"x\">Hello</span> <a href=\"#\">World</a></body></html>";
+        let html =
+            "<html><body><span class=\"x\">Hello</span> <a href=\"#\">World</a></body></html>";
         let text = html_to_text(html);
         assert!(!text.contains('<'));
         assert!(!text.contains('>'));

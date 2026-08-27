@@ -68,7 +68,8 @@ impl AuditLog {
     /// Open or create the audit database at the given path.
     pub fn open(path: &std::path::Path) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create audit dir: {}", e))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create audit dir: {}", e))?;
         }
 
         let conn = rusqlite::Connection::open(path)
@@ -91,10 +92,13 @@ impl AuditLog {
             );
             CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_events(timestamp);
             CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_events(event_type);
-            CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit_events(tool);"
-        ).map_err(|e| format!("Failed to create audit tables: {}", e))?;
+            CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit_events(tool);",
+        )
+        .map_err(|e| format!("Failed to create audit tables: {}", e))?;
 
-        Ok(Self { db: Mutex::new(conn) })
+        Ok(Self {
+            db: Mutex::new(conn),
+        })
     }
 
     /// Record an audit event.
@@ -107,16 +111,34 @@ impl AuditLog {
             .as_secs();
 
         let (event_type, tool, profile) = match event {
-            AuditEvent::ProfileSelected { tool, profile, .. } => ("profile_selected", tool.as_str(), profile.as_str()),
-            AuditEvent::EscalationRequested { tool, current_profile, .. } => ("escalation_requested", tool.as_str(), current_profile.as_str()),
-            AuditEvent::EscalationGranted { tool, to_profile, .. } => ("escalation_granted", tool.as_str(), to_profile.as_str()),
-            AuditEvent::ExecutionBlocked { tool, profile, .. } => ("execution_blocked", tool.as_str(), profile.as_str()),
-            AuditEvent::FileWritten { tool, profile, .. } => ("file_written", tool.as_str(), profile.as_str()),
-            AuditEvent::ToolExecuted { tool, profile, .. } => ("tool_executed", tool.as_str(), profile.as_str()),
+            AuditEvent::ProfileSelected { tool, profile, .. } => {
+                ("profile_selected", tool.as_str(), profile.as_str())
+            }
+            AuditEvent::EscalationRequested {
+                tool,
+                current_profile,
+                ..
+            } => (
+                "escalation_requested",
+                tool.as_str(),
+                current_profile.as_str(),
+            ),
+            AuditEvent::EscalationGranted {
+                tool, to_profile, ..
+            } => ("escalation_granted", tool.as_str(), to_profile.as_str()),
+            AuditEvent::ExecutionBlocked { tool, profile, .. } => {
+                ("execution_blocked", tool.as_str(), profile.as_str())
+            }
+            AuditEvent::FileWritten { tool, profile, .. } => {
+                ("file_written", tool.as_str(), profile.as_str())
+            }
+            AuditEvent::ToolExecuted { tool, profile, .. } => {
+                ("tool_executed", tool.as_str(), profile.as_str())
+            }
         };
 
-        let details = serde_json::to_string(event)
-            .map_err(|e| format!("Serialization error: {}", e))?;
+        let details =
+            serde_json::to_string(event).map_err(|e| format!("Serialization error: {}", e))?;
 
         conn.execute(
             "INSERT INTO audit_events (timestamp, event_type, tool, profile, details) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -134,42 +156,50 @@ impl AuditLog {
             "SELECT id, timestamp, event_type, tool, profile, details FROM audit_events ORDER BY id DESC LIMIT ?1"
         ).map_err(|e| format!("Prepare error: {}", e))?;
 
-        let records = stmt.query_map([limit], |row| {
-            Ok(AuditEventRecord {
-                id: row.get(0)?,
-                timestamp: row.get(1)?,
-                event_type: row.get(2)?,
-                tool: row.get(3)?,
-                profile: row.get(4)?,
-                details: row.get(5)?,
+        let records = stmt
+            .query_map([limit], |row| {
+                Ok(AuditEventRecord {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    event_type: row.get(2)?,
+                    tool: row.get(3)?,
+                    profile: row.get(4)?,
+                    details: row.get(5)?,
+                })
             })
-        }).map_err(|e| format!("Query error: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
+            .map_err(|e| format!("Query error: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
 
         Ok(records)
     }
 
     /// Query audit events by type.
-    pub fn query_by_type(&self, event_type: &str, limit: u32) -> Result<Vec<AuditEventRecord>, String> {
+    pub fn query_by_type(
+        &self,
+        event_type: &str,
+        limit: u32,
+    ) -> Result<Vec<AuditEventRecord>, String> {
         let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
 
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, event_type, tool, profile, details FROM audit_events WHERE event_type = ?1 ORDER BY id DESC LIMIT ?2"
         ).map_err(|e| format!("Prepare error: {}", e))?;
 
-        let records = stmt.query_map(rusqlite::params![event_type, limit], |row| {
-            Ok(AuditEventRecord {
-                id: row.get(0)?,
-                timestamp: row.get(1)?,
-                event_type: row.get(2)?,
-                tool: row.get(3)?,
-                profile: row.get(4)?,
-                details: row.get(5)?,
+        let records = stmt
+            .query_map(rusqlite::params![event_type, limit], |row| {
+                Ok(AuditEventRecord {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    event_type: row.get(2)?,
+                    tool: row.get(3)?,
+                    profile: row.get(4)?,
+                    details: row.get(5)?,
+                })
             })
-        }).map_err(|e| format!("Query error: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
+            .map_err(|e| format!("Query error: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
 
         Ok(records)
     }
@@ -182,18 +212,20 @@ impl AuditLog {
             "SELECT id, timestamp, event_type, tool, profile, details FROM audit_events WHERE tool = ?1 ORDER BY id DESC LIMIT ?2"
         ).map_err(|e| format!("Prepare error: {}", e))?;
 
-        let records = stmt.query_map(rusqlite::params![tool, limit], |row| {
-            Ok(AuditEventRecord {
-                id: row.get(0)?,
-                timestamp: row.get(1)?,
-                event_type: row.get(2)?,
-                tool: row.get(3)?,
-                profile: row.get(4)?,
-                details: row.get(5)?,
+        let records = stmt
+            .query_map(rusqlite::params![tool, limit], |row| {
+                Ok(AuditEventRecord {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    event_type: row.get(2)?,
+                    tool: row.get(3)?,
+                    profile: row.get(4)?,
+                    details: row.get(5)?,
+                })
             })
-        }).map_err(|e| format!("Query error: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
+            .map_err(|e| format!("Query error: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
 
         Ok(records)
     }
@@ -202,15 +234,17 @@ impl AuditLog {
     pub fn count_by_type(&self) -> Result<Vec<(String, u32)>, String> {
         let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
 
-        let mut stmt = conn.prepare(
-            "SELECT event_type, COUNT(*) FROM audit_events GROUP BY event_type"
-        ).map_err(|e| format!("Prepare error: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT event_type, COUNT(*) FROM audit_events GROUP BY event_type")
+            .map_err(|e| format!("Prepare error: {}", e))?;
 
-        let counts = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
-        }).map_err(|e| format!("Query error: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
+        let counts = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+            })
+            .map_err(|e| format!("Query error: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
 
         Ok(counts)
     }
@@ -225,10 +259,12 @@ impl AuditLog {
             .as_secs()
             .saturating_sub((days as u64) * 86400);
 
-        let deleted = conn.execute(
-            "DELETE FROM audit_events WHERE timestamp < ?1",
-            rusqlite::params![cutoff],
-        ).map_err(|e| format!("Delete error: {}", e))?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM audit_events WHERE timestamp < ?1",
+                rusqlite::params![cutoff],
+            )
+            .map_err(|e| format!("Delete error: {}", e))?;
 
         Ok(deleted as u32)
     }
@@ -250,7 +286,9 @@ pub fn audit_db_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".baoclaw").join("sandbox_audit.db")
+    PathBuf::from(home)
+        .join(".baoclaw")
+        .join("sandbox_audit.db")
 }
 
 #[cfg(test)]
@@ -292,24 +330,31 @@ mod tests {
             tool: "Bash".into(),
             profile: "web_dev".into(),
             reason: "npm command".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         log.record(&AuditEvent::ExecutionBlocked {
             tool: "Bash".into(),
             profile: "read_only".into(),
             reason: "network not allowed".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         log.record(&AuditEvent::ToolExecuted {
             tool: "FileRead".into(),
             profile: "read_only".into(),
             exit_code: 0,
             duration_ms: 150,
-        }).unwrap();
+        })
+        .unwrap();
 
         let counts = log.count_by_type().unwrap();
-        assert!(counts.iter().any(|(t, c)| t == "profile_selected" && *c == 1));
-        assert!(counts.iter().any(|(t, c)| t == "execution_blocked" && *c == 1));
+        assert!(counts
+            .iter()
+            .any(|(t, c)| t == "profile_selected" && *c == 1));
+        assert!(counts
+            .iter()
+            .any(|(t, c)| t == "execution_blocked" && *c == 1));
         assert!(counts.iter().any(|(t, c)| t == "tool_executed" && *c == 1));
     }
 
@@ -323,13 +368,15 @@ mod tests {
             tool: "Bash".into(),
             profile: "read_only".into(),
             reason: "blocked".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         log.record(&AuditEvent::ExecutionBlocked {
             tool: "FileWrite".into(),
             profile: "read_only".into(),
             reason: "blocked2".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         let blocked = log.query_by_type("execution_blocked", 10).unwrap();
         assert_eq!(blocked.len(), 2);
@@ -345,13 +392,15 @@ mod tests {
             tool: "Bash".into(),
             profile: "web_dev".into(),
             reason: "test".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         log.record(&AuditEvent::ProfileSelected {
             tool: "FileRead".into(),
             profile: "read_only".into(),
             reason: "test".into(),
-        }).unwrap();
+        })
+        .unwrap();
 
         let bash_events = log.query_by_tool("Bash", 10).unwrap();
         assert_eq!(bash_events.len(), 1);

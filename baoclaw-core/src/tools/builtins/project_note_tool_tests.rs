@@ -2,8 +2,8 @@
 mod tests {
     use super::super::project_note_tool::*;
     use crate::tools::trait_def::*;
-    use tempfile::tempdir;
     use serde_json::json;
+    use tempfile::tempdir;
 
     struct NoopProgress;
     #[async_trait::async_trait]

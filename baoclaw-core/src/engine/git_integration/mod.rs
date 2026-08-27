@@ -9,12 +9,12 @@
 //! - `commit` — Squash, amend, undo, blame, history
 //! - `auth` — GitHub/GitLab token management
 
-pub mod types;
-pub mod pr;
-pub mod branch;
-pub mod conflict;
-pub mod commit;
 pub mod auth;
+pub mod branch;
+pub mod commit;
+pub mod conflict;
+pub mod pr;
+pub mod types;
 
 // Re-export all public types for convenient access
 

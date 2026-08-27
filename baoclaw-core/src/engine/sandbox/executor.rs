@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
 
-use super::profile::SandboxProfile;
 use super::config::SandboxConfigFile;
+use super::profile::SandboxProfile;
 use crate::engine::sandbox::{SandboxBackend, SandboxConfig};
 
 /// Allowed commands in the sandbox whitelist.
@@ -21,25 +21,74 @@ use crate::engine::sandbox::{SandboxBackend, SandboxConfig};
 /// `Command::new` must be one of these safe wrappers or interpreters.
 const SANDBOX_ALLOWED_COMMANDS: &[&str] = &[
     // Shell wrappers used internally by build_command_args
-    "/bin/bash", "/bin/sh", "bash", "sh",
+    "/bin/bash",
+    "/bin/sh",
+    "bash",
+    "sh",
     // Sandbox backends
-    "bwrap", "docker",
+    "bwrap",
+    "docker",
     // Interpreters / runtimes (code-interpreter scenarios)
-    "python3", "python", "node", "ruby", "perl", "lua",
+    "python3",
+    "python",
+    "node",
+    "ruby",
+    "perl",
+    "lua",
     // Core utilities
-    "echo", "cat", "ls", "pwd", "env", "printenv",
-    "grep", "sed", "awk", "sort", "uniq", "head", "tail", "wc",
-    "tr", "cut", "paste", "expand", "fold", "fmt",
-    "basename", "dirname", "realpath", "readlink",
-    "test", "true", "false",
-    "bc", "dc", "expr", "factor", "seq",
-    "date", "cal", "uptime",
-    "whoami", "id", "hostname",
-    "md5sum", "sha256sum", "base64", "xxd",
-    "jq", "yq", "xq",
+    "echo",
+    "cat",
+    "ls",
+    "pwd",
+    "env",
+    "printenv",
+    "grep",
+    "sed",
+    "awk",
+    "sort",
+    "uniq",
+    "head",
+    "tail",
+    "wc",
+    "tr",
+    "cut",
+    "paste",
+    "expand",
+    "fold",
+    "fmt",
+    "basename",
+    "dirname",
+    "realpath",
+    "readlink",
+    "test",
+    "true",
+    "false",
+    "bc",
+    "dc",
+    "expr",
+    "factor",
+    "seq",
+    "date",
+    "cal",
+    "uptime",
+    "whoami",
+    "id",
+    "hostname",
+    "md5sum",
+    "sha256sum",
+    "base64",
+    "xxd",
+    "jq",
+    "yq",
+    "xq",
     // Compilers / build tools
-    "gcc", "g++", "clang", "rustc", "cargo",
-    "make", "cmake",
+    "gcc",
+    "g++",
+    "clang",
+    "rustc",
+    "cargo",
+    "make",
+    "cmake",
 ];
 
 /// Validate that the command program is in the whitelist.
@@ -54,7 +103,10 @@ const SANDBOX_ALLOWED_COMMANDS: &[&str] = &[
 fn validate_command(program: &str) -> Result<String, String> {
     // Reject path separators (prevents ./evil or /tmp/evil)
     // Exception: absolute paths to system shells are allowed (/bin/bash, /bin/sh)
-    let is_allowed_absolute = matches!(program, "/bin/bash" | "/bin/sh" | "/usr/bin/bash" | "/usr/bin/sh");
+    let is_allowed_absolute = matches!(
+        program,
+        "/bin/bash" | "/bin/sh" | "/usr/bin/bash" | "/usr/bin/sh"
+    );
     if !is_allowed_absolute && (program.contains('/') || program.contains('\\')) {
         return Err(format!(
             "Absolute/relative paths not allowed in sandbox: {}",
@@ -63,7 +115,9 @@ fn validate_command(program: &str) -> Result<String, String> {
     }
 
     // Reject shell metacharacters
-    let dangerous_chars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+    let dangerous_chars = [
+        ';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '\n', '\r',
+    ];
     if program.chars().any(|c| dangerous_chars.contains(&c)) {
         return Err(format!("Dangerous characters in command: {}", program));
     }
@@ -80,10 +134,10 @@ fn validate_command(program: &str) -> Result<String, String> {
 pub struct SandboxExecutor {
     /// Sandbox profile defining security boundaries.
     profile: SandboxProfile,
-    
+
     /// Backend to use for isolation.
     backend: SandboxBackend,
-    
+
     /// Original sandbox config (for backward compatibility).
     base_config: SandboxConfig,
 }
@@ -260,7 +314,12 @@ impl SandboxExecutor {
         }
 
         // Mount readable paths (read-only, if not already mounted writable)
-        let mounted: HashSet<&str> = self.profile.writable_paths.iter().map(|s| s.as_str()).collect();
+        let mounted: HashSet<&str> = self
+            .profile
+            .writable_paths
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
         for mount in &self.profile.readable_paths {
             if mount == "*" {
                 continue; // Already have base filesystem
@@ -378,11 +437,10 @@ impl SandboxExecutor {
             if mount == "*" {
                 continue; // Can't mount entire filesystem in Docker
             }
-            if mounted.insert(mount.clone())
-                && Path::new(mount).exists() {
-                    args.push("-v".into());
-                    args.push(format!("{}:{}", mount, mount));
-                }
+            if mounted.insert(mount.clone()) && Path::new(mount).exists() {
+                args.push("-v".into());
+                args.push(format!("{}:{}", mount, mount));
+            }
         }
 
         // Working directory
@@ -494,14 +552,14 @@ pub async fn docker_image_exists_async(image: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::profile::NetworkRule;
+    use super::*;
 
     #[test]
     fn test_executor_none_backend() {
         let profile = SandboxProfile::read_only();
         let executor = SandboxExecutor::new(profile, SandboxBackend::None);
-        
+
         let args = executor.build_command_args("ls -la", Path::new("/tmp"));
         assert_eq!(args[0], "/bin/bash");
         assert_eq!(args[1], "-c");
@@ -512,7 +570,7 @@ mod tests {
     fn test_executor_bwrap_backend() {
         let profile = SandboxProfile::web_dev();
         let executor = SandboxExecutor::new(profile, SandboxBackend::Bubblewrap);
-        
+
         let args = executor.build_command_args("npm install", Path::new("/workspace"));
         assert!(args[0] == "bwrap");
         assert!(args.contains(&"--unshare-net".to_string()) == false); // web_dev allows network
@@ -523,7 +581,7 @@ mod tests {
     fn test_executor_bwrap_no_network() {
         let profile = SandboxProfile::read_only();
         let executor = SandboxExecutor::new(profile, SandboxBackend::Bubblewrap);
-        
+
         let args = executor.build_command_args("cargo build", Path::new("/workspace"));
         assert!(args.contains(&"--unshare-net".to_string()));
     }
@@ -533,9 +591,11 @@ mod tests {
         let profile = SandboxProfile::web_dev();
         let executor = SandboxExecutor::new(
             profile,
-            SandboxBackend::Docker { image: "baoclaw:latest".into() },
+            SandboxBackend::Docker {
+                image: "baoclaw:latest".into(),
+            },
         );
-        
+
         let args = executor.build_command_args("npm test", Path::new("/workspace"));
         assert!(args[0] == "docker");
         assert!(args[1] == "run");
@@ -549,9 +609,11 @@ mod tests {
         let profile = SandboxProfile::read_only();
         let executor = SandboxExecutor::new(
             profile,
-            SandboxBackend::Docker { image: "baoclaw:latest".into() },
+            SandboxBackend::Docker {
+                image: "baoclaw:latest".into(),
+            },
         );
-        
+
         let args = executor.build_command_args("cat file", Path::new("/workspace"));
         assert!(args.contains(&"--network=none".into()));
     }
@@ -559,12 +621,10 @@ mod tests {
     #[test]
     fn test_network_whitelist() {
         let mut profile = SandboxProfile::web_dev();
-        profile.network = NetworkRule::Whitelist(vec![
-            "localhost:*".to_string(),
-            "*.npmjs.org".to_string(),
-        ]);
+        profile.network =
+            NetworkRule::Whitelist(vec!["localhost:*".to_string(), "*.npmjs.org".to_string()]);
         let executor = SandboxExecutor::new(profile, SandboxBackend::None);
-        
+
         assert!(executor.is_network_allowed("localhost", Some(3000)));
         assert!(executor.is_network_allowed("registry.npmjs.org", Some(443)));
         assert!(!executor.is_network_allowed("google.com", Some(443)));
@@ -574,7 +634,7 @@ mod tests {
     fn test_path_permissions() {
         let profile = SandboxProfile::web_dev();
         let executor = SandboxExecutor::new(profile, SandboxBackend::None);
-        
+
         assert!(executor.is_writable("src/main.rs"));
         assert!(executor.is_writable("dist/bundle.js"));
         assert!(!executor.is_writable("/etc/passwd"));
@@ -585,14 +645,14 @@ mod tests {
     fn test_env_filtering() {
         let profile = SandboxProfile::read_only();
         let executor = SandboxExecutor::new(profile, SandboxBackend::None);
-        
+
         let env = vec![
             ("PATH".to_string(), "/usr/bin".to_string()),
             ("HOME".to_string(), "/home/user".to_string()),
             ("SECRET".to_string(), "secret123".to_string()),
         ];
         let filtered = executor.filter_env(&env);
-        
+
         assert!(filtered.iter().any(|(k, _)| k == "PATH"));
         assert!(filtered.iter().any(|(k, _)| k == "HOME"));
         assert!(!filtered.iter().any(|(k, _)| k == "SECRET"));
@@ -602,7 +662,7 @@ mod tests {
     fn test_from_config() {
         let config = SandboxConfigFile::default();
         let executor = SandboxExecutor::from_config(&config, "web_dev").unwrap();
-        
+
         assert_eq!(executor.profile().name, "web_dev");
         assert!(executor.profile().network.is_allowed());
     }
@@ -642,10 +702,7 @@ mod tests {
 
     #[test]
     fn test_description() {
-        let executor = SandboxExecutor::new(
-            SandboxProfile::web_dev(),
-            SandboxBackend::None,
-        );
+        let executor = SandboxExecutor::new(SandboxProfile::web_dev(), SandboxBackend::None);
         let desc = executor.description();
         assert!(desc.contains("web_dev"));
         assert!(desc.contains("none"));

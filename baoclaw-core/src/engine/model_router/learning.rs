@@ -159,12 +159,7 @@ impl RouterLearning {
     /// Each generated rule maps a specific complexity band to the
     /// model with the highest satisfaction rate in that band.
     pub fn adjust_rules(&self) -> Vec<RoutingRule> {
-        let bands = vec![
-            (0.0, 0.25),
-            (0.25, 0.5),
-            (0.5, 0.75),
-            (0.75, 1.0),
-        ];
+        let bands = vec![(0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0)];
 
         let mut rules = Vec::new();
 
@@ -224,8 +219,7 @@ impl RouterLearning {
 
         // Success rate
         if metrics.total_routes > 0 {
-            metrics.success_rate =
-                metrics.successful_routes as f64 / metrics.total_routes as f64;
+            metrics.success_rate = metrics.successful_routes as f64 / metrics.total_routes as f64;
         }
 
         // Total cost
@@ -299,8 +293,8 @@ impl RouterLearning {
     /// Create a RouterLearning with an in-memory database (for testing).
     #[doc(hidden)]
     pub fn new_in_memory() -> Result<Self, String> {
-        let conn =
-            Connection::open_in_memory().map_err(|e| format!("Failed to open in-memory DB: {}", e))?;
+        let conn = Connection::open_in_memory()
+            .map_err(|e| format!("Failed to open in-memory DB: {}", e))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS route_decisions (
@@ -459,13 +453,7 @@ mod tests {
         for i in 0..10 {
             let satisfied = i % 2 == 0;
             learning
-                .record_decision(
-                    0.5,
-                    "claude-sonnet-4-20250514",
-                    2000,
-                    0.03,
-                    satisfied,
-                )
+                .record_decision(0.5, "claude-sonnet-4-20250514", 2000, 0.03, satisfied)
                 .unwrap();
         }
 

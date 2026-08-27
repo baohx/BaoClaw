@@ -25,7 +25,8 @@ use crate::engine::query_engine::{
     NoopProgressSender, QueryLoopConfig, QueryResult, QueryStatus, EMPTY_USAGE,
 };
 use crate::engine::tool_loop::{
-    accumulate_usage, build_tool_result_message, extract_text, extract_tool_result_ids, extract_tool_uses,
+    accumulate_usage, build_tool_result_message, extract_text, extract_tool_result_ids,
+    extract_tool_uses,
 };
 
 pub async fn run_query_loop(
@@ -66,7 +67,10 @@ pub async fn run_query_loop(
     fn append_transcript(writer: &mut Option<TranscriptWriter>, entry: &TranscriptEntry) {
         if let Some(w) = writer.as_mut() {
             if let Err(e) = w.append(entry) {
-                eprintln!("[transcript] WARNING: append failed: {} (entry type: {:?})", e, entry.entry_type);
+                eprintln!(
+                    "[transcript] WARNING: append failed: {} (entry type: {:?})",
+                    e, entry.entry_type
+                );
             }
         }
     }
@@ -76,11 +80,14 @@ pub async fn run_query_loop(
 
     // Write the user message that was just added (last message in the vec)
     if let Some(last_msg) = messages.last() {
-        append_transcript(&mut transcript_writer, &TranscriptEntry {
-            timestamp: last_msg.timestamp.clone(),
-            entry_type: TranscriptEntryType::UserMessage,
-            data: serde_json::to_value(last_msg).unwrap_or_default(),
-        });
+        append_transcript(
+            &mut transcript_writer,
+            &TranscriptEntry {
+                timestamp: last_msg.timestamp.clone(),
+                entry_type: TranscriptEntryType::UserMessage,
+                data: serde_json::to_value(last_msg).unwrap_or_default(),
+            },
+        );
         // Index user message for cross-session search
         if let (Some(ref db), Some(ref sid)) = (&cross_db, &config.session_id) {
             if let MessageContent::User { message, .. } = &last_msg.content {
@@ -119,11 +126,13 @@ pub async fn run_query_loop(
         turn_tool_count = 0;
         turn_input_tokens_at_start = total_usage.input_tokens;
         turn_output_tokens_at_start = total_usage.output_tokens;
-        let _ = tx.send(EngineEvent::TurnStart {
-            turn_id: turn_id_counter,
-            parent_turn_id: config.parent_turn_id,
-            agent_label: config.agent_label.clone(),
-        }).await;
+        let _ = tx
+            .send(EngineEvent::TurnStart {
+                turn_id: turn_id_counter,
+                parent_turn_id: config.parent_turn_id,
+                agent_label: config.agent_label.clone(),
+            })
+            .await;
 
         // Check abort (after TurnStart so CLI can handle unmatched TurnStart)
         if config.is_aborted() {
@@ -133,15 +142,17 @@ pub async fn run_query_loop(
             if fixed > 0 {
                 eprintln!("Cleaned up {} orphan tool_use block(s) after abort", fixed);
             }
-            let _ = tx.send(EngineEvent::Result(QueryResult {
-                status: QueryStatus::Aborted,
-                text: None,
-                stop_reason: None,
-                total_cost_usd: cost_tracker.total_cost(),
-                usage: total_usage,
-                num_turns: turn_count,
-                duration_ms: start_time.elapsed().as_millis() as u64,
-            })).await;
+            let _ = tx
+                .send(EngineEvent::Result(QueryResult {
+                    status: QueryStatus::Aborted,
+                    text: None,
+                    stop_reason: None,
+                    total_cost_usd: cost_tracker.total_cost(),
+                    usage: total_usage,
+                    num_turns: turn_count,
+                    duration_ms: start_time.elapsed().as_millis() as u64,
+                }))
+                .await;
             return;
         }
 
@@ -198,7 +209,10 @@ pub async fn run_query_loop(
 
             // 100%: Grace call — allow exactly one more API call for final summary
             if turn_count >= max {
-                eprintln!("⚠ Iteration budget reached ({}/{}) — forcing final response", turn_count, max);
+                eprintln!(
+                    "⚠ Iteration budget reached ({}/{}) — forcing final response",
+                    turn_count, max
+                );
                 // Don't return immediately — let the loop continue for ONE final API call
                 // The loop will exit after this because the model won't produce tool_use blocks
                 // when told to produce a final answer.
@@ -206,15 +220,17 @@ pub async fn run_query_loop(
                 // and we return MaxTurns.
                 if turn_count > max {
                     // Safety: second time hitting the limit, hard stop
-                    let _ = tx.send(EngineEvent::Result(QueryResult {
-                        status: QueryStatus::MaxTurns,
-                        text: None,
-                        stop_reason: None,
-                        total_cost_usd: cost_tracker.total_cost(),
-                        usage: total_usage,
-                        num_turns: turn_count,
-                        duration_ms: start_time.elapsed().as_millis() as u64,
-                    })).await;
+                    let _ = tx
+                        .send(EngineEvent::Result(QueryResult {
+                            status: QueryStatus::MaxTurns,
+                            text: None,
+                            stop_reason: None,
+                            total_cost_usd: cost_tracker.total_cost(),
+                            usage: total_usage,
+                            num_turns: turn_count,
+                            duration_ms: start_time.elapsed().as_millis() as u64,
+                        }))
+                        .await;
                     return;
                 }
                 // First time hitting limit: inject final-answer instruction and let one more API call happen
@@ -257,12 +273,21 @@ pub async fn run_query_loop(
 
         match budget_status {
             BudgetStatus::Warning => {
-                eprintln!("Token budget warning: {} tokens (approaching limit)", current_tokens);
+                eprintln!(
+                    "Token budget warning: {} tokens (approaching limit)",
+                    current_tokens
+                );
             }
             BudgetStatus::Blocking | BudgetStatus::Compact if messages.len() > 5 => {
-                eprintln!("Token budget {} ({} tokens), auto-compacting mid-loop",
-                    if budget_status == BudgetStatus::Blocking { "BLOCKING" } else { "compact" },
-                    current_tokens);
+                eprintln!(
+                    "Token budget {} ({} tokens), auto-compacting mid-loop",
+                    if budget_status == BudgetStatus::Blocking {
+                        "BLOCKING"
+                    } else {
+                        "compact"
+                    },
+                    current_tokens
+                );
                 let _ = tx.send(EngineEvent::Progress {
                     tool_use_id: String::new(),
                     data: serde_json::json!({"message": format!("Context approaching limit ({} est. tokens), compacting...", current_tokens)}),
@@ -276,9 +301,10 @@ pub async fn run_query_loop(
                     );
                 } else {
                     // Try session_memory_compact first (no API call needed).
-                    let session_ok = config.session_memory.as_ref().is_some_and(|sm| {
-                        session_memory_compact(messages, &sm.get())
-                    });
+                    let session_ok = config
+                        .session_memory
+                        .as_ref()
+                        .is_some_and(|sm| session_memory_compact(messages, &sm.get()));
 
                     if !session_ok {
                         match compact_messages(messages, tx.clone(), &config).await {
@@ -287,7 +313,10 @@ pub async fn run_query_loop(
                                 config.compact_fail_count = 0;
                             }
                             Err(e) => {
-                                eprintln!("Mid-loop auto-compact failed: {}, continuing anyway", e.message);
+                                eprintln!(
+                                    "Mid-loop auto-compact failed: {}, continuing anyway",
+                                    e.message
+                                );
                                 config.compact_fail_count += 1;
                             }
                         }
@@ -337,21 +366,24 @@ pub async fn run_query_loop(
         let request = build_api_request(messages, &current_config);
 
         // Show what we're about to send
-        let _ = tx.send(EngineEvent::Progress {
-            tool_use_id: String::new(),
-            data: serde_json::json!({
-                "message": format!("Calling {} ({} messages, ~{} tokens)...",
-                    current_config.model,
-                    messages.len(),
-                    current_tokens),
-            }),
-        }).await;
+        let _ = tx
+            .send(EngineEvent::Progress {
+                tool_use_id: String::new(),
+                data: serde_json::json!({
+                    "message": format!("Calling {} ({} messages, ~{} tokens)...",
+                        current_config.model,
+                        messages.len(),
+                        current_tokens),
+                }),
+            })
+            .await;
 
         // Call LLM API (streaming) with rate-limit fallback handling and timeout
         let stream_result = tokio::time::timeout(
             std::time::Duration::from_secs(300), // 5 min max per API call
-            config.api_client.create_message_stream(request)
-        ).await;
+            config.api_client.create_message_stream(request),
+        )
+        .await;
         let stream_result = match stream_result {
             Ok(r) => r,
             Err(_) => {
@@ -363,11 +395,13 @@ pub async fn run_query_loop(
                         messages.pop();
                     }
                 }
-                let _ = tx.send(EngineEvent::Error(EngineError {
-                    code: "timeout".to_string(),
-                    message: "API call timed out after 5 minutes".to_string(),
-                    details: None,
-                })).await;
+                let _ = tx
+                    .send(EngineEvent::Error(EngineError {
+                        code: "timeout".to_string(),
+                        message: "API call timed out after 5 minutes".to_string(),
+                        details: None,
+                    }))
+                    .await;
                 return;
             }
         };
@@ -376,20 +410,32 @@ pub async fn run_query_loop(
             Err(ApiError::RateLimited) => {
                 // Handle rate limit with fallback controller
                 match fallback_controller.on_rate_limit() {
-                    FallbackAction::Retry { model, attempt, delay } => {
-                        eprintln!("Rate limited on {}, retrying (attempt {})...", model, attempt);
+                    FallbackAction::Retry {
+                        model,
+                        attempt,
+                        delay,
+                    } => {
+                        eprintln!(
+                            "Rate limited on {}, retrying (attempt {})...",
+                            model, attempt
+                        );
                         tokio::time::sleep(delay).await;
                         continue; // retry the loop
                     }
                     FallbackAction::Fallback { from, to } => {
                         eprintln!("Rate limited on {}, falling back to {}", from, to);
-                        let _ = tx.send(EngineEvent::ModelFallback {
-                            from_model: from,
-                            to_model: to,
-                        }).await;
+                        let _ = tx
+                            .send(EngineEvent::ModelFallback {
+                                from_model: from,
+                                to_model: to,
+                            })
+                            .await;
                         continue; // retry with new model
                     }
-                    FallbackAction::Exhausted { models_tried, total_retries } => {
+                    FallbackAction::Exhausted {
+                        models_tried,
+                        total_retries,
+                    } => {
                         let error_msg = format!(
                             "All models exhausted after {} retries. Tried: {}",
                             total_retries,
@@ -401,14 +447,16 @@ pub async fn run_query_loop(
                                 messages.pop();
                             }
                         }
-                        let _ = tx.send(EngineEvent::Error(EngineError {
-                            code: "all_models_exhausted".to_string(),
-                            message: error_msg,
-                            details: Some(serde_json::json!({
-                                "models_tried": models_tried,
-                                "total_retries": total_retries,
-                            })),
-                        })).await;
+                        let _ = tx
+                            .send(EngineEvent::Error(EngineError {
+                                code: "all_models_exhausted".to_string(),
+                                message: error_msg,
+                                details: Some(serde_json::json!({
+                                    "models_tried": models_tried,
+                                    "total_retries": total_retries,
+                                })),
+                            }))
+                            .await;
                         return;
                     }
                 }
@@ -421,7 +469,11 @@ pub async fn run_query_loop(
                     let delay = std::time::Duration::from_millis(1000 * 2u64.pow(retry_count));
                     eprintln!(
                         "Server error {} on {}, retrying in {:?} (attempt {}/{})...",
-                        status, fallback_controller.current_model(), delay, retry_count + 1, MAX_SERVER_RETRIES
+                        status,
+                        fallback_controller.current_model(),
+                        delay,
+                        retry_count + 1,
+                        MAX_SERVER_RETRIES
                     );
                     fallback_controller.on_server_error();
                     tokio::time::sleep(delay).await;
@@ -430,29 +482,38 @@ pub async fn run_query_loop(
                 // Exhausted retries — fall back to next model if available
                 eprintln!(
                     "Server error {} on {} after {} retries, trying fallback...",
-                    status, fallback_controller.current_model(), MAX_SERVER_RETRIES
+                    status,
+                    fallback_controller.current_model(),
+                    MAX_SERVER_RETRIES
                 );
                 match fallback_controller.on_server_error_exhausted() {
                     FallbackAction::Fallback { from, to } => {
-                        let _ = tx.send(EngineEvent::ModelFallback {
-                            from_model: from,
-                            to_model: to,
-                        }).await;
+                        let _ = tx
+                            .send(EngineEvent::ModelFallback {
+                                from_model: from,
+                                to_model: to,
+                            })
+                            .await;
                         continue; // retry with new model
                     }
                     _ => {
-                        let error_msg = format!("Server error {} after exhausting retries and fallbacks", status);
+                        let error_msg = format!(
+                            "Server error {} after exhausting retries and fallbacks",
+                            status
+                        );
                         if let Some(last) = messages.last() {
                             if matches!(&last.content, MessageContent::User { .. }) {
                                 eprintln!("Server error exhausted, removing last user message to keep history clean");
                                 messages.pop();
                             }
                         }
-                        let _ = tx.send(EngineEvent::Error(EngineError {
-                            code: "api_server_error".to_string(),
-                            message: error_msg,
-                            details: None,
-                        })).await;
+                        let _ = tx
+                            .send(EngineEvent::Error(EngineError {
+                                code: "api_server_error".to_string(),
+                                message: error_msg,
+                                details: None,
+                            }))
+                            .await;
                         return;
                     }
                 }
@@ -460,7 +521,11 @@ pub async fn run_query_loop(
             Err(ApiError::BadRequest { message }) => {
                 // 400 could be context overflow — try compaction before giving up
                 let msg_lower = message.to_lowercase();
-                if msg_lower.contains("context") || msg_lower.contains("token") || msg_lower.contains("too large") || msg_lower.contains("too long") {
+                if msg_lower.contains("context")
+                    || msg_lower.contains("token")
+                    || msg_lower.contains("too large")
+                    || msg_lower.contains("too long")
+                {
                     eprintln!("Bad request (likely context overflow), auto-compacting...");
                     if config.compact_fail_count >= MAX_COMPACT_FAILURES {
                         eprintln!("Compact circuit breaker: {} consecutive failures, trying reactive compact", config.compact_fail_count);
@@ -495,11 +560,13 @@ pub async fn run_query_loop(
                         messages.pop();
                     }
                 }
-                let _ = tx.send(EngineEvent::Error(EngineError {
-                    code: "api_bad_request".to_string(),
-                    message: message.to_string(),
-                    details: None,
-                })).await;
+                let _ = tx
+                    .send(EngineEvent::Error(EngineError {
+                        code: "api_bad_request".to_string(),
+                        message: message.to_string(),
+                        details: None,
+                    }))
+                    .await;
                 return;
             }
             Err(e) => {
@@ -510,11 +577,13 @@ pub async fn run_query_loop(
                         messages.pop();
                     }
                 }
-                let _ = tx.send(EngineEvent::Error(EngineError {
-                    code: "api_error".to_string(),
-                    message: format!("{}", e),
-                    details: None,
-                })).await;
+                let _ = tx
+                    .send(EngineEvent::Error(EngineError {
+                        code: "api_error".to_string(),
+                        message: format!("{}", e),
+                        details: None,
+                    }))
+                    .await;
                 return;
             }
         };
@@ -551,7 +620,8 @@ pub async fn run_query_loop(
             match event_result {
                 Ok(event) => match event {
                     ApiStreamEvent::ContentBlockStart { content_block, .. } => {
-                        let block_type = content_block.get("type")
+                        let block_type = content_block
+                            .get("type")
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
                         current_block_type = block_type.to_string();
@@ -560,11 +630,13 @@ pub async fn run_query_loop(
                                 current_text = String::new();
                             }
                             "tool_use" => {
-                                current_tool_id = content_block.get("id")
+                                current_tool_id = content_block
+                                    .get("id")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                current_tool_name = content_block.get("name")
+                                current_tool_name = content_block
+                                    .get("name")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
@@ -572,7 +644,10 @@ pub async fn run_query_loop(
                                 // instead of streaming via input_json_delta. Pre-seed
                                 // current_tool_input_json if a non-empty input is present.
                                 current_tool_input_json = match content_block.get("input") {
-                                    Some(v) if v.is_object() && v.as_object().is_some_and(|o| !o.is_empty()) => {
+                                    Some(v)
+                                        if v.is_object()
+                                            && v.as_object().is_some_and(|o| !o.is_empty()) =>
+                                    {
                                         serde_json::to_string(v).unwrap_or_default()
                                     }
                                     _ => String::new(),
@@ -585,22 +660,24 @@ pub async fn run_query_loop(
                         }
                     }
                     ApiStreamEvent::ContentBlockDelta { delta, .. } => {
-                        let delta_type = delta.get("type")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let delta_type = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
                         match delta_type {
                             "text_delta" => {
                                 if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
                                     current_text.push_str(text);
                                     // Emit AssistantChunk
-                                    let _ = tx.send(EngineEvent::AssistantChunk {
-                                        content: text.to_string(),
-                                        tool_use_id: None,
-                                    }).await;
+                                    let _ = tx
+                                        .send(EngineEvent::AssistantChunk {
+                                            content: text.to_string(),
+                                            tool_use_id: None,
+                                        })
+                                        .await;
                                 }
                             }
                             "input_json_delta" => {
-                                if let Some(partial) = delta.get("partial_json").and_then(|v| v.as_str()) {
+                                if let Some(partial) =
+                                    delta.get("partial_json").and_then(|v| v.as_str())
+                                {
                                     current_tool_input_json.push_str(partial);
                                 }
                             }
@@ -608,9 +685,11 @@ pub async fn run_query_loop(
                                 if let Some(text) = delta.get("thinking").and_then(|v| v.as_str()) {
                                     current_thinking_text.push_str(text);
                                     // Emit ThinkingChunk to CLI
-                                    let _ = tx.send(EngineEvent::ThinkingChunk {
-                                        content: text.to_string(),
-                                    }).await;
+                                    let _ = tx
+                                        .send(EngineEvent::ThinkingChunk {
+                                            content: text.to_string(),
+                                        })
+                                        .await;
                                 }
                             }
                             _ => {}
@@ -638,12 +717,11 @@ pub async fn run_query_loop(
                                     input: input.clone(),
                                 });
                             }
-                            "thinking"
-                                if !current_thinking_text.is_empty() => {
-                                    assistant_content_blocks.push(ContentBlock::Thinking {
-                                        thinking: current_thinking_text.clone(),
-                                    });
-                                }
+                            "thinking" if !current_thinking_text.is_empty() => {
+                                assistant_content_blocks.push(ContentBlock::Thinking {
+                                    thinking: current_thinking_text.clone(),
+                                });
+                            }
                             _ => {}
                         }
                         current_block_type.clear();
@@ -655,10 +733,20 @@ pub async fn run_query_loop(
                         accumulate_usage(&mut total_usage, &usage);
                         // Accumulate cost from message_delta usage
                         let delta_usage = Usage {
-                            input_tokens: usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                            output_tokens: usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                            cache_creation_input_tokens: usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()),
-                            cache_read_input_tokens: usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
+                            input_tokens: usage
+                                .get("input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0),
+                            output_tokens: usage
+                                .get("output_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0),
+                            cache_creation_input_tokens: usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64()),
+                            cache_read_input_tokens: usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64()),
                         };
                         cost_tracker.accumulate(&delta_usage, &config.model);
                     }
@@ -668,10 +756,20 @@ pub async fn run_query_loop(
                             accumulate_usage(&mut total_usage, usage_val);
                             // Accumulate cost from message_start usage
                             let start_usage = Usage {
-                                input_tokens: usage_val.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                                output_tokens: usage_val.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                                cache_creation_input_tokens: usage_val.get("cache_creation_input_tokens").and_then(|v| v.as_u64()),
-                                cache_read_input_tokens: usage_val.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
+                                input_tokens: usage_val
+                                    .get("input_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0),
+                                output_tokens: usage_val
+                                    .get("output_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0),
+                                cache_creation_input_tokens: usage_val
+                                    .get("cache_creation_input_tokens")
+                                    .and_then(|v| v.as_u64()),
+                                cache_read_input_tokens: usage_val
+                                    .get("cache_read_input_tokens")
+                                    .and_then(|v| v.as_u64()),
                             };
                             cost_tracker.accumulate(&start_usage, &config.model);
 
@@ -691,11 +789,13 @@ pub async fn run_query_loop(
                         break;
                     }
                     ApiStreamEvent::Error { error } => {
-                        let _ = tx.send(EngineEvent::Error(EngineError {
-                            code: error.error_type,
-                            message: error.message,
-                            details: None,
-                        })).await;
+                        let _ = tx
+                            .send(EngineEvent::Error(EngineError {
+                                code: error.error_type,
+                                message: error.message,
+                                details: None,
+                            }))
+                            .await;
                         return;
                     }
                     ApiStreamEvent::Ping => {}
@@ -710,11 +810,13 @@ pub async fn run_query_loop(
                             }
                         }
                     }
-                    let _ = tx.send(EngineEvent::Error(EngineError {
-                        code: "stream_error".to_string(),
-                        message: format!("{}", e),
-                        details: None,
-                    })).await;
+                    let _ = tx
+                        .send(EngineEvent::Error(EngineError {
+                            code: "stream_error".to_string(),
+                            message: format!("{}", e),
+                            details: None,
+                        }))
+                        .await;
                     return;
                 }
             }
@@ -740,14 +842,17 @@ pub async fn run_query_loop(
         // Trigger AssistantMessage hook
         if let Some(ref hook_manager) = config.hook_manager {
             let hm = Arc::clone(hook_manager);
-            let text: String = assistant_content_blocks.iter().filter_map(|b| match b {
-                ContentBlock::Text { text } => Some(text.clone()),
-                _ => None,
-            }).collect::<Vec<_>>().join(" ");
+            let text: String = assistant_content_blocks
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
             let cwd = config.cwd.clone();
             tokio::spawn(async move {
-                let ctx = TriggerContext::assistant_message(&text)
-                    .with_cwd(cwd);
+                let ctx = TriggerContext::assistant_message(&text).with_cwd(cwd);
                 let result = hm.process(TriggerType::AssistantMessage, ctx).await;
                 if !result.errors.is_empty() {
                     eprintln!("AssistantMessage hook errors: {:?}", result.errors);
@@ -756,37 +861,50 @@ pub async fn run_query_loop(
         }
 
         // Write assistant message to transcript
-        append_transcript(&mut transcript_writer, &TranscriptEntry {
-            timestamp: assistant_msg.timestamp.clone(),
-            entry_type: TranscriptEntryType::AssistantMessage,
-            data: serde_json::to_value(&assistant_msg).unwrap_or_default(),
-        });
+        append_transcript(
+            &mut transcript_writer,
+            &TranscriptEntry {
+                timestamp: assistant_msg.timestamp.clone(),
+                entry_type: TranscriptEntryType::AssistantMessage,
+                data: serde_json::to_value(&assistant_msg).unwrap_or_default(),
+            },
+        );
         // Index assistant text for cross-session search
         if let (Some(ref db), Some(ref sid)) = (&cross_db, &config.session_id) {
-            let text: String = assistant_content_blocks.iter().filter_map(|b| match b {
-                ContentBlock::Text { text } => Some(text.clone()),
-                _ => None,
-            }).collect::<Vec<_>>().join(" ");
+            let text: String = assistant_content_blocks
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
             if !text.is_empty() {
-                if let Err(e) = db.index_message(sid, "assistant", &text, &assistant_msg.timestamp) {
-                    eprintln!("[cross-session] WARNING: assistant message not indexed: {}", e);
+                if let Err(e) = db.index_message(sid, "assistant", &text, &assistant_msg.timestamp)
+                {
+                    eprintln!(
+                        "[cross-session] WARNING: assistant message not indexed: {}",
+                        e
+                    );
                 }
             }
         }
 
         // Push cost data to CLI via StateUpdate
-        let _ = tx.send(EngineEvent::StateUpdate {
-            patch: serde_json::json!({
-                "total_cost_usd": cost_tracker.total_cost(),
-                "current_query_cost_usd": cost_tracker.current_query_cost(),
-                "usage": {
-                    "input_tokens": total_usage.input_tokens,
-                    "output_tokens": total_usage.output_tokens,
-                    "cache_creation_input_tokens": total_usage.cache_creation_input_tokens,
-                    "cache_read_input_tokens": total_usage.cache_read_input_tokens,
-                }
-            }),
-        }).await;
+        let _ = tx
+            .send(EngineEvent::StateUpdate {
+                patch: serde_json::json!({
+                    "total_cost_usd": cost_tracker.total_cost(),
+                    "current_query_cost_usd": cost_tracker.current_query_cost(),
+                    "usage": {
+                        "input_tokens": total_usage.input_tokens,
+                        "output_tokens": total_usage.output_tokens,
+                        "cache_creation_input_tokens": total_usage.cache_creation_input_tokens,
+                        "cache_read_input_tokens": total_usage.cache_read_input_tokens,
+                    }
+                }),
+            })
+            .await;
 
         // Check for tool_use blocks
         let tool_uses = extract_tool_uses(&assistant_content_blocks);
@@ -795,10 +913,12 @@ pub async fn run_query_loop(
             // Check for context window exceeded — auto-compact and retry
             if stop_reason.as_deref() == Some("model_context_window_exceeded") {
                 eprintln!("Context window exceeded, auto-compacting...");
-                let _ = tx.send(EngineEvent::AssistantChunk {
-                    content: "🗜️ 上下文窗口已满，正在自动压缩对话历史...\n".to_string(),
-                    tool_use_id: None,
-                }).await;
+                let _ = tx
+                    .send(EngineEvent::AssistantChunk {
+                        content: "🗜️ 上下文窗口已满，正在自动压缩对话历史...\n".to_string(),
+                        tool_use_id: None,
+                    })
+                    .await;
 
                 // Remove the empty assistant message we just added
                 if let Some(last) = messages.last() {
@@ -817,9 +937,13 @@ pub async fn run_query_loop(
                     // Ensure we don't split between tool calls and their results.
                     // Handle cases where one assistant message has multiple tool_use blocks.
                     if split > 0 && split < messages.len() {
-                        if let MessageContent::Assistant { message, .. } = &messages[split - 1].content {
+                        if let MessageContent::Assistant { message, .. } =
+                            &messages[split - 1].content
+                        {
                             // Extract all tool_use IDs from the assistant message
-                            let tool_use_ids: Vec<&str> = message.content.iter()
+                            let tool_use_ids: Vec<&str> = message
+                                .content
+                                .iter()
                                 .filter_map(|block| match block {
                                     ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
                                     _ => None,
@@ -828,11 +952,14 @@ pub async fn run_query_loop(
 
                             if !tool_use_ids.is_empty() {
                                 // Scan forward to find all corresponding tool_result messages
-                                let mut found_results: std::collections::HashSet<String> = std::collections::HashSet::new();
+                                let mut found_results: std::collections::HashSet<String> =
+                                    std::collections::HashSet::new();
                                 let mut next_idx = split;
 
                                 while next_idx < messages.len() {
-                                    if let MessageContent::User { message, .. } = &messages[next_idx].content {
+                                    if let MessageContent::User { message, .. } =
+                                        &messages[next_idx].content
+                                    {
                                         let result_ids = extract_tool_result_ids(message);
                                         for id in result_ids {
                                             if tool_use_ids.contains(&id.as_str()) {
@@ -888,7 +1015,9 @@ pub async fn run_query_loop(
                     let compact_api_client = Arc::clone(&config.api_client);
                     let _compact_model = config.model.clone();
                     let summary_result = async move {
-                        let mut stream = compact_api_client.create_message_stream(summary_request).await
+                        let mut stream = compact_api_client
+                            .create_message_stream(summary_request)
+                            .await
                             .map_err(|e| format!("{}", e))?;
                         let mut text = String::new();
                         let abort_rx = compact_abort_rx;
@@ -900,7 +1029,9 @@ pub async fn run_query_loop(
                                     break;
                                 }
                             };
-                            let Some(event_result) = event_result else { break; };
+                            let Some(event_result) = event_result else {
+                                break;
+                            };
                             match event_result {
                                 Ok(ApiStreamEvent::ContentBlockDelta { delta, .. }) => {
                                     if let Some(t) = delta.get("text").and_then(|v| v.as_str()) {
@@ -916,11 +1047,11 @@ pub async fn run_query_loop(
                             }
                         }
                         Ok::<String, String>(text)
-                    }.await;
+                    }
+                    .await;
 
                     match summary_result {
                         Ok(summary_text) if !summary_text.is_empty() => {
-
                             let recent = messages[split..].to_vec();
                             messages.clear();
                             messages.push(Message {
@@ -953,54 +1084,69 @@ pub async fn run_query_loop(
                 if let Some(msg) = user_msg {
                     messages.push(msg);
                 }
-                let _ = tx.send(EngineEvent::AssistantChunk {
-                    content: "✅ 压缩完成，正在重试...\n\n".to_string(),
-                    tool_use_id: None,
-                }).await;
+                let _ = tx
+                    .send(EngineEvent::AssistantChunk {
+                        content: "✅ 压缩完成，正在重试...\n\n".to_string(),
+                        tool_use_id: None,
+                    })
+                    .await;
                 continue; // retry the query loop
             }
 
             // No tools → query complete
             let text = extract_text(&assistant_content_blocks);
             // Emit TurnEnd for the final turn (no tools)
-            let _ = tx.send(EngineEvent::TurnEnd {
-                turn_id: turn_id_counter,
-                duration_ms: turn_start_time.elapsed().as_millis() as u64,
-                tool_count: turn_tool_count,
-                input_tokens: total_usage.input_tokens.saturating_sub(turn_input_tokens_at_start),
-                output_tokens: total_usage.output_tokens.saturating_sub(turn_output_tokens_at_start),
-            }).await;
-            let _ = tx.send(EngineEvent::Result(QueryResult {
-                status: QueryStatus::Complete,
-                text,
-                stop_reason,
-                total_cost_usd: cost_tracker.total_cost(),
-                usage: total_usage,
-                num_turns: turn_count,
-                duration_ms: start_time.elapsed().as_millis() as u64,
-            })).await;
+            let _ = tx
+                .send(EngineEvent::TurnEnd {
+                    turn_id: turn_id_counter,
+                    duration_ms: turn_start_time.elapsed().as_millis() as u64,
+                    tool_count: turn_tool_count,
+                    input_tokens: total_usage
+                        .input_tokens
+                        .saturating_sub(turn_input_tokens_at_start),
+                    output_tokens: total_usage
+                        .output_tokens
+                        .saturating_sub(turn_output_tokens_at_start),
+                })
+                .await;
+            let _ = tx
+                .send(EngineEvent::Result(QueryResult {
+                    status: QueryStatus::Complete,
+                    text,
+                    stop_reason,
+                    total_cost_usd: cost_tracker.total_cost(),
+                    usage: total_usage,
+                    num_turns: turn_count,
+                    duration_ms: start_time.elapsed().as_millis() as u64,
+                }))
+                .await;
             return;
         }
 
         // Emit ToolUse events
         for tu in &tool_uses {
             turn_tool_count += 1;
-            let _ = tx.send(EngineEvent::ToolUse {
-                tool_name: tu.name.clone(),
-                input: tu.input.clone(),
-                tool_use_id: tu.id.clone(),
-            }).await;
+            let _ = tx
+                .send(EngineEvent::ToolUse {
+                    tool_name: tu.name.clone(),
+                    input: tu.input.clone(),
+                    tool_use_id: tu.id.clone(),
+                })
+                .await;
 
             // Write tool use to transcript
-            append_transcript(&mut transcript_writer, &TranscriptEntry {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                entry_type: TranscriptEntryType::ToolUse,
-                data: serde_json::json!({
-                    "tool_name": tu.name,
-                    "input": tu.input,
-                    "tool_use_id": tu.id,
-                }),
-            });
+            append_transcript(
+                &mut transcript_writer,
+                &TranscriptEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    entry_type: TranscriptEntryType::ToolUse,
+                    data: serde_json::json!({
+                        "tool_name": tu.name,
+                        "input": tu.input,
+                        "tool_use_id": tu.id,
+                    }),
+                },
+            );
         }
 
         // Execute tools using the executor
@@ -1018,36 +1164,43 @@ pub async fn run_query_loop(
 
         // Emit ToolResult events
         for result in &tool_results {
-            let _ = tx.send(EngineEvent::ToolResult {
-                tool_use_id: result.tool_use_id.clone(),
-                output: result.output.clone(),
-                is_error: result.is_error,
-            }).await;
+            let _ = tx
+                .send(EngineEvent::ToolResult {
+                    tool_use_id: result.tool_use_id.clone(),
+                    output: result.output.clone(),
+                    is_error: result.is_error,
+                })
+                .await;
 
             // Write tool result to transcript
-            append_transcript(&mut transcript_writer, &TranscriptEntry {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                entry_type: TranscriptEntryType::ToolResult,
-                data: serde_json::json!({
-                    "tool_use_id": result.tool_use_id,
-                    "output": result.output,
-                    "is_error": result.is_error,
-                }),
-            });
+            append_transcript(
+                &mut transcript_writer,
+                &TranscriptEntry {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    entry_type: TranscriptEntryType::ToolResult,
+                    data: serde_json::json!({
+                        "tool_use_id": result.tool_use_id,
+                        "output": result.output,
+                        "is_error": result.is_error,
+                    }),
+                },
+            );
 
             // Trigger ToolResult hook for each tool result
             if let Some(ref hook_manager) = config.hook_manager {
                 // Find the tool use for this result
                 let tool_use = tool_uses.iter().find(|tu| tu.id == result.tool_use_id);
                 let tool_name = tool_use.map(|tu| tu.name.clone()).unwrap_or_default();
-                let input = tool_use.map(|tu| serde_json::to_string(&tu.input).unwrap_or_default()).unwrap_or_default();
+                let input = tool_use
+                    .map(|tu| serde_json::to_string(&tu.input).unwrap_or_default())
+                    .unwrap_or_default();
                 let output = serde_json::to_string(&result.output).unwrap_or_default();
 
                 let hm = Arc::clone(hook_manager);
                 let cwd = config.cwd.clone();
                 tokio::spawn(async move {
-                    let ctx = TriggerContext::tool_result(&tool_name, &input, &output)
-                        .with_cwd(cwd);
+                    let ctx =
+                        TriggerContext::tool_result(&tool_name, &input, &output).with_cwd(cwd);
                     let result = hm.process(TriggerType::ToolResult, ctx).await;
                     if !result.errors.is_empty() {
                         eprintln!("ToolResult hook errors: {:?}", result.errors);
@@ -1059,24 +1212,24 @@ pub async fn run_query_loop(
                 if !result.is_error {
                     if let Some(tool_use) = tool_use {
                         let trigger_type = match tool_use.name.as_str() {
-                            "Write" | "write_file" | "FileWrite" => {
-                                tool_use.input.get("file_path")
-                                    .or_else(|| tool_use.input.get("path"))
-                                    .and_then(|v| v.as_str())
-                                    .map(|path| (TriggerType::FileCreated, path.to_string()))
-                            }
-                            "Edit" | "edit_file" | "FileEdit" => {
-                                tool_use.input.get("file_path")
-                                    .or_else(|| tool_use.input.get("path"))
-                                    .and_then(|v| v.as_str())
-                                    .map(|path| (TriggerType::FileEdited, path.to_string()))
-                            }
-                            "Delete" | "delete_file" | "FileDelete" => {
-                                tool_use.input.get("file_path")
-                                    .or_else(|| tool_use.input.get("path"))
-                                    .and_then(|v| v.as_str())
-                                    .map(|path| (TriggerType::FileDeleted, path.to_string()))
-                            }
+                            "Write" | "write_file" | "FileWrite" => tool_use
+                                .input
+                                .get("file_path")
+                                .or_else(|| tool_use.input.get("path"))
+                                .and_then(|v| v.as_str())
+                                .map(|path| (TriggerType::FileCreated, path.to_string())),
+                            "Edit" | "edit_file" | "FileEdit" => tool_use
+                                .input
+                                .get("file_path")
+                                .or_else(|| tool_use.input.get("path"))
+                                .and_then(|v| v.as_str())
+                                .map(|path| (TriggerType::FileEdited, path.to_string())),
+                            "Delete" | "delete_file" | "FileDelete" => tool_use
+                                .input
+                                .get("file_path")
+                                .or_else(|| tool_use.input.get("path"))
+                                .and_then(|v| v.as_str())
+                                .map(|path| (TriggerType::FileDeleted, path.to_string())),
                             _ => None,
                         };
 
@@ -1085,9 +1238,15 @@ pub async fn run_query_loop(
                             let cwd = config.cwd.clone();
                             tokio::spawn(async move {
                                 let ctx = match trigger {
-                                    TriggerType::FileCreated => TriggerContext::file_created(&file_path, &cwd),
-                                    TriggerType::FileEdited => TriggerContext::file_edited(&file_path, &cwd),
-                                    TriggerType::FileDeleted => TriggerContext::file_deleted(&file_path, &cwd),
+                                    TriggerType::FileCreated => {
+                                        TriggerContext::file_created(&file_path, &cwd)
+                                    }
+                                    TriggerType::FileEdited => {
+                                        TriggerContext::file_edited(&file_path, &cwd)
+                                    }
+                                    TriggerType::FileDeleted => {
+                                        TriggerContext::file_deleted(&file_path, &cwd)
+                                    }
                                     _ => TriggerContext::new(),
                                 };
                                 let result = hm.process(trigger, ctx).await;
@@ -1106,13 +1265,19 @@ pub async fn run_query_loop(
         messages.push(tool_result_msg);
 
         // Emit TurnEnd after tool results are processed
-        let _ = tx.send(EngineEvent::TurnEnd {
-            turn_id: turn_id_counter,
-            duration_ms: turn_start_time.elapsed().as_millis() as u64,
-            tool_count: turn_tool_count,
-            input_tokens: total_usage.input_tokens.saturating_sub(turn_input_tokens_at_start),
-            output_tokens: total_usage.output_tokens.saturating_sub(turn_output_tokens_at_start),
-        }).await;
+        let _ = tx
+            .send(EngineEvent::TurnEnd {
+                turn_id: turn_id_counter,
+                duration_ms: turn_start_time.elapsed().as_millis() as u64,
+                tool_count: turn_tool_count,
+                input_tokens: total_usage
+                    .input_tokens
+                    .saturating_sub(turn_input_tokens_at_start),
+                output_tokens: total_usage
+                    .output_tokens
+                    .saturating_sub(turn_output_tokens_at_start),
+            })
+            .await;
 
         turn_count += 1;
 
@@ -1129,9 +1294,7 @@ pub async fn run_query_loop(
                 let mdl = config.model.clone();
                 let existing = sm.get();
                 tokio::spawn(async move {
-                    update_session_memory_background(
-                        msgs_clone, sm_arc, api, mdl, existing,
-                    ).await;
+                    update_session_memory_background(msgs_clone, sm_arc, api, mdl, existing).await;
                 });
             }
         }
@@ -1157,7 +1320,9 @@ pub async fn compact_messages(
     if old_count > 0 && old_count < messages.len() {
         if let MessageContent::Assistant { message, .. } = &messages[old_count - 1].content {
             // Extract all tool_use IDs from the assistant message
-            let tool_use_ids: Vec<&str> = message.content.iter()
+            let tool_use_ids: Vec<&str> = message
+                .content
+                .iter()
                 .filter_map(|block| match block {
                     ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
                     _ => None,
@@ -1166,7 +1331,8 @@ pub async fn compact_messages(
 
             if !tool_use_ids.is_empty() {
                 // Scan forward to find all corresponding tool_result messages
-                let mut found_results: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut found_results: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
                 let mut next_idx = old_count;
 
                 while next_idx < messages.len() {
@@ -1206,8 +1372,14 @@ pub async fn compact_messages(
     let raw_summary = format_messages_for_summary(&old_messages);
     let max_summary_chars: usize = 60_000;
     let truncated_summary = if raw_summary.len() > max_summary_chars {
-        format!("{}...\n\n[Conversation truncated, {} total chars]",
-            raw_summary.chars().take(max_summary_chars).collect::<String>(), raw_summary.len())
+        format!(
+            "{}...\n\n[Conversation truncated, {} total chars]",
+            raw_summary
+                .chars()
+                .take(max_summary_chars)
+                .collect::<String>(),
+            raw_summary.len()
+        )
     } else {
         raw_summary
     };
@@ -1225,24 +1397,24 @@ pub async fn compact_messages(
     // Old approach (broken): separate system prompt ("You are a summariser")
     // + no tools + no history → zero cache reuse, full price every time.
     let main_request = build_api_request(messages, config);
-    let old_api_messages: Vec<serde_json::Value> = old_messages.iter().filter_map(|msg| {
-        match &msg.content {
-            MessageContent::User { message, .. } => {
-                Some(serde_json::json!({
-                    "role": message.role,
-                    "content": message.content,
-                }))
-            }
+    let old_api_messages: Vec<serde_json::Value> = old_messages
+        .iter()
+        .filter_map(|msg| match &msg.content {
+            MessageContent::User { message, .. } => Some(serde_json::json!({
+                "role": message.role,
+                "content": message.content,
+            })),
             MessageContent::Assistant { message, .. } => {
-                let content_value = serde_json::to_value(&message.content).unwrap_or(Value::Array(vec![]));
+                let content_value =
+                    serde_json::to_value(&message.content).unwrap_or(Value::Array(vec![]));
                 Some(serde_json::json!({
                     "role": message.role,
                     "content": content_value,
                 }))
             }
             _ => None,
-        }
-    }).collect();
+        })
+        .collect();
     let request = CreateMessageRequest::for_cache_safe_compaction(
         &main_request,
         &old_api_messages,
@@ -1274,7 +1446,9 @@ pub async fn compact_messages(
                 });
             }
         };
-        let Some(event_result) = event_result else { break; };
+        let Some(event_result) = event_result else {
+            break;
+        };
         match event_result {
             Ok(event) => {
                 if let ApiStreamEvent::ContentBlockDelta { delta, .. } = event {
@@ -1291,7 +1465,10 @@ pub async fn compact_messages(
     }
 
     if summary_text.trim().is_empty() {
-        summary_text = format!("[Previous conversation ({} messages) was compacted]", old_count);
+        summary_text = format!(
+            "[Previous conversation ({} messages) was compacted]",
+            old_count
+        );
     }
 
     let boundary = Message {
@@ -1336,7 +1513,8 @@ pub fn micro_compact(messages: &mut [Message], idle_threshold_secs: u64) {
         let age = match chrono::DateTime::parse_from_rfc3339(&msg.timestamp) {
             Ok(ts) => {
                 let msg_time = std::time::SystemTime::from(ts.with_timezone(&chrono::Utc));
-                now.duration_since(msg_time).unwrap_or(std::time::Duration::ZERO)
+                now.duration_since(msg_time)
+                    .unwrap_or(std::time::Duration::ZERO)
             }
             Err(_) => continue,
         };
@@ -1353,9 +1531,10 @@ pub fn micro_compact(messages: &mut [Message], idle_threshold_secs: u64) {
                         if let Some(content) = block.get_mut("content") {
                             let output_str = content.to_string();
                             if output_str.len() > 500 {
-                                *content = serde_json::json!(
-                                    format!("[Old tool result cleared — originally {} chars]", output_str.len())
-                                );
+                                *content = serde_json::json!(format!(
+                                    "[Old tool result cleared — originally {} chars]",
+                                    output_str.len()
+                                ));
                             }
                         }
                     }
@@ -1369,10 +1548,7 @@ pub fn micro_compact(messages: &mut [Message], idle_threshold_secs: u64) {
 ///
 /// If a session memory summary already exists, use it as the CompactBoundary
 /// and keep only the most recent messages — no API summarisation call needed.
-pub fn session_memory_compact(
-    messages: &mut Vec<Message>,
-    summary_text: &str,
-) -> bool {
+pub fn session_memory_compact(messages: &mut Vec<Message>, summary_text: &str) -> bool {
     if summary_text.is_empty() {
         return false;
     }
@@ -1417,14 +1593,19 @@ pub fn reactive_compact(messages: &mut Vec<Message>, target_reduction: Option<us
     // the following assistant message (and any tool-result user messages).
     let mut turn_starts: Vec<usize> = Vec::new();
     for (i, msg) in messages.iter().enumerate() {
-        if let MessageContent::User { message, tool_use_result, .. } = &msg.content {
+        if let MessageContent::User {
+            message,
+            tool_use_result,
+            ..
+        } = &msg.content
+        {
             // A turn-starting user message is one that is NOT a tool_result.
             if tool_use_result.is_none() {
                 // Also skip if content is an array of tool_result blocks.
                 let is_tool_result_array = match &message.content {
-                    Value::Array(arr) => arr.iter().all(|b| {
-                        b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
-                    }),
+                    Value::Array(arr) => arr
+                        .iter()
+                        .all(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result")),
                     _ => false,
                 };
                 if !is_tool_result_array {
@@ -1444,7 +1625,9 @@ pub fn reactive_compact(messages: &mut Vec<Message>, target_reduction: Option<us
             // Estimate tokens per turn (rough: total / turn_count).
             let total_tokens = estimate_tokens(messages) as usize;
             let tokens_per_turn = total_tokens / turn_starts.len().max(1);
-            (target / tokens_per_turn.max(1)).max(1).min(turn_starts.len() / 2)
+            (target / tokens_per_turn.max(1))
+                .max(1)
+                .min(turn_starts.len() / 2)
         }
         None => (turn_starts.len() / 5).max(1), // default: drop 20%
     };
@@ -1456,8 +1639,7 @@ pub fn reactive_compact(messages: &mut Vec<Message>, target_reduction: Option<us
     let drop_to = turn_starts[drop_count];
     eprintln!(
         "Reactive compact: dropping {} oldest turns ({} messages)",
-        drop_count,
-        drop_to
+        drop_count, drop_to
     );
     *messages = messages[drop_to..].to_vec();
 }
@@ -1475,7 +1657,9 @@ pub fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
     for msg in messages.iter() {
         match &msg.content {
             MessageContent::Assistant { message, .. } => {
-                let ids: Vec<String> = message.content.iter()
+                let ids: Vec<String> = message
+                    .content
+                    .iter()
                     .filter_map(|block| match block {
                         ContentBlock::ToolUse { id, .. } => Some(id.clone()),
                         _ => None,
@@ -1495,23 +1679,30 @@ pub fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
         }
     }
 
-    eprintln!("  Found {} tool_use IDs: {:?}", tool_use_ids.len(), tool_use_ids);
-    eprintln!("  Found {} tool_result IDs: {:?}", tool_result_ids.len(), tool_result_ids);
+    eprintln!(
+        "  Found {} tool_use IDs: {:?}",
+        tool_use_ids.len(),
+        tool_use_ids
+    );
+    eprintln!(
+        "  Found {} tool_result IDs: {:?}",
+        tool_result_ids.len(),
+        tool_result_ids
+    );
 
     // Find orphaned tool_use IDs (without corresponding tool_result)
-    let orphaned_tool_uses: std::collections::HashSet<String> = tool_use_ids
-        .difference(&tool_result_ids)
-        .cloned()
-        .collect();
+    let orphaned_tool_uses: std::collections::HashSet<String> =
+        tool_use_ids.difference(&tool_result_ids).cloned().collect();
 
     // Find orphaned tool_result IDs (without corresponding tool_use)
-    let orphaned_tool_results: std::collections::HashSet<String> = tool_result_ids
-        .difference(&tool_use_ids)
-        .cloned()
-        .collect();
+    let orphaned_tool_results: std::collections::HashSet<String> =
+        tool_result_ids.difference(&tool_use_ids).cloned().collect();
 
     eprintln!("  Orphaned tool_use blocks: {}", orphaned_tool_uses.len());
-    eprintln!("  Orphaned tool_result blocks: {}", orphaned_tool_results.len());
+    eprintln!(
+        "  Orphaned tool_result blocks: {}",
+        orphaned_tool_results.len()
+    );
 
     // Filter messages: remove those with orphaned tool_use/tool_result
     let mut result = Vec::new();
@@ -1533,7 +1724,9 @@ pub fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
                 if !has_orphaned {
                     result.push(msg.clone());
                 } else {
-                    eprintln!("validate_and_fix: skipping assistant message with orphaned tool_use");
+                    eprintln!(
+                        "validate_and_fix: skipping assistant message with orphaned tool_use"
+                    );
                 }
             }
             MessageContent::User { message, .. } => {
@@ -1544,7 +1737,9 @@ pub fn validate_and_fix_tool_messages(messages: &[Message]) -> Vec<Message> {
                     result.push(msg.clone());
                 } else {
                     // Tool result message - check if any results are valid (not orphaned)
-                    let has_valid_result = result_ids.iter().any(|id| !orphaned_tool_results.contains(id));
+                    let has_valid_result = result_ids
+                        .iter()
+                        .any(|id| !orphaned_tool_results.contains(id));
                     if has_valid_result {
                         // Keep message but filter out orphaned results
                         // For now, just keep the whole message
@@ -1586,9 +1781,14 @@ pub async fn update_session_memory_background(
     let conversation_text = format_messages_for_summary(&messages);
     let max_chars: usize = 40_000;
     let truncated = if conversation_text.len() > max_chars {
-        format!("{}...\n\n[Truncated, {} total chars]",
-            conversation_text.chars().take(max_chars).collect::<String>(),
-            conversation_text.len())
+        format!(
+            "{}...\n\n[Truncated, {} total chars]",
+            conversation_text
+                .chars()
+                .take(max_chars)
+                .collect::<String>(),
+            conversation_text.len()
+        )
     } else {
         conversation_text
     };
@@ -1647,8 +1847,11 @@ pub async fn update_session_memory_background(
             if !summary_text.trim().is_empty() {
                 session_memory.update(summary_text);
                 session_memory.set_message_count(msg_count);
-                eprintln!("Session memory updated ({} chars, at msg #{})",
-                    session_memory.get().len(), msg_count);
+                eprintln!(
+                    "Session memory updated ({} chars, at msg #{})",
+                    session_memory.get().len(),
+                    msg_count
+                );
             }
         }
         Err(e) => {

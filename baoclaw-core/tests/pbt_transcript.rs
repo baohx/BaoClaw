@@ -9,9 +9,7 @@
 use proptest::prelude::*;
 use serde_json::{json, Value};
 
-use baoclaw_core::engine::transcript::{
-    TranscriptEntry, TranscriptEntryType, TranscriptWriter,
-};
+use baoclaw_core::engine::transcript::{TranscriptEntry, TranscriptEntryType, TranscriptWriter};
 
 /// Strategy for generating a TranscriptEntryType.
 fn entry_type_strategy() -> impl Strategy<Value = TranscriptEntryType> {
@@ -39,12 +37,16 @@ fn data_strategy() -> impl Strategy<Value = Value> {
 
 /// Strategy for generating a valid ISO 8601 timestamp.
 fn timestamp_strategy() -> impl Strategy<Value = String> {
-    (2020u32..2030, 1u32..13, 1u32..29, 0u32..24, 0u32..60, 0u32..60)
+    (
+        2020u32..2030,
+        1u32..13,
+        1u32..29,
+        0u32..24,
+        0u32..60,
+        0u32..60,
+    )
         .prop_map(|(y, m, d, h, min, s)| {
-            format!(
-                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-                y, m, d, h, min, s
-            )
+            format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, h, min, s)
         })
 }
 

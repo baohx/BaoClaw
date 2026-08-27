@@ -616,7 +616,8 @@ mod tests {
     fn test_predict_new_categories() {
         let mut p = IntentPredictor::new();
         assert_eq!(
-            p.predict("please deploy the app with docker and kubernetes").intent,
+            p.predict("please deploy the app with docker and kubernetes")
+                .intent,
             UserIntent::Deployment
         );
         assert_eq!(
@@ -679,7 +680,8 @@ mod tests {
         p.record_actual("debugging", &["Bash".to_string()]);
         p.record_actual("testing", &[]);
         assert_eq!(
-            p.transitions.get(&("debugging".to_string(), "testing".to_string())),
+            p.transitions
+                .get(&("debugging".to_string(), "testing".to_string())),
             Some(&1)
         );
     }

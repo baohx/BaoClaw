@@ -8,14 +8,14 @@
 //! - Permission escalation flow (detect, confirm, temp/permanent)
 //! - Audit logging (SQLite-backed, all security decisions)
 
-mod profile;
-mod executor;
-mod network;
-mod config;
 mod audit;
-mod permission;
+mod config;
+mod executor;
 #[path = "../sandbox_legacy.rs"]
 mod legacy;
+mod network;
+mod permission;
+mod profile;
 
 // Public exports
 

@@ -86,9 +86,7 @@ impl Default for SubagentPolicy {
                 // Depth 3: minimal tools
                 DepthToolSet {
                     depth: 3,
-                    allowed_tools: ["FileRead".into(), "Bash".into()]
-                        .into_iter()
-                        .collect(),
+                    allowed_tools: ["FileRead".into(), "Bash".into()].into_iter().collect(),
                     max_turns: 5,
                     max_cost_usd: 0.1,
                     budget_exceeded_action: DepthAction::Terminate,

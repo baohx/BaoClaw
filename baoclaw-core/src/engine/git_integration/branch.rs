@@ -3,8 +3,8 @@
 //! Provides create, switch, sync, cleanup, and list operations
 //! for git branches using the `git` command-line tool.
 
-use super::types::BranchInfo;
 use super::pr::GitIntegrationError;
+use super::types::BranchInfo;
 use crate::utils::command::run_command_async;
 
 /// Manages git branch operations.
@@ -115,7 +115,12 @@ impl BranchManager {
         let mut branches: Vec<String> = output
             .stdout
             .lines()
-            .map(|l| l.trim_start_matches(" *").trim_start_matches(' ').trim().to_string())
+            .map(|l| {
+                l.trim_start_matches(" *")
+                    .trim_start_matches(' ')
+                    .trim()
+                    .to_string()
+            })
             .filter(|name| {
                 !name.is_empty()
                     && name != current
@@ -139,11 +144,7 @@ impl BranchManager {
             }
             let trimmed = line.trim();
             let is_current = trimmed.starts_with("* ");
-            let rest = if is_current {
-                &trimmed[2..]
-            } else {
-                trimmed
-            };
+            let rest = if is_current { &trimmed[2..] } else { trimmed };
 
             // Split: name then optional tracking info
             let parts: Vec<&str> = rest.splitn(2, ' ').collect();

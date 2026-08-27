@@ -52,10 +52,7 @@ pub enum MessageContent {
         content: String,
     },
     #[serde(rename = "progress")]
-    Progress {
-        tool_use_id: String,
-        data: Value,
-    },
+    Progress { tool_use_id: String, data: Value },
 }
 
 // --- API message types ---
@@ -97,16 +94,16 @@ pub enum ContentBlock {
 pub struct ImageSource {
     #[serde(rename = "type")]
     pub source_type: String, // "base64"
-    pub media_type: String,  // "image/png", "image/jpeg", etc.
-    pub data: String,        // base64 encoded
+    pub media_type: String, // "image/png", "image/jpeg", etc.
+    pub data: String,       // base64 encoded
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocumentSource {
     #[serde(rename = "type")]
     pub source_type: String, // "base64"
-    pub media_type: String,  // "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    pub data: String,        // base64 encoded
+    pub media_type: String, // "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    pub data: String,       // base64 encoded
 }
 
 // --- Supporting types ---

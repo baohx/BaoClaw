@@ -67,7 +67,10 @@ impl TranscriptWriter {
     }
 
     /// Load all valid transcript entries from a specific directory.
-    pub fn load_from_dir(session_id: &str, dir: &Path) -> Result<Vec<TranscriptEntry>, std::io::Error> {
+    pub fn load_from_dir(
+        session_id: &str,
+        dir: &Path,
+    ) -> Result<Vec<TranscriptEntry>, std::io::Error> {
         let path = dir.join(format!("{}.jsonl", session_id));
         let file = std::fs::File::open(&path)?;
         let reader = std::io::BufReader::new(file);
@@ -105,8 +108,10 @@ impl TranscriptWriter {
 /// Only UserMessage and AssistantMessage entries are converted back to Messages.
 /// ToolUse and ToolResult entries are skipped since they are embedded in the
 /// assistant/user messages.
-pub fn rebuild_messages_from_transcript(entries: &[TranscriptEntry]) -> Vec<crate::models::message::Message> {
-    use crate::models::message::{Message, MessageContent, ApiUserMessage};
+pub fn rebuild_messages_from_transcript(
+    entries: &[TranscriptEntry],
+) -> Vec<crate::models::message::Message> {
+    use crate::models::message::{ApiUserMessage, Message, MessageContent};
 
     let mut messages: Vec<Message> = Vec::new();
     let mut pending_tool_results: Vec<serde_json::Value> = Vec::new();
@@ -122,7 +127,9 @@ pub fn rebuild_messages_from_transcript(entries: &[TranscriptEntry]) -> Vec<crat
                         content: MessageContent::User {
                             message: ApiUserMessage {
                                 role: "user".to_string(),
-                                content: serde_json::Value::Array(std::mem::take(&mut pending_tool_results)),
+                                content: serde_json::Value::Array(std::mem::take(
+                                    &mut pending_tool_results,
+                                )),
                             },
                             is_meta: false,
                             tool_use_result: None,
@@ -136,18 +143,28 @@ pub fn rebuild_messages_from_transcript(entries: &[TranscriptEntry]) -> Vec<crat
             }
             TranscriptEntryType::ToolResult => {
                 // Accumulate tool results to be flushed as a user message
-                let tool_use_id = entry.data.get("tool_use_id")
+                let tool_use_id = entry
+                    .data
+                    .get("tool_use_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let raw_output = entry.data.get("output").cloned().unwrap_or(serde_json::Value::Null);
+                let raw_output = entry
+                    .data
+                    .get("output")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 // API requires content to be a string or array of content blocks, not an object
                 let output_str = match &raw_output {
                     serde_json::Value::String(s) => s.clone(),
                     serde_json::Value::Null => String::new(),
                     other => serde_json::to_string(other).unwrap_or_default(),
                 };
-                let is_error = entry.data.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                let is_error = entry
+                    .data
+                    .get("is_error")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 pending_tool_results.push(serde_json::json!({
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,
@@ -213,7 +230,6 @@ pub fn rebuild_messages_from_transcript_limited(
 
     messages
 }
-
 
 /// Find the most recent session file for a given cwd.
 ///
@@ -310,10 +326,22 @@ mod tests {
 
         let session_id = "test-roundtrip-session";
         let entries = vec![
-            make_entry(TranscriptEntryType::UserMessage, json!({"content": "hello"})),
-            make_entry(TranscriptEntryType::AssistantMessage, json!({"content": "hi there"})),
-            make_entry(TranscriptEntryType::ToolUse, json!({"tool": "bash", "input": {"cmd": "ls"}})),
-            make_entry(TranscriptEntryType::ToolResult, json!({"output": "file.txt"})),
+            make_entry(
+                TranscriptEntryType::UserMessage,
+                json!({"content": "hello"}),
+            ),
+            make_entry(
+                TranscriptEntryType::AssistantMessage,
+                json!({"content": "hi there"}),
+            ),
+            make_entry(
+                TranscriptEntryType::ToolUse,
+                json!({"tool": "bash", "input": {"cmd": "ls"}}),
+            ),
+            make_entry(
+                TranscriptEntryType::ToolResult,
+                json!({"output": "file.txt"}),
+            ),
         ];
 
         // Write entries
@@ -345,21 +373,30 @@ mod tests {
         // Write a valid entry
         {
             let mut writer = TranscriptWriter::open_in_dir(session_id, &sessions_dir).unwrap();
-            let entry = make_entry(TranscriptEntryType::UserMessage, json!({"content": "valid"}));
+            let entry = make_entry(
+                TranscriptEntryType::UserMessage,
+                json!({"content": "valid"}),
+            );
             writer.append(&entry).unwrap();
         }
 
         // Manually append a corrupted line
         let path = sessions_dir.join(format!("{}.jsonl", session_id));
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         writeln!(file, "{{this is not valid json}}").unwrap();
         writeln!(file, "").unwrap(); // empty line
 
         // Write another valid entry
         {
             let mut writer = TranscriptWriter::open_in_dir(session_id, &sessions_dir).unwrap();
-            let entry = make_entry(TranscriptEntryType::AssistantMessage, json!({"content": "also valid"}));
+            let entry = make_entry(
+                TranscriptEntryType::AssistantMessage,
+                json!({"content": "also valid"}),
+            );
             writer.append(&entry).unwrap();
         }
 
@@ -398,7 +435,9 @@ mod tests {
 
     #[test]
     fn test_rebuild_messages_from_transcript() {
-        use crate::models::message::{Message, MessageContent, ApiUserMessage, ApiAssistantMessage, ContentBlock};
+        use crate::models::message::{
+            ApiAssistantMessage, ApiUserMessage, ContentBlock, Message, MessageContent,
+        };
 
         let user_msg = Message {
             uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -419,7 +458,9 @@ mod tests {
             content: MessageContent::Assistant {
                 message: ApiAssistantMessage {
                     role: "assistant".to_string(),
-                    content: vec![ContentBlock::Text { text: "hi".to_string() }],
+                    content: vec![ContentBlock::Text {
+                        text: "hi".to_string(),
+                    }],
                     stop_reason: Some("end_turn".to_string()),
                     usage: None,
                 },

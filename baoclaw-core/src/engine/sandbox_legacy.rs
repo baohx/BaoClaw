@@ -152,10 +152,7 @@ impl SandboxConfig {
 
         // CPU limit (only if non-default to avoid overly restrictive quotas)
         if self.cpu_time_limit_secs > 0 && self.cpu_time_limit_secs < 300 {
-            args.push(format!(
-                "--cpu-quota={}",
-                self.cpu_time_limit_secs * 100000
-            ));
+            args.push(format!("--cpu-quota={}", self.cpu_time_limit_secs * 100000));
             args.push("--cpu-period=100000".into());
         }
 
@@ -336,7 +333,10 @@ mod tests {
         let args = config.build_command_args("ls -la", Path::new("/tmp"));
         assert_eq!(args, vec!["/bin/bash", "-c", "ls -la"]);
         // wrap_command joins them for display
-        assert_eq!(config.wrap_command("ls -la", Path::new("/tmp")), "/bin/bash -c ls -la");
+        assert_eq!(
+            config.wrap_command("ls -la", Path::new("/tmp")),
+            "/bin/bash -c ls -la"
+        );
     }
 
     #[test]

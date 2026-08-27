@@ -123,8 +123,7 @@ fn build_docx_attachment(path: &Path) -> Result<Value, DocError> {
 
 /// Extracts text content from DOCX bytes by iterating through paragraphs and runs.
 fn extract_text_from_docx(bytes: &[u8]) -> Result<String, DocError> {
-    let docx = docx_rs::read_docx(bytes)
-        .map_err(|e| DocError::ParseError(format!("{}", e)))?;
+    let docx = docx_rs::read_docx(bytes).map_err(|e| DocError::ParseError(format!("{}", e)))?;
 
     let mut text_parts: Vec<String> = Vec::new();
 
@@ -268,12 +267,10 @@ mod tests {
         // Create a minimal DOCX file using docx-rs
         let docx = docx_rs::Docx::new()
             .add_paragraph(
-                docx_rs::Paragraph::new()
-                    .add_run(docx_rs::Run::new().add_text("Hello World")),
+                docx_rs::Paragraph::new().add_run(docx_rs::Run::new().add_text("Hello World")),
             )
             .add_paragraph(
-                docx_rs::Paragraph::new()
-                    .add_run(docx_rs::Run::new().add_text("Second paragraph")),
+                docx_rs::Paragraph::new().add_run(docx_rs::Run::new().add_text("Second paragraph")),
             );
 
         let tmp = NamedTempFile::with_suffix(".docx").unwrap();

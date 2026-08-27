@@ -61,7 +61,9 @@ impl ToolHealthTracker {
 
     /// Record a successful tool call.
     pub fn record_success(&mut self, tool_name: &str) {
-        let record = self.records.entry(tool_name.to_string())
+        let record = self
+            .records
+            .entry(tool_name.to_string())
             .or_insert_with(|| ToolHealthRecord::new(tool_name));
         record.total_calls += 1;
         record.success_count += 1;
@@ -75,7 +77,9 @@ impl ToolHealthTracker {
 
     /// Record a failed tool call.
     pub fn record_failure(&mut self, tool_name: &str, reason: &str) {
-        let record = self.records.entry(tool_name.to_string())
+        let record = self
+            .records
+            .entry(tool_name.to_string())
             .or_insert_with(|| ToolHealthRecord::new(tool_name));
         record.total_calls += 1;
         record.failure_count += 1;
@@ -96,7 +100,9 @@ impl ToolHealthTracker {
 
     /// Record a timeout.
     pub fn record_timeout(&mut self, tool_name: &str) {
-        let record = self.records.entry(tool_name.to_string())
+        let record = self
+            .records
+            .entry(tool_name.to_string())
             .or_insert_with(|| ToolHealthRecord::new(tool_name));
         record.total_calls += 1;
         record.timeout_count += 1;
@@ -112,7 +118,8 @@ impl ToolHealthTracker {
 
     /// Check if a tool is available (not disabled).
     pub fn is_available(&self, tool_name: &str) -> bool {
-        self.records.get(tool_name)
+        self.records
+            .get(tool_name)
             .map(|r| r.status != ToolStatus::Disabled)
             .unwrap_or(true) // unknown tools are available by default
     }
@@ -125,7 +132,9 @@ impl ToolHealthTracker {
                 ToolStatus::Degraded => {
                     let rate = if record.total_calls > 0 {
                         record.failure_count as f64 / record.total_calls as f64 * 100.0
-                    } else { 0.0 };
+                    } else {
+                        0.0
+                    };
                     warnings.push(format!(
                         "⚠️ Tool '{}' is degraded (failure rate: {:.0}%, {} consecutive failures). Consider using an alternative.",
                         record.tool_name, rate, record.consecutive_failures
@@ -146,7 +155,8 @@ impl ToolHealthTracker {
 
     /// Get list of currently disabled tool names.
     pub fn disabled_tools(&self) -> Vec<String> {
-        self.records.iter()
+        self.records
+            .iter()
             .filter(|(_, r)| r.status == ToolStatus::Disabled)
             .map(|(name, _)| name.clone())
             .collect()
@@ -154,7 +164,8 @@ impl ToolHealthTracker {
 
     /// Get list of degraded tool names.
     pub fn degraded_tools(&self) -> Vec<String> {
-        self.records.iter()
+        self.records
+            .iter()
             .filter(|(_, r)| r.status == ToolStatus::Degraded)
             .map(|(name, _)| name.clone())
             .collect()
@@ -166,7 +177,10 @@ impl ToolHealthTracker {
         if warnings.is_empty() {
             None
         } else {
-            Some(format!("\n## Tool Health Warnings\n{}\n", warnings.join("\n")))
+            Some(format!(
+                "\n## Tool Health Warnings\n{}\n",
+                warnings.join("\n")
+            ))
         }
     }
 

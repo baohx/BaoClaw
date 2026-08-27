@@ -225,10 +225,7 @@ mod tests {
 
     #[test]
     fn test_route_condition_task_complexity() {
-        let cond = RouteCondition::TaskComplexity {
-            min: 0.5,
-            max: 0.8,
-        };
+        let cond = RouteCondition::TaskComplexity { min: 0.5, max: 0.8 };
         assert!(cond.matches("any prompt", 0, 0.6, 12));
         assert!(!cond.matches("any prompt", 0, 0.3, 12));
         assert!(!cond.matches("any prompt", 0, 0.9, 12));
@@ -236,10 +233,7 @@ mod tests {
 
     #[test]
     fn test_route_condition_message_length() {
-        let cond = RouteCondition::MessageLength {
-            min: 10,
-            max: 100,
-        };
+        let cond = RouteCondition::MessageLength { min: 10, max: 100 };
         assert!(cond.matches("hello world yes", 0, 0.0, 12));
         assert!(!cond.matches("hi", 0, 0.0, 12));
         assert!(!cond.matches(&"x".repeat(200), 0, 0.0, 12));
@@ -302,10 +296,7 @@ mod tests {
 
     #[test]
     fn test_serialize_route_condition() {
-        let cond = RouteCondition::TaskComplexity {
-            min: 0.3,
-            max: 0.7,
-        };
+        let cond = RouteCondition::TaskComplexity { min: 0.3, max: 0.7 };
         let json = serde_json::to_string(&cond).unwrap();
         let parsed: RouteCondition = serde_json::from_str(&json).unwrap();
         assert_eq!(cond, parsed);

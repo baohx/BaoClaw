@@ -13,7 +13,7 @@ use proptest::prelude::*;
 use std::collections::HashMap;
 
 use baoclaw_core::config::{
-    BaoclawConfig, load_config_from, normalize_profiles, save_config_to, sync_profiles_to_legacy,
+    load_config_from, normalize_profiles, save_config_to, sync_profiles_to_legacy, BaoclawConfig,
 };
 
 fn model_strategy() -> impl Strategy<Value = String> {
@@ -30,8 +30,8 @@ fn fallback_strategy() -> impl Strategy<Value = Vec<String>> {
 }
 
 fn config_strategy() -> impl Strategy<Value = BaoclawConfig> {
-    (model_strategy(), fallback_strategy(), 1u32..10)
-        .prop_map(|(model, fallback_models, max_retries)| BaoclawConfig {
+    (model_strategy(), fallback_strategy(), 1u32..10).prop_map(
+        |(model, fallback_models, max_retries)| BaoclawConfig {
             primary_profile: None,
             model_profiles: Default::default(),
             fallback_profiles: Vec::new(),
@@ -44,7 +44,8 @@ fn config_strategy() -> impl Strategy<Value = BaoclawConfig> {
             auto_compact_threshold_ratio: 0.7,
             tool_output_threshold_chars: 200_000,
             extra: HashMap::new(),
-        })
+        },
+    )
 }
 
 /// The documented on-load migration pipeline, applied to an in-memory config.

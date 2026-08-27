@@ -15,14 +15,20 @@ impl Default for MemoryTool {
 }
 
 impl MemoryTool {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 #[async_trait]
 impl Tool for MemoryTool {
-    fn name(&self) -> &str { "MemoryTool" }
+    fn name(&self) -> &str {
+        "MemoryTool"
+    }
 
-    fn aliases(&self) -> Vec<&str> { vec!["Memory", "SaveMemory"] }
+    fn aliases(&self) -> Vec<&str> {
+        vec!["Memory", "SaveMemory"]
+    }
 
     fn input_schema(&self) -> JsonSchema {
         JsonSchema {
@@ -36,7 +42,10 @@ impl Tool for MemoryTool {
                 }
             })),
             required: Some(vec!["content".to_string(), "category".to_string()]),
-            description: Some("Save important information to long-term memory that persists across sessions".to_string()),
+            description: Some(
+                "Save important information to long-term memory that persists across sessions"
+                    .to_string(),
+            ),
         }
     }
 
@@ -54,12 +63,19 @@ impl Tool for MemoryTool {
         _context: &ToolContext,
         _progress: &dyn ProgressSender,
     ) -> Result<ToolResult, ToolError> {
-        let content = input.get("content").and_then(|v| v.as_str())
+        let content = input
+            .get("content")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'content'".into()))?;
-        let category = input.get("category").and_then(|v| v.as_str()).unwrap_or("fact");
+        let category = input
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("fact");
 
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        let memory_path = std::path::PathBuf::from(&home).join(".baoclaw").join("memory.jsonl");
+        let memory_path = std::path::PathBuf::from(&home)
+            .join(".baoclaw")
+            .join("memory.jsonl");
 
         let entry = json!({
             "id": &uuid::Uuid::new_v4().to_string()[..8],
@@ -73,8 +89,12 @@ impl Tool for MemoryTool {
             .map_err(|e| ToolError::ExecutionFailed(format!("Serialize error: {}", e)))?;
 
         let mut f = std::fs::OpenOptions::new()
-            .create(true).append(true).open(&memory_path)
-            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to open memory file: {}", e)))?;
+            .create(true)
+            .append(true)
+            .open(&memory_path)
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to open memory file: {}", e))
+            })?;
         writeln!(f, "{}", line)
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write: {}", e)))?;
 

@@ -64,12 +64,18 @@ impl NetworkWhitelist {
 
         let port = match port_part {
             Some("*") | None => None,
-            Some(p) => Some(p.parse::<u16>().map_err(|e| format!("Invalid port: {}", e))?),
+            Some(p) => Some(
+                p.parse::<u16>()
+                    .map_err(|e| format!("Invalid port: {}", e))?,
+            ),
         };
 
         let host = Self::parse_host(host_part)?;
 
-        Ok(WhitelistRule { host, port: Some(port).flatten() })
+        Ok(WhitelistRule {
+            host,
+            port: Some(port).flatten(),
+        })
     }
 
     /// Parse a host pattern.
@@ -93,9 +99,11 @@ impl NetworkWhitelist {
         if pattern.contains('/') {
             let parts: Vec<&str> = pattern.split('/').collect();
             if parts.len() == 2 {
-                let addr = parts[0].parse::<IpAddr>()
+                let addr = parts[0]
+                    .parse::<IpAddr>()
                     .map_err(|e| format!("Invalid IP: {}", e))?;
-                let prefix = parts[1].parse::<u8>()
+                let prefix = parts[1]
+                    .parse::<u8>()
                     .map_err(|e| format!("Invalid prefix: {}", e))?;
                 return Ok(HostMatcher::Ip { addr, prefix });
             }
@@ -149,7 +157,11 @@ impl HostMatcher {
                 if prefix > 32 {
                     return false;
                 }
-                let mask = if prefix == 0 { 0u32 } else { !0u32 << (32 - prefix) };
+                let mask = if prefix == 0 {
+                    0u32
+                } else {
+                    !0u32 << (32 - prefix)
+                };
                 let h_bits = u32::from(h) & mask;
                 let p_bits = u32::from(p) & mask;
                 h_bits == p_bits
@@ -158,7 +170,11 @@ impl HostMatcher {
                 if prefix > 128 {
                     return false;
                 }
-                let mask = if prefix == 0 { 0u128 } else { !0u128 << (128 - prefix) };
+                let mask = if prefix == 0 {
+                    0u128
+                } else {
+                    !0u128 << (128 - prefix)
+                };
                 let h_bits = u128::from(h) & mask;
                 let p_bits = u128::from(p) & mask;
                 h_bits == p_bits
@@ -191,7 +207,9 @@ mod tests {
 
     #[test]
     fn test_wildcard_matcher() {
-        let matcher = HostMatcher::Wildcard { suffix: ".npmjs.org".to_string() };
+        let matcher = HostMatcher::Wildcard {
+            suffix: ".npmjs.org".to_string(),
+        };
         assert!(matcher.matches("registry.npmjs.org"));
         assert!(matcher.matches("api.npmjs.org"));
         assert!(matcher.matches("npmjs.org")); // matches the base domain too
