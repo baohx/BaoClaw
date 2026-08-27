@@ -78,11 +78,7 @@ impl Tool for AgentTool {
             .to_string()
     }
 
-    async fn validate_input(
-        &self,
-        input: &Value,
-        _context: &ToolContext,
-    ) -> ValidationResult {
+    async fn validate_input(&self, input: &Value, _context: &ToolContext) -> ValidationResult {
         match input.get("prompt").and_then(|v| v.as_str()) {
             Some(p) if !p.is_empty() => ValidationResult::Ok,
             _ => ValidationResult::Invalid {
@@ -130,16 +126,23 @@ impl Tool for AgentTool {
             context_window: context.context_window,
             auto_compact_threshold_ratio: context.auto_compact_threshold_ratio,
             // Propagate parent turn id so CLI can render nested boxes
-            parent_turn_id: input.get("_parent_turn_id").and_then(|v| v.as_u64()).map(|v| v as u32),
+            parent_turn_id: input
+                .get("_parent_turn_id")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32),
             // Short label from the prompt for CLI display
             agent_label: Some({
                 let preview: String = prompt.chars().take(40).collect();
-                if prompt.chars().count() > 40 { format!("{}…", preview) } else { preview }
+                if prompt.chars().count() > 40 {
+                    format!("{}…", preview)
+                } else {
+                    preview
+                }
             }),
-            session_memory: None, // Sub-agents do not use session memory
-            file_cache: None,     // Sub-agents share parent's context
+            session_memory: None,    // Sub-agents do not use session memory
+            file_cache: None,        // Sub-agents share parent's context
             tool_result_store: None, // Sub-agents don't persist tool results
-            hook_manager: None,   // Sub-agents don't trigger hooks
+            hook_manager: None,      // Sub-agents don't trigger hooks
         };
 
         let mut sub_engine = QueryEngine::new(sub_engine_config);

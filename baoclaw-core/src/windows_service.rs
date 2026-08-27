@@ -128,9 +128,7 @@ pub fn install_service() -> Result<(), Box<dyn std::error::Error>> {
     if !create_output.status.success() {
         let stderr = String::from_utf8_lossy(&create_output.stderr);
         let stdout = String::from_utf8_lossy(&create_output.stdout);
-        return Err(
-            format!("sc create failed:\nstdout: {}\nstderr: {}", stdout, stderr).into(),
-        );
+        return Err(format!("sc create failed:\nstdout: {}\nstderr: {}", stdout, stderr).into());
     }
 
     // Set description
@@ -169,9 +167,7 @@ pub fn uninstall_service() -> Result<(), Box<dyn std::error::Error>> {
     if !delete_output.status.success() {
         let stderr = String::from_utf8_lossy(&delete_output.stderr);
         let stdout = String::from_utf8_lossy(&delete_output.stdout);
-        return Err(
-            format!("sc delete failed:\nstdout: {}\nstderr: {}", stdout, stderr).into(),
-        );
+        return Err(format!("sc delete failed:\nstdout: {}\nstderr: {}", stdout, stderr).into());
     }
 
     println!("✓ Service uninstalled successfully.");

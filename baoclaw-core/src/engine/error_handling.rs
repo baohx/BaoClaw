@@ -31,7 +31,7 @@ pub enum AutoPermissionMode {
 /// Auto-deny permission in non-interactive mode.
 pub fn auto_permission_decision(mode: &AutoPermissionMode) -> Option<bool> {
     match mode {
-        AutoPermissionMode::Interactive => None,        // Wait for user
+        AutoPermissionMode::Interactive => None, // Wait for user
         AutoPermissionMode::NonInteractive => Some(false), // Auto-deny
     }
 }
@@ -61,20 +61,15 @@ pub fn determine_recovery_strategy(error_type: &str, error_message: &str) -> Rec
             max_attempts: 3,
             initial_delay_ms: 1000,
         },
-        "api_auth_error" | "api_bad_request" => {
-            RecoveryStrategy::Fatal(error_message.to_string())
-        }
+        "api_auth_error" | "api_bad_request" => RecoveryStrategy::Fatal(error_message.to_string()),
         "mcp_disconnect" => RecoveryStrategy::Retry {
             max_attempts: 5,
             initial_delay_ms: 2000,
         },
-        "tool_timeout" => {
-            RecoveryStrategy::Fatal(format!("Tool timed out: {}", error_message))
-        }
+        "tool_timeout" => RecoveryStrategy::Fatal(format!("Tool timed out: {}", error_message)),
         _ => RecoveryStrategy::Fatal(error_message.to_string()),
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -188,8 +183,7 @@ mod tests {
         let ctx = test_context();
         let progress = NoopProgress;
 
-        let result =
-            execute_tool_with_timeout(&tool, json!({}), &ctx, &progress, 5000).await;
+        let result = execute_tool_with_timeout(&tool, json!({}), &ctx, &progress, 5000).await;
 
         assert!(result.is_ok());
         let tool_result = result.unwrap();
@@ -203,8 +197,7 @@ mod tests {
         let ctx = test_context();
         let progress = NoopProgress;
 
-        let result =
-            execute_tool_with_timeout(&tool, json!({}), &ctx, &progress, 50).await;
+        let result = execute_tool_with_timeout(&tool, json!({}), &ctx, &progress, 50).await;
 
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -219,8 +212,7 @@ mod tests {
         let ctx = test_context();
         let progress = NoopProgress;
 
-        let result =
-            execute_tool_with_timeout(&tool, json!({}), &ctx, &progress, 5000).await;
+        let result = execute_tool_with_timeout(&tool, json!({}), &ctx, &progress, 5000).await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().data["result"], "slow_done");

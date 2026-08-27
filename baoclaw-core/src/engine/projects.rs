@@ -23,6 +23,12 @@ pub struct ProjectRegistry {
     file_path: PathBuf,
 }
 
+impl Default for ProjectRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProjectRegistry {
     pub fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -49,7 +55,8 @@ impl ProjectRegistry {
     /// Find a project by ID prefix (must be unique match).
     pub async fn find_by_prefix(&self, prefix: &str) -> Result<ProjectEntry, String> {
         let entries = self.entries.lock().await;
-        let matches: Vec<&ProjectEntry> = entries.iter()
+        let matches: Vec<&ProjectEntry> = entries
+            .iter()
             .filter(|e| e.id.starts_with(prefix))
             .collect();
         match matches.len() {
@@ -57,7 +64,12 @@ impl ProjectRegistry {
             1 => Ok(matches[0].clone()),
             n => {
                 let ids: Vec<&str> = matches.iter().map(|e| e.id.as_str()).collect();
-                Err(format!("Ambiguous prefix '{}', matches {} projects: {}", prefix, n, ids.join(", ")))
+                Err(format!(
+                    "Ambiguous prefix '{}', matches {} projects: {}",
+                    prefix,
+                    n,
+                    ids.join(", ")
+                ))
             }
         }
     }
@@ -68,8 +80,10 @@ impl ProjectRegistry {
 
         // Check for duplicate cwd
         if let Some(existing) = entries.iter().find(|e| e.cwd == cwd) {
-            return Err(format!("Project already exists: [{}] {} — use /projects {} to switch",
-                existing.id, existing.description, existing.id));
+            return Err(format!(
+                "Project already exists: [{}] {} — use /projects {} to switch",
+                existing.id, existing.description, existing.id
+            ));
         }
 
         let entry = ProjectEntry {
@@ -97,9 +111,15 @@ impl ProjectRegistry {
     }
 
     /// Update description for a project.
-    pub async fn update_description(&self, id_prefix: &str, description: String) -> Result<(), String> {
+    pub async fn update_description(
+        &self,
+        id_prefix: &str,
+        description: String,
+    ) -> Result<(), String> {
         let mut entries = self.entries.lock().await;
-        let matches: Vec<usize> = entries.iter().enumerate()
+        let matches: Vec<usize> = entries
+            .iter()
+            .enumerate()
             .filter(|(_, e)| e.id.starts_with(id_prefix))
             .map(|(i, _)| i)
             .collect();
@@ -116,7 +136,11 @@ impl ProjectRegistry {
 
     /// Auto-register a project if not already registered.
     /// Returns (entry, is_new).
-    pub async fn ensure_registered(&self, cwd: &str, description: Option<String>) -> (ProjectEntry, bool) {
+    pub async fn ensure_registered(
+        &self,
+        cwd: &str,
+        description: Option<String>,
+    ) -> (ProjectEntry, bool) {
         if let Some(entry) = self.find_by_cwd(cwd).await {
             self.touch(cwd).await;
             return (entry, false);

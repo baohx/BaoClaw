@@ -128,10 +128,7 @@ mod tests {
 
         gate.respond("tu_b", PermissionDecision::Deny);
         gate.respond("tu_a", PermissionDecision::Allow);
-        gate.respond(
-            "tu_c",
-            PermissionDecision::AllowAlways { rule: None },
-        );
+        gate.respond("tu_c", PermissionDecision::AllowAlways { rule: None });
 
         assert_eq!(rx1.await.unwrap(), PermissionDecision::Allow);
         assert_eq!(rx2.await.unwrap(), PermissionDecision::Deny);
@@ -172,12 +169,7 @@ mod tests {
         let rx = gate.request("tu_timeout");
 
         // Use a very short timeout to simulate the 5-minute timeout behavior
-        let decision = match tokio::time::timeout(
-            std::time::Duration::from_millis(10),
-            rx,
-        )
-        .await
-        {
+        let decision = match tokio::time::timeout(std::time::Duration::from_millis(10), rx).await {
             Ok(Ok(d)) => d,
             Ok(Err(_)) => PermissionDecision::Deny,
             Err(_) => PermissionDecision::Deny, // timeout → auto-deny

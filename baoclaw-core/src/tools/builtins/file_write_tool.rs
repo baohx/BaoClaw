@@ -7,6 +7,8 @@ use crate::tools::trait_def::*;
 use super::backup::backup_file_before_write;
 use super::path_utils::resolve_and_validate_path;
 
+const MAX_FILE_BYTES: usize = 10 * 1024 * 1024;
+
 /// FileWriteTool - writes content to a file, creating parent dirs if needed
 pub struct FileWriteTool {
     additional_dirs: Vec<PathBuf>,
@@ -58,15 +60,11 @@ impl Tool for FileWriteTool {
         "Write content to a file. Creates parent directories if they don't exist.".to_string()
     }
 
-    async fn validate_input(
-        &self,
-        input: &Value,
-        _context: &ToolContext,
-    ) -> ValidationResult {
+    async fn validate_input(&self, input: &Value, _context: &ToolContext) -> ValidationResult {
         let has_path = input
             .get("file_path")
             .and_then(|v| v.as_str())
-            .map_or(false, |s| !s.is_empty());
+            .is_some_and(|s| !s.is_empty());
         let has_content = input.get("content").and_then(|v| v.as_str()).is_some();
 
         if !has_path {
@@ -99,9 +97,16 @@ impl Tool for FileWriteTool {
             .get("content")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'content' field".to_string()))?;
+        if content.len() > MAX_FILE_BYTES {
+            return Err(ToolError::ExecutionFailed(format!(
+                "Content exceeds the {} byte safety limit",
+                MAX_FILE_BYTES
+            )));
+        }
 
-        let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
-            .map_err(|e| ToolError::ExecutionFailed(e))?;
+        let resolved =
+            resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
+                .map_err(ToolError::ExecutionFailed)?;
 
         // Backup existing file before overwriting
         if let Err(e) = backup_file_before_write(&resolved, &context.cwd).await {
@@ -110,9 +115,9 @@ impl Tool for FileWriteTool {
 
         // Create parent directories if needed
         if let Some(parent) = resolved.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create directories: {}", e)))?;
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to create directories: {}", e))
+            })?;
         }
 
         tokio::fs::write(&resolved, content)

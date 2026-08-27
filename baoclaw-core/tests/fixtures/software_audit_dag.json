@@ -45,7 +45,13 @@
       "name": "Report Merger",
       "prompt": "Merge all individual analysis reports (security, style, architecture, performance, dependencies) into a unified audit document. De-duplicate findings, prioritize by severity, and create an executive summary.",
       "status": "pending",
-      "dependencies": ["security-scan", "style-check", "arch-review", "perf-bench", "dep-scan"]
+      "dependencies": [
+        "security-scan",
+        "style-check",
+        "arch-review",
+        "perf-bench",
+        "dep-scan"
+      ]
     },
     {
       "id": "final-doc",

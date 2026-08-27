@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::engine::sandbox::SandboxConfig;
+use crate::infra::sandbox_config::SandboxConfig;
 use crate::tools::trait_def::*;
 
 /// BashTool - executes shell commands via /bin/bash -c
@@ -13,6 +13,12 @@ use crate::tools::trait_def::*;
 /// a `SandboxConfig` with a non-None backend is provided.
 pub struct BashTool {
     sandbox: Option<Arc<SandboxConfig>>,
+}
+
+impl Default for BashTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BashTool {
@@ -29,22 +35,30 @@ impl BashTool {
     }
 
     const DEFAULT_TIMEOUT_MS: u64 = 120_000;
+    const MAX_TIMEOUT_MS: u64 = 300_000;
+    const MAX_OUTPUT_BYTES: usize = 1_048_576;
 
     /// Build the actual command parts to execute.
     /// Returns (program, args) — either sandboxed or direct.
     fn build_command(&self, raw_command: &str, cwd: &Path) -> (String, Vec<String>) {
         if let Some(ref sandbox_cfg) = self.sandbox {
             match &sandbox_cfg.backend {
-                crate::engine::sandbox::SandboxBackend::None => {
+                crate::infra::sandbox_config::SandboxBackend::None => {
                     // SandboxConfig exists but backend is None → direct execution
-                    ("/bin/bash".to_string(), vec!["-c".to_string(), raw_command.to_string()])
+                    (
+                        "/bin/bash".to_string(),
+                        vec!["-c".to_string(), raw_command.to_string()],
+                    )
                 }
                 _ => {
                     // Build sandbox command as proper argument vector (no shell wrapping)
                     let args = sandbox_cfg.build_command_args(raw_command, cwd);
                     // First element is the program, rest are args
                     if args.is_empty() {
-                        ("/bin/bash".to_string(), vec!["-c".to_string(), raw_command.to_string()])
+                        (
+                            "/bin/bash".to_string(),
+                            vec!["-c".to_string(), raw_command.to_string()],
+                        )
                     } else {
                         let program = args[0].clone();
                         let cmd_args = args[1..].to_vec();
@@ -54,7 +68,10 @@ impl BashTool {
             }
         } else {
             // No sandbox config at all → direct execution
-            ("/bin/bash".to_string(), vec!["-c".to_string(), raw_command.to_string()])
+            (
+                "/bin/bash".to_string(),
+                vec!["-c".to_string(), raw_command.to_string()],
+            )
         }
     }
 }
@@ -102,11 +119,7 @@ impl Tool for BashTool {
         )
     }
 
-    async fn validate_input(
-        &self,
-        input: &Value,
-        _context: &ToolContext,
-    ) -> ValidationResult {
+    async fn validate_input(&self, input: &Value, _context: &ToolContext) -> ValidationResult {
         match input.get("command").and_then(|v| v.as_str()) {
             Some(cmd) if !cmd.is_empty() => {
                 // Security: check against dangerous command blocklist
@@ -139,7 +152,8 @@ impl Tool for BashTool {
         let timeout_ms = input
             .get("timeout")
             .and_then(|v| v.as_u64())
-            .unwrap_or(Self::DEFAULT_TIMEOUT_MS);
+            .unwrap_or(Self::DEFAULT_TIMEOUT_MS)
+            .min(Self::MAX_TIMEOUT_MS);
 
         let timeout_duration = Duration::from_millis(timeout_ms);
 
@@ -151,6 +165,7 @@ impl Tool for BashTool {
             cmd.arg(arg);
         }
         let child = cmd
+            .kill_on_drop(true)
             .current_dir(&context.cwd)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -194,9 +209,11 @@ impl Tool for BashTool {
                     }
                 }
             } => {
-                // Kill the child process by PID
+                // Kill the child process by PID securely (ensure pid > 0 to prevent killing process group 0)
                 if let Some(pid) = child_id {
-                    unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                    if pid > 0 {
+                        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                    }
                 }
                 Err(ToolError::Aborted)
             }
@@ -206,30 +223,33 @@ impl Tool for BashTool {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                let combined = if stderr.is_empty() {
-                    stdout.to_string()
-                } else if stdout.is_empty() {
-                    stderr.to_string()
-                } else {
-                    format!("{}\n{}", stdout, stderr)
-                };
 
                 let exit_code = output.status.code().unwrap_or(-1);
                 let is_error = !output.status.success();
 
                 // Include sandbox info in output when sandboxed
+                let stdout = truncate_output(&stdout, Self::MAX_OUTPUT_BYTES);
+                let stderr = truncate_output(&stderr, Self::MAX_OUTPUT_BYTES);
+                let combined = if stderr.is_empty() {
+                    stdout.clone()
+                } else if stdout.is_empty() {
+                    stderr.clone()
+                } else {
+                    format!("{}\n{}", stdout, stderr)
+                };
+
                 let result_data = if self.sandbox.is_some() {
                     json!({
-                        "stdout": stdout.as_ref(),
-                        "stderr": stderr.as_ref(),
+                        "stdout": stdout.as_str(),
+                        "stderr": stderr.as_str(),
                         "exit_code": exit_code,
                         "output": combined,
                         "sandbox": self.sandbox.as_ref().map(|s| s.description()).unwrap_or("none"),
                     })
                 } else {
                     json!({
-                        "stdout": stdout.as_ref(),
-                        "stderr": stderr.as_ref(),
+                        "stdout": stdout.as_str(),
+                        "stderr": stderr.as_str(),
                         "exit_code": exit_code,
                         "output": combined,
                     })
@@ -243,6 +263,22 @@ impl Tool for BashTool {
             Err(e) => Err(e),
         }
     }
+}
+
+fn truncate_output(output: &str, max_bytes: usize) -> String {
+    if output.len() <= max_bytes {
+        return output.to_string();
+    }
+
+    let mut end = max_bytes;
+    while !output.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n[output truncated at {} bytes]",
+        &output[..end],
+        max_bytes
+    )
 }
 
 #[cfg(test)]
@@ -342,6 +378,12 @@ mod tests {
         assert!(!tool.is_concurrency_safe(&json!({})));
     }
 
+    #[test]
+    fn test_truncate_output_preserves_utf8_and_marks_output() {
+        let output = truncate_output("aébc", 2);
+        assert_eq!(output, "a\n[output truncated at 2 bytes]");
+    }
+
     // --- Sandbox integration tests ---
 
     #[test]
@@ -364,7 +406,7 @@ mod tests {
     #[test]
     fn test_build_command_sandbox_docker() {
         let tool = BashTool::with_sandbox(Arc::new(SandboxConfig {
-            backend: crate::engine::sandbox::SandboxBackend::Docker {
+            backend: crate::infra::sandbox_config::SandboxBackend::Docker {
                 image: "baoclaw-sandbox:latest".into(),
             },
             ..SandboxConfig::default()
@@ -386,7 +428,7 @@ mod tests {
         assert!(!tool_no_sandbox.prompt().contains("sandbox"));
 
         let tool_with_sandbox = BashTool::with_sandbox(Arc::new(SandboxConfig {
-            backend: crate::engine::sandbox::SandboxBackend::Docker {
+            backend: crate::infra::sandbox_config::SandboxBackend::Docker {
                 image: "baoclaw-sandbox:latest".into(),
             },
             ..SandboxConfig::default()

@@ -10,6 +10,12 @@ const MAX_GLOB_RESULTS: usize = 1000;
 /// Returns matching file paths relative to the current working directory.
 pub struct GlobTool;
 
+impl Default for GlobTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlobTool {
     pub fn new() -> Self {
         Self
@@ -92,20 +98,18 @@ impl Tool for GlobTool {
         let mut files: Vec<String> = Vec::new();
         let mut truncated = false;
 
-        for entry in entries {
-            if let Ok(path) = entry {
-                if path.is_file() {
-                    let relative = path
-                        .strip_prefix(&context.cwd)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
-                    files.push(relative);
-                }
-                if files.len() >= MAX_GLOB_RESULTS {
-                    truncated = true;
-                    break;
-                }
+        for path in entries.flatten() {
+            if path.is_file() {
+                let relative = path
+                    .strip_prefix(&context.cwd)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
+                files.push(relative);
+            }
+            if files.len() >= MAX_GLOB_RESULTS {
+                truncated = true;
+                break;
             }
         }
 
@@ -138,27 +142,22 @@ pub fn glob_search(
     let mut files: Vec<String> = Vec::new();
     let mut truncated = false;
 
-    for entry in entries {
-        if let Ok(path) = entry {
-            if path.is_file() {
-                let relative = path
-                    .strip_prefix(cwd)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .to_string();
-                files.push(relative);
-            }
-            if files.len() >= max_results {
-                truncated = true;
-                break;
-            }
+    for path in entries.flatten() {
+        if path.is_file() {
+            let relative = path
+                .strip_prefix(cwd)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            files.push(relative);
+        }
+        if files.len() >= max_results {
+            truncated = true;
+            break;
         }
     }
 
-    Ok(GlobResult {
-        files,
-        truncated,
-    })
+    Ok(GlobResult { files, truncated })
 }
 
 /// Result of a glob search operation.
@@ -237,7 +236,11 @@ mod tests {
         assert_eq!(result.files.len(), 1);
         // Path should be relative (not absolute)
         let path = &result.files[0];
-        assert!(!std::path::Path::new(path).is_absolute(), "Path should be relative: {}", path);
+        assert!(
+            !std::path::Path::new(path).is_absolute(),
+            "Path should be relative: {}",
+            path
+        );
         assert!(path.contains("src"), "Path should contain 'src': {}", path);
     }
 
@@ -343,7 +346,11 @@ mod tests {
         let progress = NoopProgress;
 
         let result = tool
-            .call(json!({"pattern": "*.rs", "path": "subdir"}), &ctx, &progress)
+            .call(
+                json!({"pattern": "*.rs", "path": "subdir"}),
+                &ctx,
+                &progress,
+            )
             .await
             .unwrap();
 

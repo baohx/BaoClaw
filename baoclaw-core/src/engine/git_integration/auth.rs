@@ -12,15 +12,9 @@ pub type AuthResult<T> = Result<T, AuthError>;
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error("no token found for platform '{platform}'. Set {env_var} environment variable.")]
-    TokenNotFound {
-        platform: String,
-        env_var: String,
-    },
+    TokenNotFound { platform: String, env_var: String },
     #[error("token validation failed for platform '{platform}': {reason}")]
-    ValidationFailed {
-        platform: String,
-        reason: String,
-    },
+    ValidationFailed { platform: String, reason: String },
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }
@@ -50,6 +44,7 @@ impl GitPlatform {
     }
 
     /// Parse a platform name string.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "github" | "gh" => Some(GitPlatform::GitHub),
@@ -74,10 +69,11 @@ impl GitAuth {
     /// 1. Direct env var (e.g. `GITHUB_TOKEN`)
     /// 2. File-based env var (e.g. `GITHUB_TOKEN_FILE`)
     pub fn get_token(platform: &str) -> Result<String, AuthError> {
-        let platform_enum = GitPlatform::from_str(platform).ok_or_else(|| AuthError::TokenNotFound {
-            platform: platform.to_string(),
-            env_var: "GITHUB_TOKEN or GITLAB_TOKEN".to_string(),
-        })?;
+        let platform_enum =
+            GitPlatform::from_str(platform).ok_or_else(|| AuthError::TokenNotFound {
+                platform: platform.to_string(),
+                env_var: "GITHUB_TOKEN or GITLAB_TOKEN".to_string(),
+            })?;
 
         let env_var = platform_enum.env_var();
         let file_env_var = format!("{}_FILE", env_var);
@@ -92,8 +88,7 @@ impl GitAuth {
 
         // 2. Try file-based environment variable (Docker secrets / Kubernetes secrets)
         if let Ok(file_path) = env::var(&file_env_var) {
-            let content = std::fs::read_to_string(file_path.trim())
-                .map_err(AuthError::IoError)?;
+            let content = std::fs::read_to_string(file_path.trim()).map_err(AuthError::IoError)?;
             let token = content.trim().to_string();
             if !token.is_empty() {
                 return Ok(token);
@@ -124,10 +119,11 @@ impl GitAuth {
 
     /// Get the appropriate Authorization header value for HTTP requests.
     pub fn auth_header(platform: &str) -> Result<String, AuthError> {
-        let platform_enum = GitPlatform::from_str(platform).ok_or_else(|| AuthError::TokenNotFound {
-            platform: platform.to_string(),
-            env_var: "GITHUB_TOKEN or GITLAB_TOKEN".to_string(),
-        })?;
+        let platform_enum =
+            GitPlatform::from_str(platform).ok_or_else(|| AuthError::TokenNotFound {
+                platform: platform.to_string(),
+                env_var: "GITHUB_TOKEN or GITLAB_TOKEN".to_string(),
+            })?;
 
         let token = Self::get_token(platform)?;
         match platform_enum {
@@ -197,15 +193,24 @@ mod tests {
     fn test_validate_token_format_github() {
         assert!(GitAuth::validate_token_format("github", "ghp_abc123def456"));
         assert!(GitAuth::validate_token_format("github", "gho_abc123"));
-        assert!(GitAuth::validate_token_format("github", "github_pat_abc123"));
+        assert!(GitAuth::validate_token_format(
+            "github",
+            "github_pat_abc123"
+        ));
         assert!(!GitAuth::validate_token_format("github", "invalid"));
         assert!(!GitAuth::validate_token_format("github", ""));
     }
 
     #[test]
     fn test_validate_token_format_gitlab() {
-        assert!(GitAuth::validate_token_format("gitlab", "glpat-abc123def456"));
-        assert!(GitAuth::validate_token_format("gitlab", "abcdefghijklmnopqrst")); // 20 chars
+        assert!(GitAuth::validate_token_format(
+            "gitlab",
+            "glpat-abc123def456"
+        ));
+        assert!(GitAuth::validate_token_format(
+            "gitlab",
+            "abcdefghijklmnopqrst"
+        )); // 20 chars
         assert!(!GitAuth::validate_token_format("gitlab", "short")); // < 20 chars, not glpat-
     }
 

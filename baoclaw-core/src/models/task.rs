@@ -99,7 +99,9 @@ pub fn is_valid_task_id(id: &str) -> bool {
     if !matches!(prefix, 'b' | 'a' | 'r' | 't' | 'w' | 'm' | 'd') {
         return false;
     }
-    id[1..].chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    id[1..]
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
 /// Returns the expected prefix character for a given TaskType.
@@ -252,7 +254,9 @@ mod tests {
                 task_type
             );
             assert!(
-                id[1..].chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+                id[1..]
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
                 "suffix should be [0-9a-z] for {:?}",
                 task_type
             );

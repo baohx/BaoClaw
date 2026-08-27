@@ -83,11 +83,20 @@ impl CostTracker {
         let cache_write_cost = (usage.cache_creation_input_tokens.unwrap_or(0) as f64
             / 1_000_000.0)
             * pricing.cache_write_per_mtok;
-        let cache_read_cost =
-            (usage.cache_read_input_tokens.unwrap_or(0) as f64 / 1_000_000.0)
-                * pricing.cache_read_per_mtok;
+        let cache_read_cost = (usage.cache_read_input_tokens.unwrap_or(0) as f64 / 1_000_000.0)
+            * pricing.cache_read_per_mtok;
 
         input_cost + output_cost + cache_write_cost + cache_read_cost
+    }
+
+    /// Per-million-token unit prices for a model: `(input, output)` in USD.
+    ///
+    /// Exposes the previously-private pricing map so callers (e.g. the session
+    /// cost IPC handler) can render per-mtok prices without faking a 1M-token
+    /// `Usage` and re-deriving them through `calculate_cost`.
+    pub fn per_million_prices(&self, model: &str) -> (f64, f64) {
+        let pricing = self.pricing.get(model).unwrap_or(&DEFAULT_PRICING);
+        (pricing.input_per_mtok, pricing.output_per_mtok)
     }
 
     /// Accumulate a single API call's usage into current query and total costs.
@@ -100,7 +109,10 @@ impl CostTracker {
         self.total_usage.input_tokens += usage.input_tokens;
         self.total_usage.output_tokens += usage.output_tokens;
         if let Some(cache_create) = usage.cache_creation_input_tokens {
-            *self.total_usage.cache_creation_input_tokens.get_or_insert(0) += cache_create;
+            *self
+                .total_usage
+                .cache_creation_input_tokens
+                .get_or_insert(0) += cache_create;
         }
         if let Some(cache_read) = usage.cache_read_input_tokens {
             *self.total_usage.cache_read_input_tokens.get_or_insert(0) += cache_read;
@@ -129,12 +141,22 @@ impl CostTracker {
     }
 }
 
+impl Default for CostTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn make_usage(input: u64, output: u64, cache_create: Option<u64>, cache_read: Option<u64>) -> Usage {
+    fn make_usage(
+        input: u64,
+        output: u64,
+        cache_create: Option<u64>,
+        cache_read: Option<u64>,
+    ) -> Usage {
         Usage {
             input_tokens: input,
             output_tokens: output,
@@ -166,7 +188,36 @@ mod tests {
         // Sonnet 4 should be known
         let usage = make_usage(1_000_000, 0, None, None);
         let cost = tracker.calculate_cost(&usage, "claude-sonnet-4-20250514");
-        assert!((cost - 3.0).abs() < 1e-10, "Sonnet 4 input cost for 1M tokens should be $3.0, got {}", cost);
+        assert!(
+            (cost - 3.0).abs() < 1e-10,
+            "Sonnet 4 input cost for 1M tokens should be $3.0, got {}",
+            cost
+        );
+    }
+
+    #[test]
+    fn test_per_million_prices_matches_calculate_cost() {
+        // Regression guard: per_million_prices() must agree with the cost that
+        // calculate_cost() would produce for a synthetic 1M-token call — the
+        // handler used to re-derive prices that way; now it calls the method.
+        let tracker = CostTracker::new();
+        let (ip, op) = tracker.per_million_prices("claude-sonnet-4-20250514");
+        assert!(
+            (ip - 3.0).abs() < 1e-10,
+            "expected input $3.0/mtok, got {}",
+            ip
+        );
+        assert!(
+            (op - 15.0).abs() < 1e-10,
+            "expected output $15.0/mtok, got {}",
+            op
+        );
+
+        // unknown model falls back to DEFAULT_PRICING, matching calculate_cost
+        let (dip, _dop) = tracker.per_million_prices("no-such-model");
+        let input_cost =
+            tracker.calculate_cost(&make_usage(1_000_000, 0, None, None), "no-such-model");
+        assert!((dip - input_cost).abs() < 1e-10);
     }
 
     // --- calculate_cost for each model ---

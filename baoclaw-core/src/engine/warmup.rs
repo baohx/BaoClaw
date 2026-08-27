@@ -170,7 +170,9 @@ pub fn warmup_stats_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".baoclaw").join("warmup_stats.json")
+    PathBuf::from(home)
+        .join(".baoclaw")
+        .join("warmup_stats.json")
 }
 
 impl WarmupConfig {
@@ -298,7 +300,13 @@ pub struct WarmupManager {
 impl WarmupManager {
     /// Create a manager with config/stats loaded from default locations.
     pub fn new(cwd: PathBuf, file_cache: Option<Arc<tokio::sync::Mutex<FileCache>>>) -> Self {
-        Self::with_config(WarmupConfig::load(), WarmupStats::load(), warmup_stats_path(), cwd, file_cache)
+        Self::with_config(
+            WarmupConfig::load(),
+            WarmupStats::load(),
+            warmup_stats_path(),
+            cwd,
+            file_cache,
+        )
     }
 
     /// Create with explicit config/stats (for testing).
@@ -333,7 +341,10 @@ impl WarmupManager {
                 }
             }
 
-            let intent_match = rule.intents.iter().any(|i| intent_keys.contains(i.as_str()));
+            let intent_match = rule
+                .intents
+                .iter()
+                .any(|i| intent_keys.contains(i.as_str()));
             let pattern_match = regex::RegexBuilder::new(&rule.pattern)
                 .case_insensitive(true)
                 .build()
@@ -360,9 +371,13 @@ impl WarmupManager {
 
         for rule in &matched {
             result.matched_rules.push(rule.id.clone());
-            result.preload_skills.extend(rule.preload_skills.iter().cloned());
+            result
+                .preload_skills
+                .extend(rule.preload_skills.iter().cloned());
             result.preload_mcp.extend(rule.preload_mcp.iter().cloned());
-            result.warmup_tools.extend(rule.warmup_tools.iter().cloned());
+            result
+                .warmup_tools
+                .extend(rule.warmup_tools.iter().cloned());
 
             // File cache warmup
             let files = self.resolve_globs(&rule.warmup_files);
@@ -377,10 +392,14 @@ impl WarmupManager {
             }
 
             // Record sample + warmed count
-            let stats = self.stats.rules.entry(rule.id.clone()).or_insert_with(|| RuleStats {
-                weight: 1.0,
-                ..Default::default()
-            });
+            let stats = self
+                .stats
+                .rules
+                .entry(rule.id.clone())
+                .or_insert_with(|| RuleStats {
+                    weight: 1.0,
+                    ..Default::default()
+                });
             stats.samples += 1;
         }
 
@@ -398,7 +417,13 @@ impl WarmupManager {
         // Preload skills/MCP: interface reserved — actual loading is performed
         // by the host (CLI) which owns the skill registry and MCP clients.
 
-        let _ = self.stats.save_to(&self.stats_path);
+        if let Err(e) = self.stats.save_to(&self.stats_path) {
+            eprintln!(
+                "[warmup] WARNING: could not save stats to {}: {}",
+                self.stats_path.display(),
+                e
+            );
+        }
         result
     }
 
@@ -452,7 +477,13 @@ impl WarmupManager {
                     s.hits += 1;
                 }
             }
-            let _ = self.stats.save_to(&self.stats_path);
+            if let Err(e) = self.stats.save_to(&self.stats_path) {
+                eprintln!(
+                    "[warmup] WARNING: could not save stats to {}: {}",
+                    self.stats_path.display(),
+                    e
+                );
+            }
         }
     }
 
@@ -478,7 +509,13 @@ impl WarmupManager {
                 stats.weight = (stats.weight + 0.1).min(1.0);
             }
         }
-        let _ = self.stats.save_to(&self.stats_path);
+        if let Err(e) = self.stats.save_to(&self.stats_path) {
+            eprintln!(
+                "[warmup] WARNING: could not save stats to {}: {}",
+                self.stats_path.display(),
+                e
+            );
+        }
     }
 
     /// Whether a rule is still active (weight above elimination threshold).
@@ -507,7 +544,11 @@ mod tests {
     use crate::engine::intent_predictor::UserIntent;
 
     fn tmp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("baoclaw_warmup_test_{}_{}", name, std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "baoclaw_warmup_test_{}_{}",
+            name,
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

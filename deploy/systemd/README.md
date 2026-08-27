@@ -3,18 +3,21 @@
 ## 安装步骤
 
 1. 编译 daemon：
+
    ```bash
    cd ~/BaoClaw
    cargo build --release --bin baoclaw-core
    ```
 
 2. 复制 service 文件：
+
    ```bash
    mkdir -p ~/.config/systemd/user/
    cp deploy/systemd/baoclaw.service ~/.config/systemd/user/
    ```
 
 3. 如需修改 ExecStart 路径，编辑 service 文件：
+
    ```bash
    nano ~/.config/systemd/user/baoclaw.service
    # 把 ExecStart 改为实际路径，如：
@@ -22,6 +25,7 @@
    ```
 
 4. 重新加载 systemd 并启动：
+
    ```bash
    systemctl --user daemon-reload
    systemctl --user enable baoclaw        # 开机自启
@@ -39,6 +43,7 @@
 ## 使用
 
 daemon 常驻后，任何终端打开都能立即连接：
+
 ```bash
 baoclaw                  # CLI 自动连 daemon
 baoclaw-cli              # 独立 CLI 也连同一 daemon

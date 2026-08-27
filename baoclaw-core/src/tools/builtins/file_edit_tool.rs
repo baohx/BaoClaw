@@ -7,6 +7,8 @@ use crate::tools::trait_def::*;
 use super::backup::backup_file_before_write;
 use super::path_utils::resolve_and_validate_path;
 
+const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
 /// FileEditTool - finds and replaces a unique string in a file
 pub struct FileEditTool {
     additional_dirs: Vec<PathBuf>,
@@ -66,15 +68,11 @@ impl Tool for FileEditTool {
         "Edit a file by finding and replacing a specific string. The old_string must appear exactly once in the file.".to_string()
     }
 
-    async fn validate_input(
-        &self,
-        input: &Value,
-        _context: &ToolContext,
-    ) -> ValidationResult {
+    async fn validate_input(&self, input: &Value, _context: &ToolContext) -> ValidationResult {
         let has_path = input
             .get("file_path")
             .and_then(|v| v.as_str())
-            .map_or(false, |s| !s.is_empty());
+            .is_some_and(|s| !s.is_empty());
         let has_old = input.get("old_string").and_then(|v| v.as_str()).is_some();
         let has_new = input.get("new_string").and_then(|v| v.as_str()).is_some();
 
@@ -120,8 +118,19 @@ impl Tool for FileEditTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'new_string' field".to_string()))?;
 
-        let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
-            .map_err(|e| ToolError::ExecutionFailed(e))?;
+        let resolved =
+            resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
+                .map_err(ToolError::ExecutionFailed)?;
+        let size = tokio::fs::metadata(&resolved)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to inspect file: {}", e)))?
+            .len();
+        if size > MAX_FILE_BYTES {
+            return Err(ToolError::ExecutionFailed(format!(
+                "File exceeds the {} byte safety limit",
+                MAX_FILE_BYTES
+            )));
+        }
 
         // Backup existing file before editing
         if let Err(e) = backup_file_before_write(&resolved, &context.cwd).await {
@@ -221,7 +230,10 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "goodbye world");
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "goodbye world"
+        );
     }
 
     #[tokio::test]

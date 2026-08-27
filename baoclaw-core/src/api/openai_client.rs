@@ -3,7 +3,6 @@
 /// Translates BaoClaw's Anthropic-format requests into OpenAI chat completion
 /// requests, and translates OpenAI SSE responses back into ApiStreamEvent
 /// so that QueryEngine works without changes.
-
 use bytes::Bytes;
 use futures::stream::Stream;
 use serde_json::{json, Value};
@@ -30,20 +29,21 @@ impl OpenAiClient {
         if std::env::var("BAOCLAW_HTTP1_ONLY").ok().as_deref() == Some("1") {
             builder = builder.http1_only();
         }
-        let http_client = builder
-            .build()
-            .expect("Failed to build HTTP client");
+        let http_client = builder.build().expect("Failed to build HTTP client");
         Self {
             http_client,
             api_key: config.api_key,
-            base_url: config.base_url.unwrap_or_else(|| DEFAULT_OPENAI_URL.to_string()),
+            base_url: config
+                .base_url
+                .unwrap_or_else(|| DEFAULT_OPENAI_URL.to_string()),
         }
     }
 
     /// Pre-warm the TLS connection pool by sending a lightweight request.
     pub async fn prewarm(&self) {
         let url = format!("{}/v1/chat/completions", self.base_url);
-        match self.http_client
+        match self
+            .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("content-type", "application/json")
@@ -62,7 +62,8 @@ impl OpenAiClient {
 
         // System prompt
         if let Some(system_blocks) = &req.system {
-            let system_text: String = system_blocks.iter()
+            let system_text: String = system_blocks
+                .iter()
                 .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
                 .collect::<Vec<_>>()
                 .join("\n\n");
@@ -84,7 +85,8 @@ impl OpenAiClient {
                         let mut parts: Vec<Value> = Vec::new();
 
                         for block in arr {
-                            let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            let block_type =
+                                block.get("type").and_then(|t| t.as_str()).unwrap_or("");
                             match block_type {
                                 "tool_result" => {
                                     // Tool results become separate "tool" role messages
@@ -93,8 +95,12 @@ impl OpenAiClient {
                                         messages.push(json!({"role": "user", "content": Value::Array(parts.clone())}));
                                         parts.clear();
                                     }
-                                    let tool_call_id = block.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("");
-                                    let output = block.get("content").cloned().unwrap_or(Value::Null);
+                                    let tool_call_id = block
+                                        .get("tool_use_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    let output =
+                                        block.get("content").cloned().unwrap_or(Value::Null);
                                     let output_str = if output.is_string() {
                                         output.as_str().unwrap_or("").to_string()
                                     } else {
@@ -107,15 +113,23 @@ impl OpenAiClient {
                                     }));
                                 }
                                 "text" => {
-                                    let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                                    let text =
+                                        block.get("text").and_then(|t| t.as_str()).unwrap_or("");
                                     parts.push(json!({"type": "text", "text": text}));
                                 }
                                 "image" => {
                                     // Convert Anthropic image format to OpenAI image_url format
                                     if let Some(source) = block.get("source") {
-                                        let media_type = source.get("media_type").and_then(|v| v.as_str()).unwrap_or("image/png");
-                                        let data = source.get("data").and_then(|v| v.as_str()).unwrap_or("");
-                                        let data_url = format!("data:{};base64,{}", media_type, data);
+                                        let media_type = source
+                                            .get("media_type")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("image/png");
+                                        let data = source
+                                            .get("data")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+                                        let data_url =
+                                            format!("data:{};base64,{}", media_type, data);
                                         parts.push(json!({
                                             "type": "image_url",
                                             "image_url": {"url": data_url}
@@ -126,13 +140,20 @@ impl OpenAiClient {
                                     // OpenAI doesn't natively support document blocks;
                                     // include as text description noting the document was attached
                                     if let Some(source) = block.get("source") {
-                                        let media_type = source.get("media_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
+                                        let media_type = source
+                                            .get("media_type")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("application/octet-stream");
                                         // For models that support it, pass as image_url with data URI
                                         // Otherwise fall back to a text note
-                                        let data = source.get("data").and_then(|v| v.as_str()).unwrap_or("");
+                                        let data = source
+                                            .get("data")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
                                         if media_type == "application/pdf" {
                                             // Some OpenAI-compatible APIs support PDF via file content
-                                            let data_url = format!("data:{};base64,{}", media_type, data);
+                                            let data_url =
+                                                format!("data:{};base64,{}", media_type, data);
                                             parts.push(json!({
                                                 "type": "image_url",
                                                 "image_url": {"url": data_url}
@@ -150,11 +171,16 @@ impl OpenAiClient {
                         }
                         // Flush remaining parts
                         if !parts.is_empty() {
-                            if parts.len() == 1 && parts[0].get("type").and_then(|t| t.as_str()) == Some("text") {
+                            if parts.len() == 1
+                                && parts[0].get("type").and_then(|t| t.as_str()) == Some("text")
+                            {
                                 // Single text part: send as plain string for compatibility
-                                messages.push(json!({"role": "user", "content": parts[0]["text"].clone()}));
+                                messages.push(
+                                    json!({"role": "user", "content": parts[0]["text"].clone()}),
+                                );
                             } else {
-                                messages.push(json!({"role": "user", "content": Value::Array(parts)}));
+                                messages
+                                    .push(json!({"role": "user", "content": Value::Array(parts)}));
                             }
                         }
                         if arr.is_empty() {
@@ -173,7 +199,8 @@ impl OpenAiClient {
                         let mut reasoning_parts = Vec::new();
 
                         for block in arr {
-                            let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            let block_type =
+                                block.get("type").and_then(|t| t.as_str()).unwrap_or("");
                             match block_type {
                                 "text" => {
                                     if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
@@ -182,7 +209,8 @@ impl OpenAiClient {
                                 }
                                 "tool_use" => {
                                     let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                                    let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                                    let name =
+                                        block.get("name").and_then(|v| v.as_str()).unwrap_or("");
                                     let input = block.get("input").cloned().unwrap_or(json!({}));
                                     tool_calls.push(json!({
                                         "id": id,
@@ -194,7 +222,8 @@ impl OpenAiClient {
                                     }));
                                 }
                                 "thinking" => {
-                                    if let Some(t) = block.get("thinking").and_then(|v| v.as_str()) {
+                                    if let Some(t) = block.get("thinking").and_then(|v| v.as_str())
+                                    {
                                         reasoning_parts.push(t.to_string());
                                     }
                                 }
@@ -238,19 +267,25 @@ impl OpenAiClient {
 
         // Tools
         let tools: Option<Vec<Value>> = req.tools.as_ref().map(|tools| {
-            tools.iter().map(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                let desc = t.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                let schema = t.get("input_schema").cloned().unwrap_or(json!({"type": "object"}));
-                json!({
-                    "type": "function",
-                    "function": {
-                        "name": name,
-                        "description": desc,
-                        "parameters": schema,
-                    }
+            tools
+                .iter()
+                .map(|t| {
+                    let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let desc = t.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                    let schema = t
+                        .get("input_schema")
+                        .cloned()
+                        .unwrap_or(json!({"type": "object"}));
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "description": desc,
+                            "parameters": schema,
+                        }
+                    })
                 })
-            }).collect()
+                .collect()
         });
 
         let mut body = json!({
@@ -285,7 +320,8 @@ impl OpenAiClient {
             format!("{}/v1/chat/completions", self.base_url)
         };
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -305,16 +341,28 @@ impl OpenAiClient {
                     if let Some(arr) = msgs.as_array() {
                         for (i, m) in arr.iter().enumerate() {
                             let role = m.get("role").and_then(|r| r.as_str()).unwrap_or("?");
-                            let content = m.get("content").map(|c| {
-                                let s = c.to_string();
-                                if s.len() > 200 {
-                                    // Safe UTF-8 truncation
-                                    let truncated: String = s.chars().take(200).collect();
-                                    format!("{}...[{}chars]", truncated, s.len())
-                                } else { s }
-                            }).unwrap_or_default();
-                            let tc = m.get("tool_calls").map(|t| format!(" tool_calls:{}", t.to_string().len())).unwrap_or_default();
-                            let tid = m.get("tool_call_id").and_then(|t| t.as_str()).map(|s| format!(" tool_call_id:{}", s)).unwrap_or_default();
+                            let content = m
+                                .get("content")
+                                .map(|c| {
+                                    let s = c.to_string();
+                                    if s.len() > 200 {
+                                        // Safe UTF-8 truncation
+                                        let truncated: String = s.chars().take(200).collect();
+                                        format!("{}...[{}chars]", truncated, s.len())
+                                    } else {
+                                        s
+                                    }
+                                })
+                                .unwrap_or_default();
+                            let tc = m
+                                .get("tool_calls")
+                                .map(|t| format!(" tool_calls:{}", t.to_string().len()))
+                                .unwrap_or_default();
+                            let tid = m
+                                .get("tool_call_id")
+                                .and_then(|t| t.as_str())
+                                .map(|s| format!(" tool_call_id:{}", s))
+                                .unwrap_or_default();
                             eprintln!("  [{}] role={}{}{} content={}", i, role, tc, tid, content);
                         }
                     }
@@ -464,11 +512,21 @@ impl OpenAiSseStream {
                 // Tool calls
                 if let Some(tool_calls) = delta.get("tool_calls").and_then(|tc| tc.as_array()) {
                     for tc in tool_calls {
-                        let tc_index = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
-                        let tc_id = tc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let tc_index =
+                            tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                        let tc_id = tc
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         let func = &tc["function"];
-                        let name = func.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let args_chunk = func.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
+                        let name = func
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let args_chunk =
+                            func.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
 
                         // Ensure we have a state for this tool call
                         while self.tool_call_states.len() <= tc_index {
@@ -483,8 +541,12 @@ impl OpenAiSseStream {
                         }
 
                         let state = &mut self.tool_call_states[tc_index];
-                        if !tc_id.is_empty() { state.id = tc_id; }
-                        if !name.is_empty() { state.name = name; }
+                        if !tc_id.is_empty() {
+                            state.id = tc_id;
+                        }
+                        if !name.is_empty() {
+                            state.name = name;
+                        }
                         state.arguments.push_str(args_chunk);
 
                         // Emit content_block_start on first chunk for this tool call
@@ -496,7 +558,9 @@ impl OpenAiSseStream {
                             }
                             // Close text block if open
                             if self.text_started && tc_index == 0 {
-                                events.push(Ok(ApiStreamEvent::ContentBlockStop { index: self.text_block_index }));
+                                events.push(Ok(ApiStreamEvent::ContentBlockStop {
+                                    index: self.text_block_index,
+                                }));
                                 self.text_started = false;
                             } else if self.content_index == 1 && tc_index == 0 {
                                 events.push(Ok(ApiStreamEvent::ContentBlockStop { index: 0 }));
@@ -532,7 +596,9 @@ impl OpenAiSseStream {
                     }
                     // Close open text block
                     if self.text_started {
-                        events.push(Ok(ApiStreamEvent::ContentBlockStop { index: self.text_block_index }));
+                        events.push(Ok(ApiStreamEvent::ContentBlockStop {
+                            index: self.text_block_index,
+                        }));
                     } else if self.content_index == 1 && self.tool_call_states.is_empty() {
                         events.push(Ok(ApiStreamEvent::ContentBlockStop { index: 0 }));
                     }
@@ -622,11 +688,15 @@ impl OpenAiSseStream {
 
             for line in chunk.lines() {
                 let line = line.trim();
-                if line.is_empty() || line.starts_with(':') { continue; }
+                if line.is_empty() || line.starts_with(':') {
+                    continue;
+                }
 
                 if let Some(data) = line.strip_prefix("data: ") {
                     let data = data.trim();
-                    if data.is_empty() { continue; }
+                    if data.is_empty() {
+                        continue;
+                    }
 
                     let mut translated = self.translate_chunk(data);
                     if !translated.is_empty() {
@@ -638,5 +708,23 @@ impl OpenAiSseStream {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_openai_client_new() {
+        let config = ApiClientConfig {
+            api_key: "test-key".to_string(),
+            base_url: Some("https://api.openai.com".to_string()),
+            max_retries: Some(3),
+            api_path: None,
+        };
+        let client = OpenAiClient::new(config);
+        assert_eq!(client.api_key, "test-key");
+        assert_eq!(client.base_url, "https://api.openai.com");
     }
 }

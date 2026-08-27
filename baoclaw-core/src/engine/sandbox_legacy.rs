@@ -1,60 +1,11 @@
 //! Sandbox execution environment — isolates tool execution from the host system.
+//!
+//! The `SandboxBackend`/`SandboxConfig` types live in `infra::sandbox_config`;
+//! the behavioral impls below form a split inherent impl on the same types.
 
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// Sandbox backend type.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum SandboxBackend {
-    /// No sandbox — direct execution (for trusted environments).
-    None,
-    /// Bubblewrap (bwrap) — lightweight Linux namespace sandbox.
-    Bubblewrap,
-    /// Docker container isolation.
-    Docker { image: String },
-}
-
-/// Configuration for sandbox execution.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SandboxConfig {
-    /// Which backend to use.
-    pub backend: SandboxBackend,
-    /// Directories to mount read-write into the sandbox.
-    pub rw_mounts: Vec<String>,
-    /// Directories to mount read-only into the sandbox.
-    pub ro_mounts: Vec<String>,
-    /// Environment variables to pass through.
-    pub env_passthrough: Vec<String>,
-    /// Network access allowed.
-    pub allow_network: bool,
-    /// Memory limit in MB (0 = unlimited).
-    pub memory_limit_mb: u32,
-    /// CPU time limit in seconds (0 = unlimited).
-    pub cpu_time_limit_secs: u32,
-    /// Working directory inside sandbox.
-    pub workdir: Option<String>,
-}
-
-impl Default for SandboxConfig {
-    fn default() -> Self {
-        Self {
-            backend: SandboxBackend::None,
-            rw_mounts: Vec::new(),
-            ro_mounts: Vec::new(),
-            env_passthrough: vec![
-                "HOME".into(),
-                "PATH".into(),
-                "TERM".into(),
-                "http_proxy".into(),
-                "https_proxy".into(),
-            ],
-            allow_network: true,
-            memory_limit_mb: 0,
-            cpu_time_limit_secs: 300, // 5 minute default
-            workdir: None,
-        }
-    }
-}
+pub use crate::infra::sandbox_config::{SandboxBackend, SandboxConfig};
 
 impl SandboxConfig {
     /// Create config that auto-detects the best available backend.
@@ -62,9 +13,12 @@ impl SandboxConfig {
         let backend = if which_exists("bwrap") {
             SandboxBackend::Bubblewrap
         } else if which_exists("docker") {
-            SandboxBackend::Docker {
-                image: std::env::var("BAOCLAW_SANDBOX_IMAGE")
-                    .unwrap_or_else(|_| "baoclaw-sandbox:latest".into()),
+            let image = std::env::var("BAOCLAW_SANDBOX_IMAGE")
+                .unwrap_or_else(|_| "baoclaw-sandbox:latest".into());
+            if docker_image_exists(&image) {
+                SandboxBackend::Docker { image }
+            } else {
+                SandboxBackend::None
             }
         } else {
             SandboxBackend::None
@@ -198,10 +152,7 @@ impl SandboxConfig {
 
         // CPU limit (only if non-default to avoid overly restrictive quotas)
         if self.cpu_time_limit_secs > 0 && self.cpu_time_limit_secs < 300 {
-            args.push(format!(
-                "--cpu-quota={}",
-                self.cpu_time_limit_secs * 100000
-            ));
+            args.push(format!("--cpu-quota={}", self.cpu_time_limit_secs * 100000));
             args.push("--cpu-period=100000".into());
         }
 
@@ -361,7 +312,7 @@ pub async fn docker_image_exists_async(image: &str) -> bool {
 }
 
 /// Check if a Docker image exists locally (synchronous, for non-async contexts).
-fn docker_image_exists(image: &str) -> bool {
+pub(crate) fn docker_image_exists(image: &str) -> bool {
     std::process::Command::new("docker")
         .args(["image", "inspect", image])
         .stdout(std::process::Stdio::null())
@@ -382,7 +333,10 @@ mod tests {
         let args = config.build_command_args("ls -la", Path::new("/tmp"));
         assert_eq!(args, vec!["/bin/bash", "-c", "ls -la"]);
         // wrap_command joins them for display
-        assert_eq!(config.wrap_command("ls -la", Path::new("/tmp")), "/bin/bash -c ls -la");
+        assert_eq!(
+            config.wrap_command("ls -la", Path::new("/tmp")),
+            "/bin/bash -c ls -la"
+        );
     }
 
     #[test]

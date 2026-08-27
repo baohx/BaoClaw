@@ -1,5 +1,8 @@
-use std::sync::Arc;
+#![allow(dead_code)]
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+const IPC_PROTOCOL_VERSION: &str = "1";
 static MCP_INITIALIZED: AtomicBool = AtomicBool::new(false);
 use std::path::PathBuf;
 use tokio::sync::Mutex as TokioMutex;
@@ -10,6 +13,7 @@ mod config;
 mod discovery;
 mod doc_upload;
 mod engine;
+mod infra;
 mod ipc;
 mod mcp;
 mod models;
@@ -26,17 +30,22 @@ mod windows_service;
 use api::client::ApiClientConfig;
 use api::unified::UnifiedClient;
 use config::BaoclawConfig;
-use engine::query_engine::{EngineEvent, QueryEngine, QueryEngineConfig, ThinkingConfig, EMPTY_USAGE};
-use engine::shared_session::{SessionRegistry, SharedSession, ClientId};
+use engine::query_engine::{
+    EngineEvent, QueryEngine, QueryEngineConfig, ThinkingConfig, EMPTY_USAGE,
+};
+use engine::shared_session::{ClientId, SessionRegistry, SharedSession};
 use engine::task_manager::TaskManager;
-use ipc::events::{send_engine_event, engine_event_to_notification};
+use ipc::events::{engine_event_to_notification, send_engine_event};
 use ipc::protocol::JsonRpcMessage;
 use ipc::router::{parse_client_method, ClientMethod};
 use ipc::server::{IpcConnection, IpcError, IpcServer};
 use permissions::gate::{PermissionDecision, PermissionGate};
 use state::manager::{CoreState, StateManager};
-use tools::builtins::{AgentTool, BashTool, FileEditTool, FileReadTool, FileWriteTool, ImageEditTool, ImageGenTool, MemoryTool, NotebookEditTool, ProjectNoteTool, TodoWriteTool, ToolSearchTool, WebFetchTool, WebSearchTool};
-use mcp::tool_wrapper::McpToolWrapper;
+use tools::builtins::{
+    AgentTool, BashTool, FileEditTool, FileReadTool, FileWriteTool, ImageEditTool, ImageGenTool,
+    MemoryTool, NotebookEditTool, ProjectNoteTool, TodoWriteTool, ToolSearchTool, WebFetchTool,
+    WebSearchTool,
+};
 
 /// Shared state cloned into each spawned client task.
 #[derive(Clone)]
@@ -72,7 +81,13 @@ struct SharedState {
 /// Socket directory for all BaoClaw daemon instances
 fn socket_dir() -> PathBuf {
     let dir = std::env::temp_dir().join("baoclaw-sockets");
-    let _ = std::fs::create_dir_all(&dir);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "[ipc] WARNING: could not create socket dir {}: {}",
+            dir.display(),
+            e
+        );
+    }
     dir
 }
 
@@ -112,13 +127,25 @@ fn fixed_socket_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let dir = std::env::temp_dir().join("baoclaw-sockets");
-        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!(
+                "[ipc] WARNING: could not create socket dir {}: {}",
+                dir.display(),
+                e
+            );
+        }
         Some(dir.join("baoclaw.sock"))
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let dir = std::env::temp_dir().join("baoclaw-sockets");
-        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!(
+                "[ipc] WARNING: could not create socket dir {}: {}",
+                dir.display(),
+                e
+            );
+        }
         Some(dir.join("baoclaw.sock"))
     }
 }
@@ -160,11 +187,26 @@ fn write_meta(socket_path: &std::path::Path, cwd: &str, session_id: &str) {
         "socket": socket_path.to_string_lossy(),
         "started_at": chrono::Utc::now().to_rfc3339(),
     });
-    let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
+    if let Err(e) = std::fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&meta).unwrap_or_default(),
+    ) {
+        eprintln!(
+            "[daemon] WARNING: could not write daemon meta {}: {}",
+            meta_path.display(),
+            e
+        );
+    }
 }
 
 fn cleanup_meta(socket_path: &std::path::Path) {
-    let _ = std::fs::remove_file(socket_path.with_extension("json"));
+    // Best-effort cleanup: a stale meta file is harmless (next daemon overwrites it),
+    // but log so operators can spot permission problems.
+    if let Err(e) = std::fs::remove_file(socket_path.with_extension("json")) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("[daemon] WARNING: could not remove daemon meta: {}", e);
+        }
+    }
 }
 
 /// Simple hash for cwd → short hex string
@@ -196,7 +238,10 @@ fn render_loop_header(turn_id: u32, agent_label: Option<&str>) {
 /// Outputs a formatted line like: `── Loop 1 ── tools: 3, 2.1s ──`
 fn update_loop_header(turn_id: u32, tool_count: u32, duration_ms: u64) {
     let duration_secs = duration_ms as f64 / 1000.0;
-    eprintln!("── Loop {} ── tools: {}, {:.1}s ──", turn_id, tool_count, duration_secs);
+    eprintln!(
+        "── Loop {} ── tools: {}, {:.1}s ──",
+        turn_id, tool_count, duration_secs
+    );
 }
 
 /// Build the combined append_system_prompt from skills + memory.
@@ -208,7 +253,11 @@ async fn build_append_prompt(shared: &SharedState) -> Option<String> {
     if let Some(mp) = shared.memory_store.build_prompt_fragment().await {
         parts.push(mp);
     }
-    if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
 }
 
 /// Handle a client in shared mode. The client shares a QueryEngine with other clients
@@ -240,9 +289,14 @@ async fn handle_shared_client(
                         continue;
                     }
                     let notif = engine_event_to_notification(&event);
-                    let params = serde_json::to_value(&notif.params).unwrap_or(serde_json::Value::Null);
+                    let params =
+                        serde_json::to_value(&notif.params).unwrap_or(serde_json::Value::Null);
                     let mut conn_guard = conn_for_broadcast.lock().await;
-                    if conn_guard.send_notification(&notif.method, params).await.is_err() {
+                    if conn_guard
+                        .send_notification(&notif.method, params)
+                        .await
+                        .is_err()
+                    {
                         break; // Client disconnected
                     }
                 }
@@ -273,7 +327,11 @@ async fn handle_shared_client(
                         "text": cron_result.text,
                         "timestamp": cron_result.timestamp,
                     });
-                    if conn_guard.send_notification("cron_result", params).await.is_err() {
+                    if conn_guard
+                        .send_notification("cron_result", params)
+                        .await
+                        .is_err()
+                    {
                         break; // Client disconnected
                     }
                 }
@@ -309,1233 +367,1659 @@ async fn handle_shared_client(
             }
         };
 
-        match msg {
-            JsonRpcMessage::Request(req) => {
-                let id = req.id.clone();
-                match parse_client_method(&req) {
-                    Ok(method) => {
-                        match method {
-                            // ── Task 5.1: submitMessage in shared mode ──
-                            ClientMethod::SubmitMessage { prompt, attachments, .. } => {
-                                if !session.try_acquire_submitter(client_id).await {
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_error(Some(id), -32001,
-                                        "session busy: another client is currently submitting a message".into()).await;
-                                    continue;
+        if let JsonRpcMessage::Request(req) = msg {
+            let id = req.id.clone();
+            match parse_client_method(&req) {
+                Ok(method) => {
+                    match method {
+                        // ── Task 5.1: submitMessage in shared mode ──
+                        ClientMethod::SubmitMessage {
+                            prompt,
+                            attachments,
+                            ..
+                        } => {
+                            if !session.try_acquire_submitter(client_id).await {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_error(Some(id), -32001,
+                                    "session busy: another client is currently submitting a message".into()).await;
+                                continue;
+                            }
+
+                            let prompt_str = match prompt.as_str() {
+                                Some(s) => s.to_string(),
+                                None => serde_json::to_string(&prompt).unwrap_or_default(),
+                            };
+
+                            let mut rx = {
+                                let mut engine = session.engine_write().await;
+                                engine
+                                    .submit_message_with_attachments(prompt_str, attachments)
+                                    .await
+                            };
+
+                            let mut disconnected = false;
+                            while let Some(event) = rx.recv().await {
+                                // Render Loop Headers to TUI on turn events
+                                match &event {
+                                    EngineEvent::TurnStart {
+                                        turn_id,
+                                        agent_label,
+                                        ..
+                                    } => {
+                                        render_loop_header(*turn_id, agent_label.as_deref());
+                                    }
+                                    EngineEvent::TurnEnd {
+                                        turn_id,
+                                        tool_count,
+                                        duration_ms,
+                                        ..
+                                    } => {
+                                        update_loop_header(*turn_id, *tool_count, *duration_ms);
+                                    }
+                                    _ => {}
                                 }
 
-                                let prompt_str = match prompt.as_str() {
-                                    Some(s) => s.to_string(),
-                                    None => serde_json::to_string(&prompt).unwrap_or_default(),
-                                };
+                                // Broadcast to all clients
+                                session.broadcast(event.clone());
 
-                                let mut rx = {
-                                    let mut engine = session.engine_write().await;
-                                    engine.submit_message_with_attachments(prompt_str, attachments).await
-                                };
-
-                                let mut disconnected = false;
-                                while let Some(event) = rx.recv().await {
-                                    // Render Loop Headers to TUI on turn events
-                                    match &event {
-                                        EngineEvent::TurnStart { turn_id, agent_label, .. } => {
-                                            render_loop_header(*turn_id, agent_label.as_deref());
-                                        }
-                                        EngineEvent::TurnEnd { turn_id, tool_count, duration_ms, .. } => {
-                                            update_loop_header(*turn_id, *tool_count, *duration_ms);
-                                        }
-                                        _ => {}
-                                    }
-
-                                    // Broadcast to all clients
-                                    session.broadcast(event.clone());
-
-                                    // Also send directly to the submitting client
-                                    {
-                                        let mut conn_guard = conn.lock().await;
-                                        if send_engine_event(&mut *conn_guard, &event).await.is_err() {
-                                            disconnected = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if matches!(event, EngineEvent::Result(_) | EngineEvent::Error(_)) {
-                                        let mut engine = session.engine_write().await;
-                                        engine.sync_messages().await;
-                                        drop(engine);
-                                        // Persist session state to disk after turn completes
-                                        let reg = Arc::clone(&shared.session_registry);
-                                        let sid = session_id.clone();
-                                        tokio::spawn(async move {
-                                            if let Err(e) = reg.persist_session(&sid).await {
-                                                eprintln!("[daemon] session persist warning: {}", e);
-                                            }
-                                        });
+                                // Also send directly to the submitting client
+                                {
+                                    let mut conn_guard = conn.lock().await;
+                                    if send_engine_event(&mut conn_guard, &event).await.is_err() {
+                                        disconnected = true;
                                         break;
                                     }
                                 }
 
-                                // Release submitter AFTER the loop ends to prevent
-                                // the broadcast task from re-delivering the Result event.
-                                session.release_submitter(client_id).await;
-
-                                if disconnected {
+                                if matches!(event, EngineEvent::Result(_) | EngineEvent::Error(_)) {
+                                    let mut engine = session.engine_write().await;
+                                    engine.sync_messages().await;
+                                    drop(engine);
+                                    // Persist session state to disk after turn completes
+                                    let reg = Arc::clone(&shared.session_registry);
+                                    let sid = session_id.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = reg.persist_session(&sid).await {
+                                            eprintln!("[daemon] session persist warning: {}", e);
+                                        }
+                                    });
                                     break;
                                 }
-
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"status": "complete"})).await;
                             }
 
-                            // ── Task 5.3: abort — any client can call ──
-                            ClientMethod::Abort => {
-                                let engine = session.engine_read().await;
-                                engine.abort();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!("ok")).await;
-                            }
+                            // Release submitter AFTER the loop ends to prevent
+                            // the broadcast task from re-delivering the Result event.
+                            session.release_submitter(client_id).await;
 
-                            // ── Task 6.2: shutdown in shared mode ──
-                            ClientMethod::Shutdown => {
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!("ok")).await;
-                                // Shutdown terminates the daemon for all clients
-                                eprintln!("Shutdown requested — setting should_exit flag");
-                                shared.should_exit.store(true, Ordering::Relaxed);
+                            if disconnected {
                                 break;
                             }
 
-                            ClientMethod::UpdateSettings { settings } => {
-                                if let Some(thinking) = settings.get("thinking") {
-                                    if let Some(mode) = thinking.get("mode").and_then(|v| v.as_str()) {
-                                        let mut engine = session.engine_write().await;
-                                        match mode {
-                                            "enabled" => {
-                                                let budget = thinking.get("budget_tokens")
-                                                    .and_then(|v| v.as_u64())
-                                                    .unwrap_or(10240) as u32;
-                                                engine.update_thinking_config(ThinkingConfig::Enabled { budget_tokens: budget });
-                                            }
-                                            "adaptive" => {
-                                                engine.update_thinking_config(ThinkingConfig::Adaptive);
-                                            }
-                                            _ => {
-                                                engine.update_thinking_config(ThinkingConfig::Disabled);
-                                            }
-                                        }
-                                    }
-                                }
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!("ok")).await;
-                            }
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"status": "complete"}))
+                                .await;
+                        }
 
-                            ClientMethod::PermissionResponse { tool_use_id, decision, rule } => {
-                                let perm_decision = match decision.as_str() {
-                                    "allow" => PermissionDecision::Allow,
-                                    "allow_always" => PermissionDecision::AllowAlways { rule },
-                                    _ => PermissionDecision::Deny,
-                                };
-                                let delivered = shared.permission_gate.respond(&tool_use_id, perm_decision);
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"delivered": delivered})).await;
-                            }
+                        // ── Task 5.3: abort — any client can call ──
+                        ClientMethod::Abort => {
+                            let engine = session.engine_read().await;
+                            engine.abort();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!("ok")).await;
+                        }
 
-                            ClientMethod::Initialize { .. } => {
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_error(Some(id), -32600, "Already initialized".into()).await;
-                            }
+                        // ── Task 6.2: shutdown in shared mode ──
+                        ClientMethod::Shutdown => {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!("ok")).await;
+                            // Shutdown terminates the daemon for all clients
+                            eprintln!("Shutdown requested — setting should_exit flag");
+                            shared.should_exit.store(true, Ordering::Relaxed);
+                            break;
+                        }
 
-                            // ── Task 5.3: Read-only operations — always allowed ──
-                            ClientMethod::ListTools => {
-                                let tl: Vec<serde_json::Value> = shared.engine_tools.iter().map(|t| {
-                                    serde_json::json!({"name": t.name(), "description": t.prompt(), "type": "builtin"})
-                                }).collect();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"tools": tl, "count": tl.len()})).await;
-                            }
-                            ClientMethod::ListMcpServers => {
-                                let s = discovery::mcp_config::discover_mcp_servers(&work_cwd).await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"servers": s, "count": s.len()})).await;
-                            }
-                            ClientMethod::ListSkills => {
-                                let s = discovery::skills::discover_skills(&work_cwd).await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"skills": s, "count": s.len()})).await;
-                            }
-                            ClientMethod::ListPlugins => {
-                                let p = discovery::plugins::discover_plugins(&work_cwd).await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"plugins": p, "count": p.len()})).await;
-                            }
-                            ClientMethod::GitStatus => {
-                                let git_info = engine::git_info::get_git_info(std::path::Path::new(&work_cwd));
-                                let mut conn_guard = conn.lock().await;
-                                match git_info {
-                                    Some(info) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "branch": info.branch,
-                                            "has_changes": info.has_changes,
-                                            "staged_files": info.staged_files,
-                                            "modified_files": info.modified_files,
-                                            "untracked_files": info.untracked_files,
-                                        })).await;
-                                    }
-                                    None => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, "Not a git repository".to_string()).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::GitDiff => {
-                                let output = tokio::process::Command::new("git")
-                                    .args(["diff", "--stat"])
-                                    .current_dir(&work_cwd)
-                                    .output()
-                                    .await;
-                                let mut conn_guard = conn.lock().await;
-                                match output {
-                                    Ok(o) if o.status.success() => {
-                                        let stdout = String::from_utf8_lossy(&o.stdout).to_string();
-                                        let result = if stdout.trim().is_empty() {
-                                            "No uncommitted changes.".to_string()
-                                        } else {
-                                            stdout
-                                        };
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"diff": result})).await;
-                                    }
-                                    Ok(o) => {
-                                        let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("git diff failed: {}", stderr)).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Not a git repository or git not available: {}", e)).await;
-                                    }
-                                }
-                            }
-
-                            // ── Task 5.3: Write operations — blocked if ActiveSubmitter exists ──
-                            ClientMethod::Compact => {
-                                if session.has_active_submitter().await {
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_error(Some(id), -32002,
-                                        "session busy: cannot compact while a message is being processed".into()).await;
-                                    continue;
-                                }
-                                let mut engine = session.engine_write().await;
-                                match engine.compact().await {
-                                    Ok(result) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "tokens_saved": result.tokens_saved,
-                                            "summary_tokens": result.summary_tokens,
-                                            "tokens_before": result.tokens_before,
-                                            "tokens_after": result.tokens_after,
-                                        })).await;
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, e.message).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::SwitchModel { model: new_model } => {
-                                if session.has_active_submitter().await {
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_error(Some(id), -32002,
-                                        "session busy: cannot switch model while a message is being processed".into()).await;
-                                    continue;
-                                }
-                                let mut engine = session.engine_write().await;
-                                engine.update_model(new_model.clone());
-                                shared.state_manager.update(|s| { s.model = new_model.clone(); });
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"model": new_model})).await;
-                            }
-                            ClientMethod::SwitchCwd { cwd: new_cwd } => {
-                                if session.has_active_submitter().await {
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_error(Some(id), -32002,
-                                        "session busy: cannot switch cwd while a message is being processed".into()).await;
-                                    continue;
-                                }
-                                let abs_cwd = if new_cwd.is_absolute() {
-                                    new_cwd
-                                } else {
-                                    std::path::PathBuf::from(&work_cwd).join(&new_cwd)
-                                };
-                                if !abs_cwd.is_dir() {
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_error(Some(id), -32000,
-                                        format!("Directory does not exist: {}", abs_cwd.display())).await;
-                                } else {
-                                    let baoclaw_dir = abs_cwd.join(".baoclaw");
-                                    if !baoclaw_dir.exists() {
-                                        let _ = std::fs::create_dir_all(&baoclaw_dir);
-                                        let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
-                                        let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
-                                        let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
-                                    }
+                        ClientMethod::UpdateSettings { settings } => {
+                            if let Some(thinking) = settings.get("thinking") {
+                                if let Some(mode) = thinking.get("mode").and_then(|v| v.as_str()) {
                                     let mut engine = session.engine_write().await;
-                                    engine.update_cwd(abs_cwd.clone());
-                                    let new_session_key = format!("{:x}", md5_simple(&abs_cwd.to_string_lossy()))[..8].to_string();
-                                    engine.update_session_id(new_session_key);
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_response(id, serde_json::json!({
-                                        "cwd": abs_cwd.display().to_string()
-                                    })).await;
-                                }
-                            }
-
-                            ClientMethod::GitCommit { message } => {
-                                let add_result = tokio::process::Command::new("git")
-                                    .args(["add", "-A"])
-                                    .current_dir(&work_cwd)
-                                    .output()
-                                    .await;
-                                let mut conn_guard = conn.lock().await;
-                                match add_result {
-                                    Ok(o) if o.status.success() => {
-                                        let commit_result = tokio::process::Command::new("git")
-                                            .args(["commit", "-m", &message])
-                                            .current_dir(&work_cwd)
-                                            .output()
-                                            .await;
-                                        match commit_result {
-                                            Ok(co) if co.status.success() => {
-                                                let hash = tokio::process::Command::new("git")
-                                                    .args(["rev-parse", "--short", "HEAD"])
-                                                    .current_dir(&work_cwd)
-                                                    .output()
-                                                    .await
-                                                    .ok()
-                                                    .and_then(|h| String::from_utf8(h.stdout).ok())
-                                                    .map(|s| s.trim().to_string())
-                                                    .unwrap_or_default();
-                                                let _ = conn_guard.send_response(id, serde_json::json!({"hash": hash, "message": message})).await;
-                                            }
-                                            Ok(co) => {
-                                                let stderr = String::from_utf8_lossy(&co.stderr).to_string();
-                                                let stdout = String::from_utf8_lossy(&co.stdout).to_string();
-                                                let msg = if stderr.is_empty() { stdout } else { stderr };
-                                                let _ = conn_guard.send_error(Some(id), -32000, format!("git commit failed: {}", msg)).await;
-                                            }
-                                            Err(e) => {
-                                                let _ = conn_guard.send_error(Some(id), -32000, format!("git commit error: {}", e)).await;
-                                            }
+                                    match mode {
+                                        "enabled" => {
+                                            let budget = thinking
+                                                .get("budget_tokens")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(10240)
+                                                as u32;
+                                            engine.update_thinking_config(
+                                                ThinkingConfig::Enabled {
+                                                    budget_tokens: budget,
+                                                },
+                                            );
+                                        }
+                                        "adaptive" => {
+                                            engine.update_thinking_config(ThinkingConfig::Adaptive);
+                                        }
+                                        _ => {
+                                            engine.update_thinking_config(ThinkingConfig::Disabled);
                                         }
                                     }
-                                    Ok(o) => {
-                                        let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("git add failed: {}", stderr)).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Not a git repository or git not available: {}", e)).await;
-                                    }
                                 }
                             }
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!("ok")).await;
+                        }
 
-                            ClientMethod::ListMcpResources => {
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"resources": [], "count": 0})).await;
+                        ClientMethod::PermissionResponse {
+                            tool_use_id,
+                            decision,
+                            rule,
+                        } => {
+                            let perm_decision = match decision.as_str() {
+                                "allow" => PermissionDecision::Allow,
+                                "allow_always" => PermissionDecision::AllowAlways { rule },
+                                _ => PermissionDecision::Deny,
+                            };
+                            let delivered =
+                                shared.permission_gate.respond(&tool_use_id, perm_decision);
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"delivered": delivered}))
+                                .await;
+                        }
+
+                        ClientMethod::Initialize { .. } => {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_error(Some(id), -32600, "Already initialized".into())
+                                .await;
+                        }
+
+                        // ── Task 5.3: Read-only operations — always allowed ──
+                        ClientMethod::ListTools => {
+                            let tl: Vec<serde_json::Value> = shared.engine_tools.iter().map(|t| {
+                                serde_json::json!({"name": t.name(), "description": t.prompt(), "type": "builtin"})
+                            }).collect();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"tools": tl, "count": tl.len()}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::ListMcpServers => {
+                            let s = discovery::mcp_config::discover_mcp_servers(&work_cwd).await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"servers": s, "count": s.len()}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::ListSkills => {
+                            let s = discovery::skills::discover_skills(&work_cwd).await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"skills": s, "count": s.len()}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::ListPlugins => {
+                            let p = discovery::plugins::discover_plugins(&work_cwd).await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"plugins": p, "count": p.len()}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::GitStatus => {
+                            let git_info =
+                                engine::git_info::get_git_info(std::path::Path::new(&work_cwd));
+                            let mut conn_guard = conn.lock().await;
+                            match git_info {
+                                Some(info) => {
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "branch": info.branch,
+                                                "has_changes": info.has_changes,
+                                                "staged_files": info.staged_files,
+                                                "modified_files": info.modified_files,
+                                                "untracked_files": info.untracked_files,
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                None => {
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            "Not a git repository".to_string(),
+                                        )
+                                        .await;
+                                }
                             }
-                            ClientMethod::ReadMcpResource { server_name, uri } => {
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_error(Some(id), -32000,
-                                    format!("MCP resource read not yet wired: {}:{}", server_name, uri)).await;
+                        }
+                        ClientMethod::GitDiff => {
+                            let output = tokio::process::Command::new("git")
+                                .args(["diff", "--stat"])
+                                .current_dir(&work_cwd)
+                                .output()
+                                .await;
+                            let mut conn_guard = conn.lock().await;
+                            match output {
+                                Ok(o) if o.status.success() => {
+                                    let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+                                    let result = if stdout.trim().is_empty() {
+                                        "No uncommitted changes.".to_string()
+                                    } else {
+                                        stdout
+                                    };
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"diff": result}))
+                                        .await;
+                                }
+                                Ok(o) => {
+                                    let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("git diff failed: {}", stderr),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!(
+                                                "Not a git repository or git not available: {}",
+                                                e
+                                            ),
+                                        )
+                                        .await;
+                                }
                             }
-                            ClientMethod::TaskCreate { description, prompt } => {
-                                let task_id = shared.task_manager.create_task(
+                        }
+
+                        // ── Task 5.3: Write operations — blocked if ActiveSubmitter exists ──
+                        ClientMethod::Compact => {
+                            if session.has_active_submitter().await {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_error(Some(id), -32002,
+                                    "session busy: cannot compact while a message is being processed".into()).await;
+                                continue;
+                            }
+                            let mut engine = session.engine_write().await;
+                            match engine.compact().await {
+                                Ok(result) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "tokens_saved": result.tokens_saved,
+                                                "summary_tokens": result.summary_tokens,
+                                                "tokens_before": result.tokens_before,
+                                                "tokens_after": result.tokens_after,
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ =
+                                        conn_guard.send_error(Some(id), -32000, e.message).await;
+                                }
+                            }
+                        }
+                        ClientMethod::SwitchModel { model: new_model } => {
+                            if session.has_active_submitter().await {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_error(Some(id), -32002,
+                                    "session busy: cannot switch model while a message is being processed".into()).await;
+                                continue;
+                            }
+                            let mut engine = session.engine_write().await;
+                            engine.update_model(new_model.clone());
+                            shared.state_manager.update(|s| {
+                                s.model = new_model.clone();
+                            });
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"model": new_model}))
+                                .await;
+                        }
+                        ClientMethod::SwitchCwd { cwd: new_cwd } => {
+                            if session.has_active_submitter().await {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard.send_error(Some(id), -32002,
+                                    "session busy: cannot switch cwd while a message is being processed".into()).await;
+                                continue;
+                            }
+                            let abs_cwd = if new_cwd.is_absolute() {
+                                new_cwd
+                            } else {
+                                std::path::PathBuf::from(&work_cwd).join(&new_cwd)
+                            };
+                            if !abs_cwd.is_dir() {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard
+                                    .send_error(
+                                        Some(id),
+                                        -32000,
+                                        format!("Directory does not exist: {}", abs_cwd.display()),
+                                    )
+                                    .await;
+                            } else {
+                                let baoclaw_dir = abs_cwd.join(".baoclaw");
+                                if !baoclaw_dir.exists() {
+                                    if let Err(e) = std::fs::create_dir_all(&baoclaw_dir) {
+                                        eprintln!(
+                                            "[projects] WARNING: could not create {}: {}",
+                                            baoclaw_dir.display(),
+                                            e
+                                        );
+                                    }
+                                    if let Err(e) = std::fs::write(
+                                        baoclaw_dir.join("BAOCLAW.md"),
+                                        "# Project Instructions\n\n",
+                                    ) {
+                                        eprintln!(
+                                            "[projects] WARNING: could not write BAOCLAW.md: {}",
+                                            e
+                                        );
+                                    }
+                                    if let Err(e) = std::fs::write(
+                                        baoclaw_dir.join("mcp.json"),
+                                        "{\"mcpServers\":{}}\n",
+                                    ) {
+                                        eprintln!(
+                                            "[projects] WARNING: could not write mcp.json: {}",
+                                            e
+                                        );
+                                    }
+                                    if let Err(e) =
+                                        std::fs::create_dir_all(baoclaw_dir.join("skills"))
+                                    {
+                                        eprintln!(
+                                            "[projects] WARNING: could not create skills dir: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                let mut engine = session.engine_write().await;
+                                engine.update_cwd(abs_cwd.clone());
+                                let new_session_key =
+                                    format!("{:x}", md5_simple(&abs_cwd.to_string_lossy()))[..8]
+                                        .to_string();
+                                engine.update_session_id(new_session_key);
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard
+                                    .send_response(
+                                        id,
+                                        serde_json::json!({
+                                            "cwd": abs_cwd.display().to_string()
+                                        }),
+                                    )
+                                    .await;
+                            }
+                        }
+
+                        ClientMethod::GitCommit { message } => {
+                            let add_result = tokio::process::Command::new("git")
+                                .args(["add", "-A"])
+                                .current_dir(&work_cwd)
+                                .output()
+                                .await;
+                            let mut conn_guard = conn.lock().await;
+                            match add_result {
+                                Ok(o) if o.status.success() => {
+                                    let commit_result = tokio::process::Command::new("git")
+                                        .args(["commit", "-m", &message])
+                                        .current_dir(&work_cwd)
+                                        .output()
+                                        .await;
+                                    match commit_result {
+                                        Ok(co) if co.status.success() => {
+                                            let hash = tokio::process::Command::new("git")
+                                                .args(["rev-parse", "--short", "HEAD"])
+                                                .current_dir(&work_cwd)
+                                                .output()
+                                                .await
+                                                .ok()
+                                                .and_then(|h| String::from_utf8(h.stdout).ok())
+                                                .map(|s| s.trim().to_string())
+                                                .unwrap_or_default();
+                                            let _ = conn_guard.send_response(id, serde_json::json!({"hash": hash, "message": message})).await;
+                                        }
+                                        Ok(co) => {
+                                            let stderr =
+                                                String::from_utf8_lossy(&co.stderr).to_string();
+                                            let stdout =
+                                                String::from_utf8_lossy(&co.stdout).to_string();
+                                            let msg =
+                                                if stderr.is_empty() { stdout } else { stderr };
+                                            let _ = conn_guard
+                                                .send_error(
+                                                    Some(id),
+                                                    -32000,
+                                                    format!("git commit failed: {}", msg),
+                                                )
+                                                .await;
+                                        }
+                                        Err(e) => {
+                                            let _ = conn_guard
+                                                .send_error(
+                                                    Some(id),
+                                                    -32000,
+                                                    format!("git commit error: {}", e),
+                                                )
+                                                .await;
+                                        }
+                                    }
+                                }
+                                Ok(o) => {
+                                    let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("git add failed: {}", stderr),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!(
+                                                "Not a git repository or git not available: {}",
+                                                e
+                                            ),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+
+                        ClientMethod::ListMcpResources => {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"resources": [], "count": 0}))
+                                .await;
+                        }
+                        ClientMethod::ReadMcpResource { server_name, uri } => {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_error(
+                                    Some(id),
+                                    -32000,
+                                    format!(
+                                        "MCP resource read not yet wired: {}:{}",
+                                        server_name, uri
+                                    ),
+                                )
+                                .await;
+                        }
+                        ClientMethod::TaskCreate {
+                            description,
+                            prompt,
+                        } => {
+                            let task_id = shared
+                                .task_manager
+                                .create_task(
                                     description,
                                     prompt,
                                     std::path::PathBuf::from(&work_cwd),
                                     shared.state_manager.get().model,
-                                ).await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"task_id": task_id})).await;
-                            }
-                            ClientMethod::TaskList => {
-                                let tasks = shared.task_manager.list_tasks().await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"tasks": tasks, "count": tasks.len()})).await;
-                            }
-                            ClientMethod::TaskStatus { task_id } => {
-                                match shared.task_manager.get_task_status(&task_id).await {
-                                    Some(task) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!(task)).await;
-                                    }
-                                    None => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000,
-                                            format!("Task not found: {}", task_id)).await;
-                                    }
+                                )
+                                .await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"task_id": task_id}))
+                                .await;
+                        }
+                        ClientMethod::TaskList => {
+                            let tasks = shared.task_manager.list_tasks().await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"tasks": tasks, "count": tasks.len()}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::TaskStatus { task_id } => {
+                            match shared.task_manager.get_task_status(&task_id).await {
+                                Some(task) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ =
+                                        conn_guard.send_response(id, serde_json::json!(task)).await;
+                                }
+                                None => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Task not found: {}", task_id),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::TaskStop { task_id } => {
-                                let stopped = shared.task_manager.stop_task(&task_id).await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"stopped": stopped})).await;
-                            }
-                            ClientMethod::MemoryList => {
-                                let entries = shared.memory_store.list().await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"memories": entries, "count": entries.len()})).await;
-                            }
-                            ClientMethod::MemoryAdd { content, category } => {
-                                let cat = engine::memory::parse_category(&category);
-                                let result = shared.memory_store.add(content, cat, "user".to_string()).await;
-                                let mut conn_guard = conn.lock().await;
-                                match result {
-                                    Ok(entry) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"memory": entry})).await;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("ERROR: memory add failed: {}", e);
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory write failed: {}", e)).await;
-                                    }
+                        }
+                        ClientMethod::TaskStop { task_id } => {
+                            let stopped = shared.task_manager.stop_task(&task_id).await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"stopped": stopped}))
+                                .await;
+                        }
+                        ClientMethod::MemoryList => {
+                            let entries = shared.memory_store.list().await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"memories": entries, "count": entries.len()})).await;
+                        }
+                        ClientMethod::MemoryAdd { content, category } => {
+                            let cat = engine::memory::parse_category(&category);
+                            let result = shared
+                                .memory_store
+                                .add(content, cat, "user".to_string())
+                                .await;
+                            let mut conn_guard = conn.lock().await;
+                            match result {
+                                Ok(entry) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"memory": entry}))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    eprintln!("ERROR: memory add failed: {}", e);
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Memory write failed: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::MemoryDelete { id: mem_id } => {
-                                let result = shared.memory_store.delete(&mem_id).await;
-                                let mut conn_guard = conn.lock().await;
-                                match result {
-                                    Ok(deleted) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"deleted": deleted})).await;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("ERROR: memory delete failed: {}", e);
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory delete failed: {}", e)).await;
-                                    }
+                        }
+                        ClientMethod::MemoryDelete { id: mem_id } => {
+                            let result = shared.memory_store.delete(&mem_id).await;
+                            let mut conn_guard = conn.lock().await;
+                            match result {
+                                Ok(deleted) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"deleted": deleted}))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    eprintln!("ERROR: memory delete failed: {}", e);
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Memory delete failed: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::MemoryClear => {
-                                let result = shared.memory_store.clear().await;
-                                let mut conn_guard = conn.lock().await;
-                                match result {
-                                    Ok(count) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"cleared": count})).await;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("ERROR: memory clear failed: {}", e);
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory clear failed: {}", e)).await;
-                                    }
+                        }
+                        ClientMethod::MemoryClear => {
+                            let result = shared.memory_store.clear().await;
+                            let mut conn_guard = conn.lock().await;
+                            match result {
+                                Ok(count) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"cleared": count}))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    eprintln!("ERROR: memory clear failed: {}", e);
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Memory clear failed: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::MemoryStats => {
-                                let stats = shared.memory_store.stats().await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!(stats)).await;
-                            }
-                            ClientMethod::MemoryArchive { id: mem_id } => {
-                                let archived = shared.memory_store.archive_by_id(&mem_id, &shared.memory_archive).await;
-                                let mut conn_guard = conn.lock().await;
-                                match archived {
-                                    Some(entry) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"archived": entry})).await;
-                                    }
-                                    None => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Memory not found: {}", mem_id)).await;
-                                    }
+                        }
+                        ClientMethod::MemoryStats => {
+                            let stats = shared.memory_store.stats().await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!(stats)).await;
+                        }
+                        ClientMethod::MemoryArchive { id: mem_id } => {
+                            let archived = shared
+                                .memory_store
+                                .archive_by_id(&mem_id, &shared.memory_archive)
+                                .await;
+                            let mut conn_guard = conn.lock().await;
+                            match archived {
+                                Some(entry) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"archived": entry}))
+                                        .await;
+                                }
+                                None => {
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Memory not found: {}", mem_id),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::MemoryRestore { id: mem_id } => {
-                                let restored = shared.memory_store.restore_from_archive(&mem_id, &shared.memory_archive).await;
-                                let mut conn_guard = conn.lock().await;
-                                match restored {
-                                    Some(entry) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"restored": entry})).await;
-                                    }
-                                    None => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Archived memory not found: {}", mem_id)).await;
-                                    }
+                        }
+                        ClientMethod::MemoryRestore { id: mem_id } => {
+                            let restored = shared
+                                .memory_store
+                                .restore_from_archive(&mem_id, &shared.memory_archive)
+                                .await;
+                            let mut conn_guard = conn.lock().await;
+                            match restored {
+                                Some(entry) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"restored": entry}))
+                                        .await;
+                                }
+                                None => {
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Archived memory not found: {}", mem_id),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::MemoryArchiveList => {
-                                let archived = shared.memory_archive.list_archived().await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"archived": archived, "count": archived.len()})).await;
-                            }
-                            ClientMethod::MemoryCleanup => {
-                                let result = shared.memory_cleanup.run_now().await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({
-                                    "archived_count": result.archived_count,
-                                    "deleted_count": result.deleted_count,
-                                    "timestamp": result.timestamp,
-                                    "duration_ms": result.duration_ms,
-                                })).await;
-                            }
-                            ClientMethod::CronAdd { name, prompt, schedule, cwd } => {
-                                let mut conn_guard = conn.lock().await;
-                                match shared.cron_manager.add_job(name, prompt, schedule, cwd).await {
-                                    Ok(job) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"job": job})).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, e).await;
-                                    }
+                        }
+                        ClientMethod::MemoryArchiveList => {
+                            let archived = shared.memory_archive.list_archived().await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"archived": archived, "count": archived.len()})).await;
+                        }
+                        ClientMethod::MemoryCleanup => {
+                            let result = shared.memory_cleanup.run_now().await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({
+                                        "archived_count": result.archived_count,
+                                        "deleted_count": result.deleted_count,
+                                        "timestamp": result.timestamp,
+                                        "duration_ms": result.duration_ms,
+                                    }),
+                                )
+                                .await;
+                        }
+                        ClientMethod::CronAdd {
+                            name,
+                            prompt,
+                            schedule,
+                            cwd,
+                        } => {
+                            let mut conn_guard = conn.lock().await;
+                            match shared
+                                .cron_manager
+                                .add_job(name, prompt, schedule, cwd)
+                                .await
+                            {
+                                Ok(job) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"job": job}))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard.send_error(Some(id), -32000, e).await;
                                 }
                             }
-                            ClientMethod::CronRemove { id: job_id } => {
-                                let removed = shared.cron_manager.remove_job(&job_id).await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"removed": removed})).await;
-                            }
-                            ClientMethod::CronToggle { id: job_id } => {
-                                let mut conn_guard = conn.lock().await;
-                                match shared.cron_manager.toggle_job(&job_id).await {
-                                    Some(enabled) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"enabled": enabled})).await;
-                                    }
-                                    None => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, "Job not found".to_string()).await;
-                                    }
+                        }
+                        ClientMethod::CronRemove { id: job_id } => {
+                            let removed = shared.cron_manager.remove_job(&job_id).await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"removed": removed}))
+                                .await;
+                        }
+                        ClientMethod::CronToggle { id: job_id } => {
+                            let mut conn_guard = conn.lock().await;
+                            match shared.cron_manager.toggle_job(&job_id).await {
+                                Some(enabled) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"enabled": enabled}))
+                                        .await;
+                                }
+                                None => {
+                                    let _ = conn_guard
+                                        .send_error(Some(id), -32000, "Job not found".to_string())
+                                        .await;
                                 }
                             }
-                            ClientMethod::CronList => {
-                                let jobs = shared.cron_manager.list_jobs().await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"jobs": jobs, "count": jobs.len()})).await;
-                            }
-                            ClientMethod::ProjectsList => {
-                                let projects = shared.project_registry.list().await;
-                                // Enrich each project with its session_id (derived from cwd hash)
-                                let enriched: Vec<serde_json::Value> = projects.iter().map(|p| {
-                                    let session_key = format!("{:x}", md5_simple(&p.cwd))[..8].to_string();
+                        }
+                        ClientMethod::CronList => {
+                            let jobs = shared.cron_manager.list_jobs().await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"jobs": jobs, "count": jobs.len()}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::ProjectsList => {
+                            let projects = shared.project_registry.list().await;
+                            // Enrich each project with its session_id (derived from cwd hash)
+                            let enriched: Vec<serde_json::Value> = projects
+                                .iter()
+                                .map(|p| {
+                                    let session_key =
+                                        format!("{:x}", md5_simple(&p.cwd))[..8].to_string();
                                     let mut v = serde_json::to_value(p).unwrap_or_default();
                                     v["session_id"] = serde_json::json!(session_key);
                                     v
-                                }).collect();
-                                let count = enriched.len();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"projects": enriched, "count": count})).await;
-                            }
-                            ClientMethod::ProjectsSwitch { id_prefix } => {
-                                let mut conn_guard = conn.lock().await;
-                                match shared.project_registry.find_by_prefix(&id_prefix).await {
-                                    Ok(project) => {
-                                        let abs_cwd = std::path::PathBuf::from(&project.cwd);
-                                        if !abs_cwd.is_dir() {
-                                            let _ = conn_guard.send_error(Some(id), -32000,
-                                                format!("Directory does not exist: {}", project.cwd)).await;
+                                })
+                                .collect();
+                            let count = enriched.len();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"projects": enriched, "count": count}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::ProjectsSwitch { id_prefix } => {
+                            let mut conn_guard = conn.lock().await;
+                            match shared.project_registry.find_by_prefix(&id_prefix).await {
+                                Ok(project) => {
+                                    let abs_cwd = std::path::PathBuf::from(&project.cwd);
+                                    if !abs_cwd.is_dir() {
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32000,
+                                                format!(
+                                                    "Directory does not exist: {}",
+                                                    project.cwd
+                                                ),
+                                            )
+                                            .await;
+                                    } else {
+                                        // Switch session: update engine cwd and reload
+                                        let mut engine = session.engine_write().await;
+                                        engine.update_cwd(abs_cwd.clone());
+                                        // Update session_id so transcript writes go to the correct file
+                                        let new_session_key =
+                                            format!("{:x}", md5_simple(&abs_cwd.to_string_lossy()))
+                                                [..8]
+                                                .to_string();
+                                        engine.update_session_id(new_session_key.clone());
+                                        let new_cwd_str = abs_cwd.to_string_lossy().to_string();
+                                        if let Some(prev_session) =
+                                            engine::transcript::find_latest_session_for_cwd(
+                                                &new_cwd_str,
+                                            )
+                                        {
+                                            if let Ok(entries) =
+                                                engine::transcript::TranscriptWriter::load(
+                                                    &prev_session,
+                                                )
+                                            {
+                                                let messages = engine::transcript::rebuild_messages_from_transcript(&entries);
+                                                engine.set_messages(messages);
+                                            }
                                         } else {
-                                            // Switch session: update engine cwd and reload
-                                            let mut engine = session.engine_write().await;
-                                            engine.update_cwd(abs_cwd.clone());
-                                            // Update session_id so transcript writes go to the correct file
-                                            let new_session_key = format!("{:x}", md5_simple(&abs_cwd.to_string_lossy()))[..8].to_string();
-                                            engine.update_session_id(new_session_key.clone());
-                                            let new_cwd_str = abs_cwd.to_string_lossy().to_string();
-                                            if let Some(prev_session) = engine::transcript::find_latest_session_for_cwd(&new_cwd_str) {
-                                                if let Ok(entries) = engine::transcript::TranscriptWriter::load(&prev_session) {
-                                                    let messages = engine::transcript::rebuild_messages_from_transcript(&entries);
-                                                    engine.set_messages(messages);
-                                                }
-                                            } else {
-                                                engine.set_messages(vec![]);
-                                            }
-                                            drop(engine);
-                                            shared.memory_store.switch_project(&abs_cwd).await;
-                                            shared.project_registry.touch(&project.cwd).await;
-                                            work_cwd = abs_cwd.clone();
-                                            let msg_count = session.engine_read().await.get_messages().len();
-                                            let _ = conn_guard.send_response(id, serde_json::json!({
-                                                "project": project,
-                                                "message_count": msg_count,
-                                                "session_id": new_session_key,
-                                            })).await;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, e).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::ProjectsNew { cwd, description } => {
-                                let expanded = if cwd.starts_with('~') {
-                                    let home = std::env::var("HOME").unwrap_or_default();
-                                    cwd.replacen('~', &home, 1)
-                                } else if std::path::Path::new(&cwd).is_relative() {
-                                    work_cwd.join(&cwd).to_string_lossy().to_string()
-                                } else {
-                                    cwd.clone()
-                                };
-                                let abs_path = std::path::PathBuf::from(&expanded);
-                                if !abs_path.is_dir() {
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_error(Some(id), -32000,
-                                        format!("Directory does not exist: {}", expanded)).await;
-                                } else {
-                                    let desc = description.unwrap_or_else(|| {
-                                        abs_path.file_name()
-                                            .map(|n| n.to_string_lossy().to_string())
-                                            .unwrap_or_else(|| expanded.clone())
-                                    });
-                                    let mut conn_guard = conn.lock().await;
-                                    match shared.project_registry.register(expanded.clone(), desc).await {
-                                        Ok(project) => {
-                                            // Auto-scaffold
-                                            let baoclaw_dir = abs_path.join(".baoclaw");
-                                            if !baoclaw_dir.exists() {
-                                                let _ = std::fs::create_dir_all(&baoclaw_dir);
-                                                let _ = std::fs::write(baoclaw_dir.join("BAOCLAW.md"), "# Project Instructions\n\n");
-                                                let _ = std::fs::write(baoclaw_dir.join("mcp.json"), "{\"mcpServers\":{}}\n");
-                                                let _ = std::fs::create_dir_all(baoclaw_dir.join("skills"));
-                                            }
-                                            // Switch to the new project
-                                            let mut engine = session.engine_write().await;
-                                            engine.update_cwd(abs_path.clone());
-                                            let new_session_key = format!("{:x}", md5_simple(&abs_path.to_string_lossy()))[..8].to_string();
-                                            engine.update_session_id(new_session_key);
                                             engine.set_messages(vec![]);
-                                            drop(engine);
-                                            shared.memory_store.switch_project(&abs_path).await;
-                                            work_cwd = abs_path;
-                                            let _ = conn_guard.send_response(id, serde_json::json!({
-                                                "project": project,
-                                                "switched": true,
-                                            })).await;
                                         }
-                                        Err(e) => {
-                                            let _ = conn_guard.send_error(Some(id), -32000, e).await;
-                                        }
+                                        drop(engine);
+                                        shared.memory_store.switch_project(&abs_cwd).await;
+                                        shared.project_registry.touch(&project.cwd).await;
+                                        work_cwd = abs_cwd.clone();
+                                        let msg_count =
+                                            session.engine_read().await.get_messages().len();
+                                        let _ = conn_guard
+                                            .send_response(
+                                                id,
+                                                serde_json::json!({
+                                                    "project": project,
+                                                    "message_count": msg_count,
+                                                    "session_id": new_session_key,
+                                                }),
+                                            )
+                                            .await;
                                     }
                                 }
+                                Err(e) => {
+                                    let _ = conn_guard.send_error(Some(id), -32000, e).await;
+                                }
                             }
-                            ClientMethod::ProjectsUpdateDesc { id_prefix, description } => {
+                        }
+                        ClientMethod::ProjectsNew { cwd, description } => {
+                            let expanded = if cwd.starts_with('~') {
+                                let home = std::env::var("HOME").unwrap_or_default();
+                                cwd.replacen('~', &home, 1)
+                            } else if std::path::Path::new(&cwd).is_relative() {
+                                work_cwd.join(&cwd).to_string_lossy().to_string()
+                            } else {
+                                cwd.clone()
+                            };
+                            let abs_path = std::path::PathBuf::from(&expanded);
+                            if !abs_path.is_dir() {
                                 let mut conn_guard = conn.lock().await;
-                                match shared.project_registry.update_description(&id_prefix, description).await {
-                                    Ok(()) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"updated": true})).await;
+                                let _ = conn_guard
+                                    .send_error(
+                                        Some(id),
+                                        -32000,
+                                        format!("Directory does not exist: {}", expanded),
+                                    )
+                                    .await;
+                            } else {
+                                let desc = description.unwrap_or_else(|| {
+                                    abs_path
+                                        .file_name()
+                                        .map(|n| n.to_string_lossy().to_string())
+                                        .unwrap_or_else(|| expanded.clone())
+                                });
+                                let mut conn_guard = conn.lock().await;
+                                match shared
+                                    .project_registry
+                                    .register(expanded.clone(), desc)
+                                    .await
+                                {
+                                    Ok(project) => {
+                                        // Auto-scaffold
+                                        let baoclaw_dir = abs_path.join(".baoclaw");
+                                        if !baoclaw_dir.exists() {
+                                            if let Err(e) = std::fs::create_dir_all(&baoclaw_dir) {
+                                                eprintln!(
+                                                    "[projects] WARNING: could not create {}: {}",
+                                                    baoclaw_dir.display(),
+                                                    e
+                                                );
+                                            }
+                                            if let Err(e) = std::fs::write(
+                                                baoclaw_dir.join("BAOCLAW.md"),
+                                                "# Project Instructions\n\n",
+                                            ) {
+                                                eprintln!("[projects] WARNING: could not write BAOCLAW.md: {}", e);
+                                            }
+                                            if let Err(e) = std::fs::write(
+                                                baoclaw_dir.join("mcp.json"),
+                                                "{\"mcpServers\":{}}\n",
+                                            ) {
+                                                eprintln!("[projects] WARNING: could not write mcp.json: {}", e);
+                                            }
+                                            if let Err(e) =
+                                                std::fs::create_dir_all(baoclaw_dir.join("skills"))
+                                            {
+                                                eprintln!("[projects] WARNING: could not create skills dir: {}", e);
+                                            }
+                                        }
+                                        // Switch to the new project
+                                        let mut engine = session.engine_write().await;
+                                        engine.update_cwd(abs_path.clone());
+                                        let new_session_key = format!(
+                                            "{:x}",
+                                            md5_simple(&abs_path.to_string_lossy())
+                                        )[..8]
+                                            .to_string();
+                                        engine.update_session_id(new_session_key);
+                                        engine.set_messages(vec![]);
+                                        drop(engine);
+                                        shared.memory_store.switch_project(&abs_path).await;
+                                        work_cwd = abs_path;
+                                        let _ = conn_guard
+                                            .send_response(
+                                                id,
+                                                serde_json::json!({
+                                                    "project": project,
+                                                    "switched": true,
+                                                }),
+                                            )
+                                            .await;
                                     }
                                     Err(e) => {
                                         let _ = conn_guard.send_error(Some(id), -32000, e).await;
                                     }
                                 }
                             }
-                            ClientMethod::TalkTail { count } => {
-                                let engine = session.engine_read().await;
-                                let messages = engine.get_messages();
-                                let start = if messages.len() > count { messages.len() - count } else { 0 };
-                                // Collect tool results from user messages to attach to tool_use blocks
-                                let tool_results: std::collections::HashMap<String, serde_json::Value> = messages[start..].iter()
+                        }
+                        ClientMethod::ProjectsUpdateDesc {
+                            id_prefix,
+                            description,
+                        } => {
+                            let mut conn_guard = conn.lock().await;
+                            match shared
+                                .project_registry
+                                .update_description(&id_prefix, description)
+                                .await
+                            {
+                                Ok(()) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"updated": true}))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard.send_error(Some(id), -32000, e).await;
+                                }
+                            }
+                        }
+                        ClientMethod::TalkTail { count } => {
+                            let engine = session.engine_read().await;
+                            let messages = engine.get_messages();
+                            let start = if messages.len() > count {
+                                messages.len() - count
+                            } else {
+                                0
+                            };
+                            // Collect tool results from user messages to attach to tool_use blocks
+                            let tool_results: std::collections::HashMap<String, serde_json::Value> =
+                                messages
+                                    .iter()
                                     .filter_map(|m| match &m.content {
-                                        crate::models::message::MessageContent::User { tool_use_result, .. } => {
-                                            tool_use_result.as_ref().map(|r| (r.tool_use_id.clone(), r.output.clone()))
-                                        }
+                                        crate::models::message::MessageContent::User {
+                                            tool_use_result,
+                                            ..
+                                        } => tool_use_result
+                                            .as_ref()
+                                            .map(|r| (r.tool_use_id.clone(), r.output.clone())),
                                         _ => None,
-                                    }).collect();
-
-                                let tail: Vec<serde_json::Value> = messages[start..].iter().enumerate().map(|(idx, m)| {
-                                    let turn_num = start + idx + 1;
-                                    match &m.content {
-                                        crate::models::message::MessageContent::User { message, tool_use_result, .. } => {
-                                            let text = match &message.content {
-                                                serde_json::Value::String(s) => s.clone(),
-                                                serde_json::Value::Array(arr) => {
-                                                    arr.iter().filter_map(|b| {
-                                                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                                            b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
-                                                        } else if b.get("type").and_then(|t| t.as_str()) == Some("image") {
-                                                            Some("[image]".to_string())
-                                                        } else if b.get("type").and_then(|t| t.as_str()) == Some("document") {
-                                                            Some("[document]".to_string())
-                                                        } else { None }
-                                                    }).collect::<Vec<_>>().join(" ")
-                                                }
-                                                _ => serde_json::to_string(&message.content).unwrap_or_default(),
-                                            };
-                                            let is_tool_result = tool_use_result.is_some();
-                                            let mut entry = serde_json::json!({
-                                                "role": "user",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                            });
-                                            if is_tool_result {
-                                                entry["is_tool_result"] = serde_json::json!(true);
-                                                if let Some(tr) = tool_use_result {
-                                                    entry["tool_use_id"] = serde_json::json!(tr.tool_use_id);
-                                                    entry["result_output"] = tr.output.clone();
-                                                    entry["is_error"] = serde_json::json!(tr.is_error);
-                                                }
-                                            }
-                                            entry
+                                    })
+                                    .collect();
+                            let tail: Vec<serde_json::Value> = messages[start..]
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, m)| {
+                                    crate::ipc::message_format::message_to_tail_entry(
+                                        m,
+                                        start + idx + 1,
+                                        &tool_results,
+                                        crate::ipc::message_format::TailEntryOptions {
+                                            include_tool_result_fields: true,
+                                            include_tool_results: true,
+                                            include_rich_tool_details: true,
+                                            include_assistant_metadata: true,
+                                        },
+                                    )
+                                })
+                                .collect();
+                            let total = messages.len();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({
+                                        "messages": tail,
+                                        "count": tail.len(),
+                                        "total": total,
+                                    }),
+                                )
+                                .await;
+                        }
+                        ClientMethod::SearchHistory { query, max_results } => {
+                            // Search across all sessions using CrossSessionDb (FTS5)
+                            let mut results: Vec<serde_json::Value> = Vec::new();
+                            match engine::cross_session_db::CrossSessionDb::new() {
+                                Ok(db) => {
+                                    let hits = db.search_with_context(&query, max_results);
+                                    for hit in hits {
+                                        results.push(serde_json::json!({
+                                            "snippet": hit.snippet,
+                                            "timestamp": hit.timestamp,
+                                            "session_id": hit.session_id,
+                                            "cwd": hit.cwd,
+                                            "rank": hit.rank,
+                                        }));
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("CrossSessionDb error: {}, falling back to in-memory search", e);
+                                    // Fallback: search current session only
+                                    let engine = session.engine_read().await;
+                                    let messages = engine.get_messages();
+                                    let query_lower = query.to_lowercase();
+                                    for m in messages.iter().rev() {
+                                        if results.len() >= max_results {
+                                            break;
                                         }
-                                        crate::models::message::MessageContent::Assistant { message, cost_usd, duration_ms } => {
-                                            let text: String = message.content.iter().filter_map(|b| {
-                                                match b {
+                                        let (role, text) = match &m.content {
+                                            crate::models::message::MessageContent::User {
+                                                message,
+                                                ..
+                                            } => {
+                                                let t = match &message.content {
+                                                    serde_json::Value::String(s) => s.clone(),
+                                                    serde_json::Value::Array(arr) => arr
+                                                        .iter()
+                                                        .filter_map(|b| {
+                                                            b.get("text")
+                                                                .and_then(|t| t.as_str())
+                                                                .map(String::from)
+                                                        })
+                                                        .collect::<Vec<_>>()
+                                                        .join(" "),
+                                                    _ => String::new(),
+                                                };
+                                                ("user", t)
+                                            }
+                                            crate::models::message::MessageContent::Assistant {
+                                                message,
+                                                ..
+                                            } => {
+                                                let t: String = message.content.iter().filter_map(|b| match b {
                                                     crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
                                                     _ => None,
-                                                }
-                                            }).collect::<Vec<_>>().join("");
-                                            let tools: Vec<serde_json::Value> = message.content.iter().filter_map(|b| {
-                                                match b {
-                                                    crate::models::message::ContentBlock::ToolUse { id, name, input } => {
-                                                        let mut info = serde_json::json!({"name": name, "id": id});
-                                                        let mut details: Vec<String> = Vec::new();
-                                                        if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                                                            details.push(format!("command: {}", cmd));
-                                                        }
-                                                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
-                                                            details.push(format!("path: {}", fp));
-                                                        }
-                                                        if let Some(p) = input.get("pattern").and_then(|v| v.as_str()) {
-                                                            details.push(format!("pattern: {}", p));
-                                                        }
-                                                        if let Some(q) = input.get("query").and_then(|v| v.as_str()) {
-                                                            details.push(format!("query: {}", q));
-                                                        }
-                                                        if let Some(u) = input.get("url").and_then(|v| v.as_str()) {
-                                                            details.push(format!("url: {}", u));
-                                                        }
-                                                        if let Some(p) = input.get("prompt").and_then(|v| v.as_str()) {
-                                                            details.push(format!("prompt: {}", p.chars().take(200).collect::<String>()));
-                                                        }
-                                                        if !details.is_empty() {
-                                                            info["detail"] = serde_json::json!(details.join(", "));
-                                                        }
-                                                        if let Some(result) = tool_results.get(id) {
-                                                            info["result"] = result.clone();
-                                                        }
-                                                        Some(info)
-                                                    }
-                                                    _ => None,
-                                                }
-                                            }).collect();
-                                            let mut entry = serde_json::json!({
-                                                "role": "assistant",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                                "cost_usd": cost_usd,
-                                                "duration_ms": duration_ms,
-                                            });
-                                            if !tools.is_empty() {
-                                                entry["tools"] = serde_json::json!(tools);
+                                                }).collect::<Vec<_>>().join(" ");
+                                                ("assistant", t)
                                             }
-                                            if let Some(usage) = &message.usage {
-                                                entry["usage"] = serde_json::json!(usage);
-                                            }
-                                            entry
-                                        }
-                                        _ => serde_json::json!({"role": "system", "timestamp": m.timestamp, "turn": turn_num}),
-                                    }
-                                }).collect();
-                                let total = messages.len();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({
-                                    "messages": tail,
-                                    "count": tail.len(),
-                                    "total": total,
-                                })).await;
-                            }
-                            ClientMethod::SearchHistory { query, max_results } => {
-                                // Search across all sessions using CrossSessionDb (FTS5)
-                                let mut results: Vec<serde_json::Value> = Vec::new();
-                                match engine::cross_session_db::CrossSessionDb::new() {
-                                    Ok(db) => {
-                                        let hits = db.search_with_context(&query, max_results);
-                                        for hit in hits {
+                                            _ => continue,
+                                        };
+                                        if text.to_lowercase().contains(&query_lower) {
+                                            let lower = text.to_lowercase();
+                                            let idx = lower.find(&query_lower).unwrap_or(0);
+                                            let start = idx.saturating_sub(50);
+                                            let end = (idx + query.len() + 100).min(text.len());
+                                            let snippet = &text[start..end];
                                             results.push(serde_json::json!({
-                                                "snippet": hit.snippet,
-                                                "timestamp": hit.timestamp,
-                                                "session_id": hit.session_id,
-                                                "cwd": hit.cwd,
-                                                "rank": hit.rank,
+                                                "role": role,
+                                                "text": text.chars().take(200).collect::<String>(),
+                                                "snippet": snippet,
+                                                "timestamp": m.timestamp,
                                             }));
                                         }
                                     }
-                                    Err(e) => {
-                                        eprintln!("CrossSessionDb error: {}, falling back to in-memory search", e);
-                                        // Fallback: search current session only
-                                        let engine = session.engine_read().await;
-                                        let messages = engine.get_messages();
-                                        let query_lower = query.to_lowercase();
-                                        for m in messages.iter().rev() {
-                                            if results.len() >= max_results { break; }
-                                            let (role, text) = match &m.content {
-                                                crate::models::message::MessageContent::User { message, .. } => {
-                                                    let t = match &message.content {
-                                                        serde_json::Value::String(s) => s.clone(),
-                                                        serde_json::Value::Array(arr) => arr.iter().filter_map(|b| b.get("text").and_then(|t| t.as_str()).map(String::from)).collect::<Vec<_>>().join(" "),
-                                                        _ => String::new(),
-                                                    };
-                                                    ("user", t)
-                                                }
-                                                crate::models::message::MessageContent::Assistant { message, .. } => {
-                                                    let t: String = message.content.iter().filter_map(|b| match b {
-                                                        crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
-                                                        _ => None,
-                                                    }).collect::<Vec<_>>().join(" ");
-                                                    ("assistant", t)
-                                                }
-                                                _ => continue,
-                                            };
-                                            if text.to_lowercase().contains(&query_lower) {
-                                                let lower = text.to_lowercase();
-                                                let idx = lower.find(&query_lower).unwrap_or(0);
-                                                let start = idx.saturating_sub(50);
-                                                let end = (idx + query.len() + 100).min(text.len());
-                                                let snippet = &text[start..end];
-                                                results.push(serde_json::json!({
-                                                    "role": role,
-                                                    "text": text.chars().take(200).collect::<String>(),
-                                                    "snippet": snippet,
-                                                    "timestamp": m.timestamp,
-                                                }));
-                                            }
-                                        }
-                                    }
-                                }
-
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({
-                                    "results": results,
-                                    "count": results.len(),
-                                    "query": query,
-                                })).await;
-                            }
-                            ClientMethod::DocUpload { file_path } => {
-                                let path = std::path::Path::new(&file_path);
-                                let mut conn_guard = conn.lock().await;
-                                match doc_upload::build_attachment_from_file(path) {
-                                    Ok(attachment) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "attachment": attachment,
-                                            "file_path": file_path,
-                                        })).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32000,
-                                            format!("文档上传失败: {}", e)).await;
-                                    }
                                 }
                             }
-                            ClientMethod::Export { output_path } => {
-                                // Get conversation history (reuse TalkTail logic)
-                                let engine = session.engine_read().await;
-                                let messages = engine.get_messages();
-                                let tail: Vec<serde_json::Value> = messages.iter().enumerate().map(|(idx, m)| {
-                                    let turn_num = idx + 1;
-                                    match &m.content {
-                                        crate::models::message::MessageContent::User { message, tool_use_result, .. } => {
-                                            let text = match &message.content {
-                                                serde_json::Value::String(s) => s.clone(),
-                                                serde_json::Value::Array(arr) => {
-                                                    arr.iter().filter_map(|b| {
-                                                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                                            b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
-                                                        } else { None }
-                                                    }).collect::<Vec<_>>().join(" ")
-                                                }
-                                                _ => serde_json::to_string(&message.content).unwrap_or_default(),
-                                            };
-                                            let is_tool_result = tool_use_result.is_some();
-                                            let mut entry = serde_json::json!({
-                                                "role": "user",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                            });
-                                            if is_tool_result {
-                                                entry["is_tool_result"] = serde_json::json!(true);
-                                            }
-                                            entry
-                                        }
-                                        crate::models::message::MessageContent::Assistant { message, cost_usd, .. } => {
-                                            let text: String = message.content.iter().filter_map(|b| {
-                                                match b {
-                                                    crate::models::message::ContentBlock::Text { text } => Some(text.clone()),
-                                                    _ => None,
-                                                }
-                                            }).collect::<Vec<_>>().join("");
-                                            let tools: Vec<serde_json::Value> = message.content.iter().filter_map(|b| {
-                                                match b {
-                                                    crate::models::message::ContentBlock::ToolUse { id, name, input } => {
-                                                        let mut info = serde_json::json!({"name": name, "id": id});
-                                                        let mut details: Vec<String> = Vec::new();
-                                                        if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                                                            details.push(format!("command: {}", cmd));
-                                                        }
-                                                        if let Some(fp) = input.get("file_path").and_then(|v| v.as_str()) {
-                                                            details.push(format!("path: {}", fp));
-                                                        }
-                                                        if !details.is_empty() {
-                                                            info["detail"] = serde_json::json!(details.join(", "));
-                                                        }
-                                                        Some(info)
-                                                    }
-                                                    _ => None,
-                                                }
-                                            }).collect();
-                                            let mut entry = serde_json::json!({
-                                                "role": "assistant",
-                                                "text": text,
-                                                "timestamp": m.timestamp,
-                                                "turn": turn_num,
-                                                "cost_usd": cost_usd,
-                                            });
-                                            if !tools.is_empty() {
-                                                entry["tools"] = serde_json::json!(tools);
-                                            }
-                                            entry
-                                        }
-                                        _ => serde_json::json!({"role": "system", "text": "", "timestamp": m.timestamp, "turn": turn_num}),
-                                    }
-                                }).collect();
-                                drop(engine);
 
-                                // Convert to ExportEntry and format
-                                let export_entries: Vec<engine::export::ExportEntry> = tail.iter()
-                                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
-                                    .collect();
-
-                                if export_entries.is_empty() {
-                                    let mut conn_guard = conn.lock().await;
-                                    let _ = conn_guard.send_error(Some(id), -32000,
-                                        "当前会话无对话记录".to_string()).await;
-                                } else {
-                                    let markdown = engine::export::format_transcript_to_markdown(&export_entries);
-                                    let file_path = output_path.unwrap_or_else(|| {
-                                        work_cwd.join(engine::export::default_export_filename())
-                                            .to_string_lossy().to_string()
-                                    });
-
-                                    let mut conn_guard = conn.lock().await;
-                                    match std::fs::write(&file_path, &markdown) {
-                                        Ok(()) => {
-                                            let _ = conn_guard.send_response(id, serde_json::json!({
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({
+                                        "results": results,
+                                        "count": results.len(),
+                                        "query": query,
+                                    }),
+                                )
+                                .await;
+                        }
+                        ClientMethod::DocUpload { file_path } => {
+                            let path = std::path::Path::new(&file_path);
+                            let mut conn_guard = conn.lock().await;
+                            match doc_upload::build_attachment_from_file(path) {
+                                Ok(attachment) => {
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "attachment": attachment,
                                                 "file_path": file_path,
-                                                "message_count": export_entries.len(),
-                                                "size_bytes": markdown.len(),
-                                            })).await;
-                                        }
-                                        Err(e) => {
-                                            let _ = conn_guard.send_error(Some(id), -32000,
-                                                format!("导出文件写入失败: {}", e)).await;
-                                        }
-                                    }
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("文档上传失败: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
+                        }
+                        ClientMethod::Export { output_path } => {
+                            // Get conversation history (reuse TalkTail logic)
+                            let engine = session.engine_read().await;
+                            let messages = engine.get_messages();
+                            let tail: Vec<serde_json::Value> = messages
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, m)| {
+                                    crate::ipc::message_format::message_to_tail_entry(
+                                        m,
+                                        idx + 1,
+                                        &Default::default(),
+                                        crate::ipc::message_format::TailEntryOptions {
+                                            include_tool_result_fields: false,
+                                            include_tool_results: false,
+                                            include_rich_tool_details: false,
+                                            include_assistant_metadata: false,
+                                        },
+                                    )
+                                })
+                                .collect();
+                            drop(engine);
 
-                            // ── Spec-Driven Development RPC ──
-                            ClientMethod::SpecNew { feature_name, workflow, spec_type } => {
-                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
-                                let wf = match workflow.as_deref() {
-                                    Some("design") => engine::spec_engine::SpecWorkflow::DesignFirst,
-                                    _ => engine::spec_engine::SpecWorkflow::RequirementsFirst,
-                                };
-                                let st = match spec_type.as_deref() {
-                                    Some("bugfix") => engine::spec_engine::SpecType::Bugfix,
-                                    _ => engine::spec_engine::SpecType::Feature,
-                                };
-                                let mut conn_guard = conn.lock().await;
-                                match spec_engine.create_spec(&feature_name, wf, st) {
-                                    Ok(config) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "status": "created",
-                                            "feature_name": feature_name,
-                                            "config": serde_json::to_value(&config).unwrap_or_default()
-                                        })).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::SpecList => {
-                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
-                                let mut conn_guard = conn.lock().await;
-                                match spec_engine.list_specs() {
-                                    Ok(specs) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"specs": specs})).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32000, e.to_string()).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::SpecShow { feature_name } => {
-                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
-                                let mut conn_guard = conn.lock().await;
-                                match spec_engine.get_spec(&feature_name) {
-                                    Ok(summary) => {
-                                        let _ = conn_guard.send_response(id, serde_json::to_value(&summary).unwrap_or_default()).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::SpecStatus { feature_name } => {
-                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
-                                let mut conn_guard = conn.lock().await;
-                                match spec_engine.get_status(&feature_name) {
-                                    Ok(progress) => {
-                                        let _ = conn_guard.send_response(id, serde_json::to_value(&progress).unwrap_or_default()).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::SpecRun { feature_name, task_id } => {
-                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
-                                let mut conn_guard = conn.lock().await;
-                                let task = if let Some(_tid) = &task_id {
-                                    // Find specific task
-                                    match spec_engine.next_task(&feature_name) {
-                                        Ok(t) => t,
-                                        Err(e) => {
-                                            let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
-                                            continue;
-                                        }
-                                    }
-                                } else {
-                                    match spec_engine.next_task(&feature_name) {
-                                        Ok(t) => t,
-                                        Err(e) => {
-                                            let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
-                                            continue;
-                                        }
-                                    }
-                                };
-                                match task {
-                                    Some(t) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "status": "ready",
-                                            "task_id": t.id,
-                                            "task_description": t.description,
-                                        })).await;
-                                    }
-                                    None => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "status": "all_complete",
-                                            "message": "All tasks are completed"
-                                        })).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::SpecEdit { feature_name, phase } => {
-                                let spec_engine = engine::spec_engine::SpecEngine::new(work_cwd.clone());
-                                let mut conn_guard = conn.lock().await;
-                                match spec_engine.read_phase_doc(&feature_name, &phase) {
-                                    Ok(content) => {
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "feature_name": feature_name,
-                                            "phase": phase,
-                                            "content": content,
-                                        })).await;
-                                    }
-                                    Err(e) => {
-                                        let _ = conn_guard.send_error(Some(id), -32001, e.to_string()).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::HooksList => {
-                                let hooks = shared.hook_manager.get_hooks().await;
-                                let count = hooks.len();
-                                let hooks_json: Vec<serde_json::Value> = hooks.iter().map(|h| {
-                                    serde_json::to_value(h).unwrap_or_default()
-                                }).collect();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({
-                                    "hooks": hooks_json,
-                                    "count": count
-                                })).await;
-                            }
-                            ClientMethod::HooksAdd { id: hook_id, name, trigger, filter, action, enabled, priority } => {
-                                use std::str::FromStr;
-                                use engine::hooks::{Hook, Action, TriggerType, Filter};
+                            // Convert to ExportEntry and format
+                            let export_entries: Vec<engine::export::ExportEntry> = tail
+                                .iter()
+                                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                .collect();
 
-                                // Parse trigger type
-                                let trigger_type = match TriggerType::from_str(&trigger) {
+                            if export_entries.is_empty() {
+                                let mut conn_guard = conn.lock().await;
+                                let _ = conn_guard
+                                    .send_error(Some(id), -32000, "当前会话无对话记录".to_string())
+                                    .await;
+                            } else {
+                                let markdown =
+                                    engine::export::format_transcript_to_markdown(&export_entries);
+                                let file_path = output_path.unwrap_or_else(|| {
+                                    work_cwd
+                                        .join(engine::export::default_export_filename())
+                                        .to_string_lossy()
+                                        .to_string()
+                                });
+
+                                let mut conn_guard = conn.lock().await;
+                                match std::fs::write(&file_path, &markdown) {
+                                    Ok(()) => {
+                                        let _ = conn_guard
+                                            .send_response(
+                                                id,
+                                                serde_json::json!({
+                                                    "file_path": file_path,
+                                                    "message_count": export_entries.len(),
+                                                    "size_bytes": markdown.len(),
+                                                }),
+                                            )
+                                            .await;
+                                    }
+                                    Err(e) => {
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32000,
+                                                format!("导出文件写入失败: {}", e),
+                                            )
+                                            .await;
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Spec-Driven Development RPC ──
+                        ClientMethod::SpecNew {
+                            feature_name,
+                            workflow,
+                            spec_type,
+                        } => {
+                            let spec_engine =
+                                engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                            let wf = match workflow.as_deref() {
+                                Some("design") => engine::spec_engine::SpecWorkflow::DesignFirst,
+                                _ => engine::spec_engine::SpecWorkflow::RequirementsFirst,
+                            };
+                            let st = match spec_type.as_deref() {
+                                Some("bugfix") => engine::spec_engine::SpecType::Bugfix,
+                                _ => engine::spec_engine::SpecType::Feature,
+                            };
+                            let mut conn_guard = conn.lock().await;
+                            match spec_engine.create_spec(&feature_name, wf, st) {
+                                Ok(config) => {
+                                    let _ = conn_guard.send_response(id, serde_json::json!({
+                                        "status": "created",
+                                        "feature_name": feature_name,
+                                        "config": serde_json::to_value(&config).unwrap_or_default()
+                                    })).await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(Some(id), -32001, e.to_string())
+                                        .await;
+                                }
+                            }
+                        }
+                        ClientMethod::SpecList => {
+                            let spec_engine =
+                                engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                            let mut conn_guard = conn.lock().await;
+                            match spec_engine.list_specs() {
+                                Ok(specs) => {
+                                    let _ = conn_guard
+                                        .send_response(id, serde_json::json!({"specs": specs}))
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(Some(id), -32000, e.to_string())
+                                        .await;
+                                }
+                            }
+                        }
+                        ClientMethod::SpecShow { feature_name } => {
+                            let spec_engine =
+                                engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                            let mut conn_guard = conn.lock().await;
+                            match spec_engine.get_spec(&feature_name) {
+                                Ok(summary) => {
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::to_value(&summary).unwrap_or_default(),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(Some(id), -32001, e.to_string())
+                                        .await;
+                                }
+                            }
+                        }
+                        ClientMethod::SpecStatus { feature_name } => {
+                            let spec_engine =
+                                engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                            let mut conn_guard = conn.lock().await;
+                            match spec_engine.get_status(&feature_name) {
+                                Ok(progress) => {
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::to_value(&progress).unwrap_or_default(),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(Some(id), -32001, e.to_string())
+                                        .await;
+                                }
+                            }
+                        }
+                        ClientMethod::SpecRun {
+                            feature_name,
+                            task_id,
+                        } => {
+                            let spec_engine =
+                                engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                            let mut conn_guard = conn.lock().await;
+                            let task = if let Some(_tid) = &task_id {
+                                // Find specific task
+                                match spec_engine.next_task(&feature_name) {
                                     Ok(t) => t,
                                     Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32602, e).await;
+                                        let _ = conn_guard
+                                            .send_error(Some(id), -32001, e.to_string())
+                                            .await;
                                         continue;
                                     }
-                                };
+                                }
+                            } else {
+                                match spec_engine.next_task(&feature_name) {
+                                    Ok(t) => t,
+                                    Err(e) => {
+                                        let _ = conn_guard
+                                            .send_error(Some(id), -32001, e.to_string())
+                                            .await;
+                                        continue;
+                                    }
+                                }
+                            };
+                            match task {
+                                Some(t) => {
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "status": "ready",
+                                                "task_id": t.id,
+                                                "task_description": t.description,
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                None => {
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "status": "all_complete",
+                                                "message": "All tasks are completed"
+                                            }),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                        ClientMethod::SpecEdit {
+                            feature_name,
+                            phase,
+                        } => {
+                            let spec_engine =
+                                engine::spec_engine::SpecEngine::new(work_cwd.clone());
+                            let mut conn_guard = conn.lock().await;
+                            match spec_engine.read_phase_doc(&feature_name, &phase) {
+                                Ok(content) => {
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "feature_name": feature_name,
+                                                "phase": phase,
+                                                "content": content,
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let _ = conn_guard
+                                        .send_error(Some(id), -32001, e.to_string())
+                                        .await;
+                                }
+                            }
+                        }
+                        ClientMethod::HooksList => {
+                            let hooks = shared.hook_manager.get_hooks().await;
+                            let count = hooks.len();
+                            let hooks_json: Vec<serde_json::Value> = hooks
+                                .iter()
+                                .map(|h| serde_json::to_value(h).unwrap_or_default())
+                                .collect();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({
+                                        "hooks": hooks_json,
+                                        "count": count
+                                    }),
+                                )
+                                .await;
+                        }
+                        ClientMethod::HooksAdd {
+                            id: hook_id,
+                            name,
+                            trigger,
+                            filter,
+                            action,
+                            enabled,
+                            priority,
+                        } => {
+                            use engine::hooks::{Action, Filter, Hook, TriggerType};
+                            use std::str::FromStr;
 
-                                // Parse action
-                                let hook_action: Action = match serde_json::from_value(action) {
-                                    Ok(a) => a,
+                            // Parse trigger type
+                            let trigger_type = match TriggerType::from_str(&trigger) {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_error(Some(id), -32602, e).await;
+                                    continue;
+                                }
+                            };
+
+                            // Parse action
+                            let hook_action: Action = match serde_json::from_value(action) {
+                                Ok(a) => a,
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32602,
+                                            format!("Invalid action: {}", e),
+                                        )
+                                        .await;
+                                    continue;
+                                }
+                            };
+
+                            // Parse filter if provided
+                            let hook_filter: Option<Filter> = match filter {
+                                Some(f) => match serde_json::from_value(f) {
+                                    Ok(f) => Some(f),
                                     Err(e) => {
                                         let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32602, format!("Invalid action: {}", e)).await;
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32602,
+                                                format!("Invalid filter: {}", e),
+                                            )
+                                            .await;
                                         continue;
                                     }
-                                };
+                                },
+                                None => None,
+                            };
 
-                                // Parse filter if provided
-                                let hook_filter: Option<Filter> = match filter {
-                                    Some(f) => match serde_json::from_value(f) {
-                                        Ok(f) => Some(f),
-                                        Err(e) => {
+                            // Create the hook
+                            let mut hook =
+                                Hook::new(hook_id.clone(), name, trigger_type, hook_action);
+                            hook.enabled = enabled;
+                            hook.priority = priority;
+                            if let Some(f) = hook_filter {
+                                hook.filter = Some(f);
+                            }
+
+                            // Add the hook
+                            match shared.hook_manager.add_hook(hook.clone()).await {
+                                Ok(()) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "hook": hook,
+                                                "message": "Hook added successfully"
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_error(Some(id), -32000, e).await;
+                                }
+                            }
+                        }
+                        ClientMethod::HooksToggle { id: hook_id } => {
+                            match shared.hook_manager.toggle_hook(&hook_id).await {
+                                Some(new_enabled) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_response(id, serde_json::json!({
+                                        "id": hook_id,
+                                        "enabled": new_enabled,
+                                        "message": if new_enabled { "Hook enabled" } else { "Hook disabled" }
+                                    })).await;
+                                }
+                                None => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Hook not found: {}", hook_id),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                        ClientMethod::HooksRemove { id: hook_id } => {
+                            let removed = shared.hook_manager.remove_hook(&hook_id).await;
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({
+                                "id": hook_id,
+                                "removed": removed,
+                                "message": if removed { "Hook removed" } else { "Hook not found" }
+                            })).await;
+                        }
+
+                        // ── Team Management RPC ──
+                        ClientMethod::TeamSpawn {
+                            count,
+                            mode,
+                            task,
+                            policy,
+                        } => {
+                            use engine::team::{
+                                TeamConfig, TeamExecutor, TeamMode as EngineTeamMode, TeamPolicy,
+                            };
+                            use std::str::FromStr;
+
+                            // Parse mode
+                            let team_mode = match EngineTeamMode::from_str(&mode) {
+                                Ok(m) => m,
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_error(Some(id), -32602, e).await;
+                                    continue;
+                                }
+                            };
+
+                            // Parse policy if provided
+                            let team_policy: Option<TeamPolicy> = match policy {
+                                Some(p) => match serde_json::from_value(p) {
+                                    Ok(policy) => Some(policy),
+                                    Err(e) => {
+                                        let mut conn_guard = conn.lock().await;
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32602,
+                                                format!("Invalid policy: {}", e),
+                                            )
+                                            .await;
+                                        continue;
+                                    }
+                                },
+                                None => None,
+                            };
+
+                            // Create team config
+                            let config = TeamConfig {
+                                mode: team_mode.clone(),
+                                policy: team_policy,
+                                cwd: Some(work_cwd.to_string_lossy().to_string()),
+                                model: Some(shared.state_manager.get().model.clone()),
+                                ..Default::default()
+                            };
+
+                            // Create the executor and team
+                            let executor = TeamExecutor::new(
+                                Arc::clone(&shared.api_client),
+                                shared.engine_tools.clone(),
+                                work_cwd.clone(),
+                                shared.state_manager.get().model.clone(),
+                            );
+
+                            match executor.create_team(task.clone(), config).await {
+                                Ok(mut team) => {
+                                    // For parallel mode, create the specified number of agents
+                                    if team_mode == EngineTeamMode::Parallel {
+                                        if let Err(e) = executor
+                                            .add_parallel_agents(
+                                                &mut team,
+                                                count.unwrap_or(1),
+                                                &task,
+                                            )
+                                            .await
+                                        {
                                             let mut conn_guard = conn.lock().await;
-                                            let _ = conn_guard.send_error(Some(id), -32602, format!("Invalid filter: {}", e)).await;
+                                            let _ = conn_guard
+                                                .send_error(
+                                                    Some(id),
+                                                    -32000,
+                                                    format!("Failed to add agents: {}", e.message),
+                                                )
+                                                .await;
                                             continue;
                                         }
-                                    },
-                                    None => None,
-                                };
+                                    }
 
-                                // Create the hook
-                                let mut hook = Hook::new(hook_id.clone(), name, trigger_type, hook_action);
-                                hook.enabled = enabled;
-                                hook.priority = priority;
-                                if let Some(f) = hook_filter {
-                                    hook.filter = Some(f);
-                                }
+                                    let team_id = team.id.clone();
+                                    let team_json = serde_json::to_value(&team).unwrap_or_default();
 
-                                // Add the hook
-                                match shared.hook_manager.add_hook(hook.clone()).await {
-                                    Ok(()) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "hook": hook,
-                                            "message": "Hook added successfully"
-                                        })).await;
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, e).await;
-                                    }
+                                    // Store the team
+                                    shared.team_executor.store_team(team).await;
+
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "team_id": team_id,
+                                                "team": team_json,
+                                                "message": "Team created successfully"
+                                            }),
+                                        )
+                                        .await;
                                 }
-                            }
-                            ClientMethod::HooksToggle { id: hook_id } => {
-                                match shared.hook_manager.toggle_hook(&hook_id).await {
-                                    Some(new_enabled) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "id": hook_id,
-                                            "enabled": new_enabled,
-                                            "message": if new_enabled { "Hook enabled" } else { "Hook disabled" }
-                                        })).await;
-                                    }
-                                    None => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Hook not found: {}", hook_id)).await;
-                                    }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ =
+                                        conn_guard.send_error(Some(id), -32000, e.message).await;
                                 }
                             }
-                            ClientMethod::HooksRemove { id: hook_id } => {
-                                let removed = shared.hook_manager.remove_hook(&hook_id).await;
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({
-                                    "id": hook_id,
-                                    "removed": removed,
-                                    "message": if removed { "Hook removed" } else { "Hook not found" }
-                                })).await;
-                            }
-
-                            // ── Team Management RPC ──
-                            ClientMethod::TeamSpawn { count, mode, task, policy } => {
-                                use engine::team::{TeamExecutor, TeamConfig, TeamMode as EngineTeamMode, TeamPolicy};
-                                use std::str::FromStr;
-
-                                // Parse mode
-                                let team_mode = match EngineTeamMode::from_str(&mode) {
-                                    Ok(m) => m,
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32602, e).await;
-                                        continue;
-                                    }
-                                };
-
-                                // Parse policy if provided
-                                let team_policy: Option<TeamPolicy> = match policy {
-                                    Some(p) => match serde_json::from_value(p) {
-                                        Ok(policy) => Some(policy),
-                                        Err(e) => {
-                                            let mut conn_guard = conn.lock().await;
-                                            let _ = conn_guard.send_error(Some(id), -32602, format!("Invalid policy: {}", e)).await;
-                                            continue;
-                                        }
-                                    },
-                                    None => None,
-                                };
-
-                                // Create team config
-                                let config = TeamConfig {
-                                    mode: team_mode.clone(),
-                                    policy: team_policy,
-                                    cwd: Some(work_cwd.to_string_lossy().to_string()),
-                                    model: Some(shared.state_manager.get().model.clone()),
-                                    ..Default::default()
-                                };
-
-                                // Create the executor and team
-                                let executor = TeamExecutor::new(
-                                    Arc::clone(&shared.api_client),
-                                    shared.engine_tools.clone(),
-                                    work_cwd.clone(),
-                                    shared.state_manager.get().model.clone(),
-                                );
-
-                                match executor.create_team(task.clone(), config).await {
-                                    Ok(mut team) => {
-                                        // For parallel mode, create the specified number of agents
-                                        if team_mode == EngineTeamMode::Parallel {
-                                            if let Err(e) = executor.add_parallel_agents(&mut team, count.unwrap_or(1), &task).await {
-                                                let mut conn_guard = conn.lock().await;
-                                                let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to add agents: {}", e.message)).await;
-                                                continue;
-                                            }
-                                        }
-
-                                        let team_id = team.id.clone();
-                                        let team_json = serde_json::to_value(&team).unwrap_or_default();
-
-                                        // Store the team
-                                        shared.team_executor.store_team(team).await;
-
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "team_id": team_id,
-                                            "team": team_json,
-                                            "message": "Team created successfully"
-                                        })).await;
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, e.message).await;
-                                    }
+                        }
+                        ClientMethod::TeamList => {
+                            let teams = shared.team_executor.list_teams().await;
+                            let count = teams.len();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({
+                                        "teams": teams,
+                                        "count": count
+                                    }),
+                                )
+                                .await;
+                        }
+                        ClientMethod::TeamStatus { team_id } => {
+                            match shared.team_executor.get_team(&team_id).await {
+                                Some(team) => {
+                                    let summary = team.summary();
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "team": team,
+                                                "summary": summary
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                None => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Team not found: {}", team_id),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::TeamList => {
-                                let teams = shared.team_executor.list_teams().await;
-                                let count = teams.len();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({
-                                    "teams": teams,
-                                    "count": count
-                                })).await;
-                            }
-                            ClientMethod::TeamStatus { team_id } => {
-                                match shared.team_executor.get_team(&team_id).await {
-                                    Some(team) => {
-                                        let summary = team.summary();
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "team": team,
-                                            "summary": summary
-                                        })).await;
-                                    }
-                                    None => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::TeamResults { team_id } => {
-                                match shared.team_executor.get_team(&team_id).await {
-                                    Some(team) => {
-                                        let results = team.collect_results();
-                                        let agents: Vec<serde_json::Value> = team.agents.iter().map(|a| {
+                        }
+                        ClientMethod::TeamResults { team_id } => {
+                            match shared.team_executor.get_team(&team_id).await {
+                                Some(team) => {
+                                    let results = team.collect_results();
+                                    let agents: Vec<serde_json::Value> = team
+                                        .agents
+                                        .iter()
+                                        .map(|a| {
                                             serde_json::json!({
                                                 "id": a.id,
                                                 "status": a.status.to_string(),
@@ -1544,76 +2028,112 @@ async fn handle_shared_client(
                                                 "tokens_used": a.tokens_used,
                                                 "cost_usd": a.cost_usd,
                                             })
-                                        }).collect();
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "team_id": team_id,
-                                            "status": team.status.to_string(),
-                                            "results": results,
-                                            "agents": agents,
-                                            "total_tokens": team.total_tokens,
-                                            "total_cost_usd": team.total_cost_usd,
-                                        })).await;
-                                    }
-                                    None => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
-                                    }
+                                        })
+                                        .collect();
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "team_id": team_id,
+                                                "status": team.status.to_string(),
+                                                "results": results,
+                                                "agents": agents,
+                                                "total_tokens": team.total_tokens,
+                                                "total_cost_usd": team.total_cost_usd,
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                None => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Team not found: {}", team_id),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::TeamAbort { team_id } => {
-                                match shared.team_executor.abort_team(&team_id).await {
-                                    Some(team) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "team_id": team_id,
-                                            "status": team.status.to_string(),
-                                            "message": "Team aborted"
-                                        })).await;
-                                    }
-                                    None => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
-                                    }
+                        }
+                        ClientMethod::TeamAbort { team_id } => {
+                            match shared.team_executor.abort_team(&team_id).await {
+                                Some(team) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "team_id": team_id,
+                                                "status": team.status.to_string(),
+                                                "message": "Team aborted"
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                None => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Team not found: {}", team_id),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::TeamExecute { team_id } => {
-                                match shared.team_executor.get_team(&team_id).await {
-                                    Some(team) => {
-                                        // Spawn execution in background
-                                        let executor = engine::team::TeamExecutor::new(
-                                            Arc::clone(&shared.api_client),
-                                            shared.engine_tools.clone(),
-                                            work_cwd.clone(),
-                                            shared.state_manager.get().model.clone(),
-                                        );
+                        }
+                        ClientMethod::TeamExecute { team_id } => {
+                            match shared.team_executor.get_team(&team_id).await {
+                                Some(team) => {
+                                    // Spawn execution in background
+                                    let executor = engine::team::TeamExecutor::new(
+                                        Arc::clone(&shared.api_client),
+                                        shared.engine_tools.clone(),
+                                        work_cwd.clone(),
+                                        shared.state_manager.get().model.clone(),
+                                    );
 
-                                        // Execute the team
-                                        let result = executor.execute(team).await;
+                                    // Execute the team
+                                    let result = executor.execute(team).await;
 
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "team_id": result.team.id,
-                                            "success": result.success,
-                                            "error": result.error,
-                                            "duration_ms": result.duration_ms,
-                                            "status": result.team.status.to_string(),
-                                            "total_tokens": result.team.total_tokens,
-                                            "total_cost_usd": result.team.total_cost_usd,
-                                        })).await;
-                                    }
-                                    None => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Team not found: {}", team_id)).await;
-                                    }
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "team_id": result.team.id,
+                                                "success": result.success,
+                                                "error": result.error,
+                                                "duration_ms": result.duration_ms,
+                                                "status": result.team.status.to_string(),
+                                                "total_tokens": result.team.total_tokens,
+                                                "total_cost_usd": result.team.total_cost_usd,
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                None => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Team not found: {}", team_id),
+                                        )
+                                        .await;
                                 }
                             }
+                        }
 
-                            // ── Template Engine handlers ──
-                            ClientMethod::TemplateList => {
-                                let engine = engine::template::engine::TemplateEngine::new();
-                                let templates = engine.list_all();
-                                let result: Vec<serde_json::Value> = templates.iter().map(|t| {
+                        // ── Template Engine handlers ──
+                        ClientMethod::TemplateList => {
+                            let engine = engine::template::engine::TemplateEngine::new();
+                            let templates = engine.list_all();
+                            let result: Vec<serde_json::Value> = templates
+                                .iter()
+                                .map(|t| {
                                     serde_json::json!({
                                         "name": t.name,
                                         "trigger": t.trigger,
@@ -1625,76 +2145,121 @@ async fn handle_shared_client(
                                         "variables_count": t.variables.len(),
                                         "steps_count": t.workflow.len(),
                                     })
-                                }).collect();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"templates": result, "count": result.len()})).await;
-                            }
-                            ClientMethod::TemplateCreate { json } => {
-                                let mut engine = engine::template::engine::TemplateEngine::new();
-                                match serde_json::from_str::<engine::template::types::Template>(&json) {
-                                    Ok(template) => {
-                                        match engine.create_template(&template) {
-                                            Ok(()) => {
-                                                let mut conn_guard = conn.lock().await;
-                                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": template.name})).await;
-                                            }
-                                            Err(e) => {
-                                                let mut conn_guard = conn.lock().await;
-                                                let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to create template: {}", e)).await;
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Invalid template JSON: {}", e)).await;
-                                    }
-                                }
-                            }
-                            ClientMethod::TemplateDelete { name } => {
-                                let mut engine = engine::template::engine::TemplateEngine::new();
-                                match engine.delete_template(&name) {
+                                })
+                                .collect();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"templates": result, "count": result.len()}),
+                                )
+                                .await;
+                        }
+                        ClientMethod::TemplateCreate { json } => {
+                            let mut engine = engine::template::engine::TemplateEngine::new();
+                            match serde_json::from_str::<engine::template::types::Template>(&json) {
+                                Ok(template) => match engine.create_template(&template) {
                                     Ok(()) => {
                                         let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": name})).await;
+                                        let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": template.name})).await;
                                     }
                                     Err(e) => {
                                         let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to delete template: {}", e)).await;
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32000,
+                                                format!("Failed to create template: {}", e),
+                                            )
+                                            .await;
                                     }
+                                },
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Invalid template JSON: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::TemplateExport { name } => {
-                                let engine = engine::template::engine::TemplateEngine::new();
-                                match engine.export_template(&name) {
-                                    Ok(json_str) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"name": name, "template": serde_json::from_str::<serde_json::Value>(&json_str).unwrap_or_default()})).await;
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to export template: {}", e)).await;
-                                    }
+                        }
+                        ClientMethod::TemplateDelete { name } => {
+                            let mut engine = engine::template::engine::TemplateEngine::new();
+                            match engine.delete_template(&name) {
+                                Ok(()) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({"success": true, "name": name}),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Failed to delete template: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::TemplateImport { url } => {
-                                let mut engine = engine::template::engine::TemplateEngine::new();
-                                match engine.import_template_url(&url).await {
-                                    Ok(template) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": template.name, "trigger": template.trigger})).await;
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to import template: {}", e)).await;
-                                    }
+                        }
+                        ClientMethod::TemplateExport { name } => {
+                            let engine = engine::template::engine::TemplateEngine::new();
+                            match engine.export_template(&name) {
+                                Ok(json_str) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_response(id, serde_json::json!({"name": name, "template": serde_json::from_str::<serde_json::Value>(&json_str).unwrap_or_default()})).await;
+                                }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Failed to export template: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
+                        }
+                        ClientMethod::TemplateImport { url } => {
+                            let mut engine = engine::template::engine::TemplateEngine::new();
+                            match engine.import_template_url(&url).await {
+                                Ok(template) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "name": template.name, "trigger": template.trigger})).await;
+                                }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Failed to import template: {}", e),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
 
-                            // ── Git Integration handlers ──
-                            ClientMethod::GitPrList => {
-                                let result = match engine::git_integration::pr::PrManager::list_prs(None).await {
-                                    Ok(prs) => {
-                                        let pr_list: Vec<serde_json::Value> = prs.iter().map(|p| {
+                        // ── Git Integration handlers ──
+                        ClientMethod::GitPrList => {
+                            let result = match engine::git_integration::pr::PrManager::list_prs(
+                                None,
+                            )
+                            .await
+                            {
+                                Ok(prs) => {
+                                    let pr_list: Vec<serde_json::Value> = prs
+                                        .iter()
+                                        .map(|p| {
                                             serde_json::json!({
                                                 "number": p.number,
                                                 "title": p.title,
@@ -1705,95 +2270,141 @@ async fn handle_shared_client(
                                                 "created_at": p.created_at,
                                                 "url": p.url,
                                             })
-                                        }).collect();
-                                        serde_json::json!({"pull_requests": pr_list, "count": pr_list.len()})
-                                    }
-                                    Err(e) => serde_json::json!({"error": format!("{}", e)}),
-                                };
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::GitPrCreate { title, body, base, head } => {
-                                let body_opt = if body.is_empty() { None } else { Some(body.as_str()) };
-                                let base_opt = if base.is_empty() { None } else { Some(base.as_str()) };
-                                let result = match engine::git_integration::pr::PrManager::create_pr(&title, body_opt, base_opt).await {
-                                    Ok(pr) => serde_json::json!({
-                                        "success": true,
-                                        "number": pr.number,
-                                        "title": pr.title,
-                                        "url": pr.url,
-                                    }),
-                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
-                                };
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::GitBranchList => {
-                                let result = match engine::git_integration::branch::BranchManager::list_branches().await {
+                                        })
+                                        .collect();
+                                    serde_json::json!({"pull_requests": pr_list, "count": pr_list.len()})
+                                }
+                                Err(e) => serde_json::json!({"error": format!("{}", e)}),
+                            };
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::GitPrCreate {
+                            title,
+                            body,
+                            base,
+                            head: _,
+                        } => {
+                            let body_opt = if body.is_empty() {
+                                None
+                            } else {
+                                Some(body.as_str())
+                            };
+                            let base_opt = if base.is_empty() {
+                                None
+                            } else {
+                                Some(base.as_str())
+                            };
+                            let result = match engine::git_integration::pr::PrManager::create_pr(
+                                &title, body_opt, base_opt,
+                            )
+                            .await
+                            {
+                                Ok(pr) => serde_json::json!({
+                                    "success": true,
+                                    "number": pr.number,
+                                    "title": pr.title,
+                                    "url": pr.url,
+                                }),
+                                Err(e) => {
+                                    serde_json::json!({"success": false, "error": format!("{}", e)})
+                                }
+                            };
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::GitBranchList => {
+                            let result =
+                                match engine::git_integration::branch::BranchManager::list_branches(
+                                )
+                                .await
+                                {
                                     Ok(branches) => {
-                                        let branch_list: Vec<serde_json::Value> = branches.iter().map(|b| {
-                                            serde_json::json!({
-                                                "name": b.name,
-                                                "is_current": b.is_current,
-                                                "ahead": b.ahead,
-                                                "behind": b.behind,
-                                                "last_commit": b.last_commit,
-                                                "last_commit_msg": b.last_commit_msg,
+                                        let branch_list: Vec<serde_json::Value> = branches
+                                            .iter()
+                                            .map(|b| {
+                                                serde_json::json!({
+                                                    "name": b.name,
+                                                    "is_current": b.is_current,
+                                                    "ahead": b.ahead,
+                                                    "behind": b.behind,
+                                                    "last_commit": b.last_commit,
+                                                    "last_commit_msg": b.last_commit_msg,
+                                                })
                                             })
-                                        }).collect();
+                                            .collect();
                                         serde_json::json!({"branches": branch_list, "count": branch_list.len()})
                                     }
                                     Err(e) => serde_json::json!({"error": format!("{}", e)}),
                                 };
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::GitBranchCreate { name } => {
-                                let result = match engine::git_integration::branch::BranchManager::create_branch(&name, None).await {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::GitBranchCreate { name } => {
+                            let result =
+                                match engine::git_integration::branch::BranchManager::create_branch(
+                                    &name, None,
+                                )
+                                .await
+                                {
                                     Ok(()) => serde_json::json!({"success": true, "name": name}),
-                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
-                                };
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::GitConflictCheck => {
-                                let result = match engine::git_integration::conflict::ConflictResolver::detect_conflicts().await {
-                                    Ok(conflicts) => {
-                                        let conflict_list: Vec<serde_json::Value> = conflicts.iter().map(|c| {
-                                            serde_json::json!({
-                                                "file": c.file,
-                                                "resolved": c.resolved,
-                                            })
-                                        }).collect();
-                                        serde_json::json!({"conflicts": conflict_list, "count": conflict_list.len(), "has_conflicts": !conflicts.is_empty()})
+                                    Err(e) => {
+                                        serde_json::json!({"success": false, "error": format!("{}", e)})
                                     }
-                                    Err(e) => serde_json::json!({"error": format!("{}", e)}),
                                 };
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::GitCommitAmend => {
-                                let result = match engine::git_integration::commit::CommitManager::amend_commit().await {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::GitConflictCheck => {
+                            let result = match engine::git_integration::conflict::ConflictResolver::detect_conflicts().await {
+                                Ok(conflicts) => {
+                                    let conflict_list: Vec<serde_json::Value> = conflicts.iter().map(|c| {
+                                        serde_json::json!({
+                                            "file": c.file,
+                                            "resolved": c.resolved,
+                                        })
+                                    }).collect();
+                                    serde_json::json!({"conflicts": conflict_list, "count": conflict_list.len(), "has_conflicts": !conflicts.is_empty()})
+                                }
+                                Err(e) => serde_json::json!({"error": format!("{}", e)}),
+                            };
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::GitCommitAmend => {
+                            let result =
+                                match engine::git_integration::commit::CommitManager::amend_commit()
+                                    .await
+                                {
                                     Ok(()) => serde_json::json!({"success": true}),
-                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
+                                    Err(e) => {
+                                        serde_json::json!({"success": false, "error": format!("{}", e)})
+                                    }
                                 };
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::GitUndo => {
-                                let result = match engine::git_integration::commit::CommitManager::undo_commit().await {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::GitUndo => {
+                            let result =
+                                match engine::git_integration::commit::CommitManager::undo_commit()
+                                    .await
+                                {
                                     Ok(()) => serde_json::json!({"success": true}),
-                                    Err(e) => serde_json::json!({"success": false, "error": format!("{}", e)}),
+                                    Err(e) => {
+                                        serde_json::json!({"success": false, "error": format!("{}", e)})
+                                    }
                                 };
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
 
-                            // ── Model Router handlers ──
-                            ClientMethod::ModelList => {
-                                let router = engine::model_router::router::ModelRouter::new();
-                                let models = router.list_models();
-                                let model_list: Vec<serde_json::Value> = models.iter().map(|m| {
+                        // ── Model Router handlers ──
+                        ClientMethod::ModelList => {
+                            let router = engine::model_router::router::ModelRouter::new();
+                            let models = router.list_models();
+                            let model_list: Vec<serde_json::Value> = models
+                                .iter()
+                                .map(|m| {
                                     serde_json::json!({
                                         "name": m.name,
                                         "provider": m.provider,
@@ -1803,100 +2414,139 @@ async fn handle_shared_client(
                                         "capabilities": m.capabilities,
                                         "priority": m.priority,
                                     })
-                                }).collect();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"models": model_list, "count": model_list.len()})).await;
-                            }
-                            ClientMethod::ModelRoute { task } => {
-                                let router = engine::model_router::router::ModelRouter::new();
-                                let decision = router.route(&task, 0, 0.5);
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({
-                                    "selected_model": decision.selected_model,
-                                    "reason": decision.reason,
-                                    "confidence": decision.confidence,
-                                })).await;
-                            }
-                            ClientMethod::ModelBudget => {
-                                let mut budget = engine::model_router::budget::BudgetManager::load();
-                                let result = serde_json::json!({
-                                    "daily_limit": budget.daily_limit,
-                                    "monthly_limit": budget.monthly_limit,
-                                    "current_daily": budget.current_daily,
-                                    "current_monthly": budget.current_monthly,
-                                    "remaining_daily": budget.remaining_daily(),
-                                    "remaining_monthly": budget.remaining_monthly(),
-                                });
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::ModelStats => {
-                                let router = engine::model_router::router::ModelRouter::new();
-                                let models = router.list_models();
-                                let rules = router.list_rules();
-                                let result = serde_json::json!({
-                                    "models_count": models.len(),
-                                    "rules_count": rules.len(),
-                                    "rules": rules.iter().map(|r| serde_json::json!({
-                                        "id": r.id,
-                                        "description": r.description,
-                                        "target_model": r.target_model,
-                                        "priority": r.priority,
-                                        "enabled": r.enabled,
-                                    })).collect::<Vec<_>>(),
-                                });
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
+                                })
+                                .collect();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"models": model_list, "count": model_list.len()})).await;
+                        }
+                        ClientMethod::ModelRoute { task } => {
+                            let router = engine::model_router::router::ModelRouter::new();
+                            let decision = router.route(&task, 0, 0.5);
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({
+                                        "selected_model": decision.selected_model,
+                                        "reason": decision.reason,
+                                        "confidence": decision.confidence,
+                                    }),
+                                )
+                                .await;
+                        }
+                        ClientMethod::ModelBudget => {
+                            let budget = engine::model_router::budget::BudgetManager::load();
+                            let result = serde_json::json!({
+                                "daily_limit": budget.daily_limit,
+                                "monthly_limit": budget.monthly_limit,
+                                "current_daily": budget.current_daily,
+                                "current_monthly": budget.current_monthly,
+                                "remaining_daily": budget.remaining_daily(),
+                                "remaining_monthly": budget.remaining_monthly(),
+                            });
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::ModelStats => {
+                            let router = engine::model_router::router::ModelRouter::new();
+                            let models = router.list_models();
+                            let rules = router.list_rules();
+                            let result = serde_json::json!({
+                                "models_count": models.len(),
+                                "rules_count": rules.len(),
+                                "rules": rules.iter().map(|r| serde_json::json!({
+                                    "id": r.id,
+                                    "description": r.description,
+                                    "target_model": r.target_model,
+                                    "priority": r.priority,
+                                    "enabled": r.enabled,
+                                })).collect::<Vec<_>>(),
+                            });
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
 
-                            // ── Telemetry handlers ──
-                            ClientMethod::TelemetryStats => {
-                                let collector = match engine::telemetry::collector::TelemetryCollector::new() {
+                        // ── Telemetry handlers ──
+                        ClientMethod::TelemetryStats => {
+                            let collector =
+                                match engine::telemetry::collector::TelemetryCollector::new() {
                                     Ok(c) => c,
                                     Err(e) => {
                                         let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Telemetry unavailable: {}", e)).await;
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32000,
+                                                format!("Telemetry unavailable: {}", e),
+                                            )
+                                            .await;
                                         continue;
                                     }
                                 };
-                                match collector.get_stats() {
-                                    Ok(stats) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({
-                                            "total_turns": stats.total_turns,
-                                            "total_tokens": stats.total_tokens,
-                                            "total_cost_usd": stats.total_cost_usd,
-                                            "total_tools_called": stats.total_tools_called,
-                                            "sessions_count": stats.sessions_count,
-                                            "files_modified": stats.files_modified,
-                                            "avg_response_time_ms": stats.avg_response_time_ms,
-                                            "most_used_tool": stats.most_used_tool,
-                                        })).await;
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to get stats: {}", e)).await;
-                                    }
+                            match collector.get_stats() {
+                                Ok(stats) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({
+                                                "total_turns": stats.total_turns,
+                                                "total_tokens": stats.total_tokens,
+                                                "total_cost_usd": stats.total_cost_usd,
+                                                "total_tools_called": stats.total_tools_called,
+                                                "sessions_count": stats.sessions_count,
+                                                "files_modified": stats.files_modified,
+                                                "avg_response_time_ms": stats.avg_response_time_ms,
+                                                "most_used_tool": stats.most_used_tool,
+                                            }),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Failed to get stats: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
-                            ClientMethod::TelemetryTrends { days } => {
-                                let collector = match engine::telemetry::collector::TelemetryCollector::new() {
+                        }
+                        ClientMethod::TelemetryTrends { days } => {
+                            let collector =
+                                match engine::telemetry::collector::TelemetryCollector::new() {
                                     Ok(c) => c,
                                     Err(e) => {
                                         let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Telemetry unavailable: {}", e)).await;
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32000,
+                                                format!("Telemetry unavailable: {}", e),
+                                            )
+                                            .await;
                                         continue;
                                     }
                                 };
-                                let daily = match collector.get_daily_stats(days) {
-                                    Ok(d) => d,
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Failed to get trends: {}", e)).await;
-                                        continue;
-                                    }
-                                };
-                                let daily_list: Vec<serde_json::Value> = daily.iter().map(|d| {
+                            let daily = match collector.get_daily_stats(days) {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Failed to get trends: {}", e),
+                                        )
+                                        .await;
+                                    continue;
+                                }
+                            };
+                            let daily_list: Vec<serde_json::Value> = daily
+                                .iter()
+                                .map(|d| {
                                     serde_json::json!({
                                         "date": d.date,
                                         "turns": d.turns,
@@ -1905,43 +2555,69 @@ async fn handle_shared_client(
                                         "tools": d.tools,
                                         "sessions": d.sessions,
                                     })
-                                }).collect();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"days": days, "daily": daily_list, "count": daily_list.len()})).await;
-                            }
-                            ClientMethod::TelemetryExport { format } => {
-                                let collector = match engine::telemetry::collector::TelemetryCollector::new() {
+                                })
+                                .collect();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"days": days, "daily": daily_list, "count": daily_list.len()})).await;
+                        }
+                        ClientMethod::TelemetryExport { format } => {
+                            let collector =
+                                match engine::telemetry::collector::TelemetryCollector::new() {
                                     Ok(c) => c,
                                     Err(e) => {
                                         let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Telemetry unavailable: {}", e)).await;
+                                        let _ = conn_guard
+                                            .send_error(
+                                                Some(id),
+                                                -32000,
+                                                format!("Telemetry unavailable: {}", e),
+                                            )
+                                            .await;
                                         continue;
                                     }
                                 };
-                                let exporter = engine::telemetry::export::TelemetryExporter::new(collector);
-                                let result = match format.to_lowercase().as_str() {
-                                    "json" => exporter.export_json(None),
-                                    "csv" => exporter.export_csv(None),
-                                    "summary" | "md" | "markdown" => exporter.export_summary(),
-                                    _ => Err(format!("Unknown export format: {}. Use json, csv, or summary.", format)),
-                                };
-                                match result {
-                                    Ok(data) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_response(id, serde_json::json!({"format": format, "data": data})).await;
-                                    }
-                                    Err(e) => {
-                                        let mut conn_guard = conn.lock().await;
-                                        let _ = conn_guard.send_error(Some(id), -32000, format!("Export failed: {}", e)).await;
-                                    }
+                            let exporter =
+                                engine::telemetry::export::TelemetryExporter::new(collector);
+                            let result = match format.to_lowercase().as_str() {
+                                "json" => exporter.export_json(None),
+                                "csv" => exporter.export_csv(None),
+                                "summary" | "md" | "markdown" => exporter.export_summary(),
+                                _ => Err(format!(
+                                    "Unknown export format: {}. Use json, csv, or summary.",
+                                    format
+                                )),
+                            };
+                            match result {
+                                Ok(data) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_response(
+                                            id,
+                                            serde_json::json!({"format": format, "data": data}),
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    let mut conn_guard = conn.lock().await;
+                                    let _ = conn_guard
+                                        .send_error(
+                                            Some(id),
+                                            -32000,
+                                            format!("Export failed: {}", e),
+                                        )
+                                        .await;
                                 }
                             }
+                        }
 
-                            // ── Permission Gate handlers ──
-                            ClientMethod::PermissionStatus => {
-                                let gate = engine::permission_gate::gate::RuleBasedPermissionGate::new();
-                                let rules = gate.list_rules();
-                                let rule_list: Vec<serde_json::Value> = rules.iter().map(|r| {
+                        // ── Permission Gate handlers ──
+                        ClientMethod::PermissionStatus => {
+                            let gate =
+                                engine::permission_gate::gate::RuleBasedPermissionGate::new();
+                            let rules = gate.list_rules();
+                            let rule_list: Vec<serde_json::Value> = rules
+                                .iter()
+                                .map(|r| {
                                     serde_json::json!({
                                         "id": r.id,
                                         "description": r.description,
@@ -1951,283 +2627,313 @@ async fn handle_shared_client(
                                         "require_confirmation": r.require_confirmation,
                                         "auto_deny": r.auto_deny,
                                     })
-                                }).collect();
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"rules": rule_list, "count": rule_list.len()})).await;
-                            }
-                            ClientMethod::PermissionGrant { tool, action, target, permanent } => {
-                                let mut gate = engine::permission_gate::gate::RuleBasedPermissionGate::new();
-                                let decision = if permanent {
-                                    engine::permission_gate::types::DecisionType::AllowPermanent
-                                } else {
-                                    engine::permission_gate::types::DecisionType::AllowSession
-                                };
-                                gate.grant(&tool, &action, &target, decision, None);
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "tool": tool, "action": action, "target": target, "permanent": permanent})).await;
-                            }
-                            ClientMethod::PermissionRevoke { tool, action, target } => {
-                                let mut gate = engine::permission_gate::gate::RuleBasedPermissionGate::new();
-                                let removed = gate.revoke(&tool, &action, &target);
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"success": removed > 0, "removed": removed})).await;
-                            }
+                                })
+                                .collect();
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"rules": rule_list, "count": rule_list.len()})).await;
+                        }
+                        ClientMethod::PermissionGrant {
+                            tool,
+                            action,
+                            target,
+                            permanent,
+                        } => {
+                            let mut gate =
+                                engine::permission_gate::gate::RuleBasedPermissionGate::new();
+                            let decision = if permanent {
+                                engine::permission_gate::types::DecisionType::AllowPermanent
+                            } else {
+                                engine::permission_gate::types::DecisionType::AllowSession
+                            };
+                            gate.grant(&tool, &action, &target, decision, None);
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "tool": tool, "action": action, "target": target, "permanent": permanent})).await;
+                        }
+                        ClientMethod::PermissionRevoke {
+                            tool,
+                            action,
+                            target,
+                        } => {
+                            let mut gate =
+                                engine::permission_gate::gate::RuleBasedPermissionGate::new();
+                            let removed = gate.revoke(&tool, &action, &target);
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(
+                                    id,
+                                    serde_json::json!({"success": removed > 0, "removed": removed}),
+                                )
+                                .await;
+                        }
 
-                            // ── Permission Manager handlers (rule-based) ──
-                            ClientMethod::PermissionsInfo => {
-                                // Return the config-based permissions from config.json
-                                let cfg = &shared.baoclaw_config;
-                                let perms = cfg.extra.get("permissions").cloned().unwrap_or(serde_json::json!({"mode": "default", "always_allow_rules": {}, "always_deny_rules": {}, "always_ask_rules": {}}));
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, perms).await;
-                            }
-                            ClientMethod::PermissionsAddRule { category, tool_name, rule_content } => {
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "message": "Rule added (runtime). Edit ~/.baoclaw/config.json for persistent rules.", "category": category, "tool_name": tool_name, "rule_content": rule_content})).await;
-                            }
-                            ClientMethod::PermissionsRemoveRule { category, tool_name, rule_content } => {
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "message": "Rule removed (runtime). Edit ~/.baoclaw/config.json for persistent rules.", "category": category, "tool_name": tool_name, "rule_content": rule_content})).await;
-                            }
-                            ClientMethod::PermissionsSetMode { mode } => {
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "mode": mode, "message": "Permission mode updated (runtime)."})).await;
-                            }
+                        // ── Permission Manager handlers (rule-based) ──
+                        ClientMethod::PermissionsInfo => {
+                            // Return the config-based permissions from config.json
+                            let cfg = &shared.baoclaw_config;
+                            let perms = cfg.extra.get("permissions").cloned().unwrap_or(serde_json::json!({"mode": "default", "always_allow_rules": {}, "always_deny_rules": {}, "always_ask_rules": {}}));
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, perms).await;
+                        }
+                        ClientMethod::PermissionsAddRule {
+                            category,
+                            tool_name,
+                            rule_content,
+                        } => {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "message": "Rule added (runtime). Edit ~/.baoclaw/config.json for persistent rules.", "category": category, "tool_name": tool_name, "rule_content": rule_content})).await;
+                        }
+                        ClientMethod::PermissionsRemoveRule {
+                            category,
+                            tool_name,
+                            rule_content,
+                        } => {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "message": "Rule removed (runtime). Edit ~/.baoclaw/config.json for persistent rules.", "category": category, "tool_name": tool_name, "rule_content": rule_content})).await;
+                        }
+                        ClientMethod::PermissionsSetMode { mode } => {
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, serde_json::json!({"success": true, "mode": mode, "message": "Permission mode updated (runtime)."})).await;
+                        }
 
-                            // ── Session Info / Token / Cost handlers (P2-2) ──
-                            ClientMethod::SessionTokens => {
-                                let engine = session.engine_read().await;
-                                let messages = engine.get_messages();
-                                let usage = engine.get_usage();
-                                let context_window = shared.baoclaw_config.context_window;
-                                let threshold_ratio = shared.baoclaw_config.auto_compact_threshold_ratio;
-                                let compact_threshold = (context_window as f64 * threshold_ratio) as u64;
+                        // ── Session Info / Token / Cost handlers (P2-2) ──
+                        ClientMethod::SessionTokens => {
+                            let engine = session.engine_read().await;
+                            let messages = engine.get_messages();
+                            let usage = engine.get_usage();
+                            let context_window = shared.baoclaw_config.context_window;
+                            let threshold_ratio =
+                                shared.baoclaw_config.auto_compact_threshold_ratio;
+                            let compact_threshold =
+                                (context_window as f64 * threshold_ratio) as u64;
 
-                                // Current estimated input tokens from TokenCounter
-                                let est_tokens = {
-                                    let counter = engine.token_counter_arc();
-                                    let counter_guard = counter.lock().await;
-                                    counter_guard.estimate(messages)
-                                };
+                            // Current estimated input tokens from TokenCounter
+                            let est_tokens = {
+                                let counter = engine.token_counter_arc();
+                                let counter_guard = counter.lock().await;
+                                counter_guard.estimate(messages)
+                            };
 
-                                let result = serde_json::json!({
-                                    "session_id": session_id,
-                                    "current_tokens": est_tokens,
-                                    "context_window": context_window,
-                                    "usage_percent": if context_window > 0 {
-                                        est_tokens as f64 / context_window as f64 * 100.0
-                                    } else { 0.0 },
-                                    "compact_threshold": compact_threshold,
-                                    "threshold_ratio": threshold_ratio,
-                                    "tokens_until_compact": compact_threshold.saturating_sub(est_tokens),
-                                    "total_input_tokens": usage.input_tokens,
-                                    "total_output_tokens": usage.output_tokens,
-                                    "cache_creation_tokens": usage.cache_creation_input_tokens.unwrap_or(0),
-                                    "cache_read_tokens": usage.cache_read_input_tokens.unwrap_or(0),
-                                    "message_count": messages.len(),
-                                    "model": shared.baoclaw_config.model,
-                                });
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::SessionCost => {
-                                let engine = session.engine_read().await;
-                                let usage = engine.get_usage();
-                                let model = &shared.baoclaw_config.model;
+                            let result = serde_json::json!({
+                                "session_id": session_id,
+                                "current_tokens": est_tokens,
+                                "context_window": context_window,
+                                "usage_percent": if context_window > 0 {
+                                    est_tokens as f64 / context_window as f64 * 100.0
+                                } else { 0.0 },
+                                "compact_threshold": compact_threshold,
+                                "threshold_ratio": threshold_ratio,
+                                "tokens_until_compact": compact_threshold.saturating_sub(est_tokens),
+                                "total_input_tokens": usage.input_tokens,
+                                "total_output_tokens": usage.output_tokens,
+                                "cache_creation_tokens": usage.cache_creation_input_tokens.unwrap_or(0),
+                                "cache_read_tokens": usage.cache_read_input_tokens.unwrap_or(0),
+                                "message_count": messages.len(),
+                                "model": shared.baoclaw_config.model,
+                            });
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::SessionCost => {
+                            let engine = session.engine_read().await;
+                            let usage = engine.get_usage();
+                            let model = &shared.baoclaw_config.model;
 
-                                // Build a CostTracker to calculate costs
-                                let cost_tracker = engine::cost_tracker::CostTracker::new();
-                                let session_cost = cost_tracker.calculate_cost(usage, model);
+                            let cost_tracker = engine::cost_tracker::CostTracker::new();
+                            let session_cost = cost_tracker.calculate_cost(usage, model);
 
-                                // Pricing info for display
-                                let (input_price, output_price) = {
-                                    let pricing = engine::cost_tracker::CostTracker::new();
-                                    // We can't directly access the private pricing map, so
-                                    // calculate per-million by calling with 1M tokens
-                                    let test_input = crate::models::message::Usage {
-                                        input_tokens: 1_000_000,
-                                        output_tokens: 0,
-                                        cache_creation_input_tokens: None,
-                                        cache_read_input_tokens: None,
-                                    };
-                                    let test_output = crate::models::message::Usage {
-                                        input_tokens: 0,
-                                        output_tokens: 1_000_000,
-                                        cache_creation_input_tokens: None,
-                                        cache_read_input_tokens: None,
-                                    };
-                                    let ip = pricing.calculate_cost(&test_input, model);
-                                    let op = pricing.calculate_cost(&test_output, model);
-                                    (ip, op)
-                                };
+                            // Per-million unit prices in USD (single pricing-map access).
+                            let (input_price, output_price) =
+                                cost_tracker.per_million_prices(model);
 
-                                let result = serde_json::json!({
-                                    "session_cost_usd": session_cost,
-                                    "total_input_tokens": usage.input_tokens,
-                                    "total_output_tokens": usage.output_tokens,
-                                    "input_cost": (usage.input_tokens as f64 / 1_000_000.0) * input_price,
-                                    "output_cost": (usage.output_tokens as f64 / 1_000_000.0) * output_price,
-                                    "input_price_per_mtok": input_price,
-                                    "output_price_per_mtok": output_price,
-                                    "model": model,
-                                    "pricing_configured": true,
-                                });
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::SessionInfo => {
-                                let engine = session.engine_read().await;
-                                let msg_count = engine.get_messages().len();
-                                let client_count = session.client_count().await;
+                            let result = serde_json::json!({
+                                "session_cost_usd": session_cost,
+                                "total_input_tokens": usage.input_tokens,
+                                "total_output_tokens": usage.output_tokens,
+                                "input_cost": (usage.input_tokens as f64 / 1_000_000.0) * input_price,
+                                "output_cost": (usage.output_tokens as f64 / 1_000_000.0) * output_price,
+                                "input_price_per_mtok": input_price,
+                                "output_price_per_mtok": output_price,
+                                "model": model,
+                                "pricing_configured": true,
+                            });
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::SessionInfo => {
+                            let engine = session.engine_read().await;
+                            let msg_count = engine.get_messages().len();
+                            let client_count = session.client_count().await;
 
-                                let result = serde_json::json!({
-                                    "session_id": session_id,
-                                    "cwd": work_cwd.to_string_lossy(),
-                                    "message_count": msg_count,
-                                    "client_count": client_count,
-                                    "model": shared.baoclaw_config.model,
-                                });
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::ConfigModel => {
-                                // Mask API key: show first 4 + last 4
-                                let mask_key = |key: &Option<String>| -> String {
-                                    match key {
-                                        Some(k) if k.len() > 8 => {
-                                            let prefix = &k[..4];
-                                            let suffix = &k[k.len()-4..];
-                                            format!("{}****{}", prefix, suffix)
-                                        }
-                                        Some(k) => "****".to_string(),
-                                        None => "(未配置)".to_string(),
+                            let result = serde_json::json!({
+                                "session_id": session_id,
+                                "cwd": work_cwd.to_string_lossy(),
+                                "message_count": msg_count,
+                                "client_count": client_count,
+                                "model": shared.baoclaw_config.model,
+                            });
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::ConfigModel => {
+                            // Mask API key: show first 4 + last 4
+                            let mask_key = |key: &Option<String>| -> String {
+                                match key {
+                                    Some(k) if k.len() > 8 => {
+                                        let prefix = &k[..4];
+                                        let suffix = &k[k.len() - 4..];
+                                        format!("{}****{}", prefix, suffix)
                                     }
-                                };
+                                    Some(_k) => "****".to_string(),
+                                    None => "(未配置)".to_string(),
+                                }
+                            };
 
-                                // Check if using model_profiles format
-                                let cfg = &shared.baoclaw_config;
-                                let primary_model = if let Some(ref pname) = cfg.primary_profile {
-                                    cfg.model_profiles.get(pname)
-                                        .map(|p| p.model.clone())
-                                        .unwrap_or_else(|| cfg.model.clone())
-                                } else {
-                                    cfg.model.clone()
-                                };
+                            // Check if using model_profiles format
+                            let cfg = &shared.baoclaw_config;
+                            let primary_model = if let Some(ref pname) = cfg.primary_profile {
+                                cfg.model_profiles
+                                    .get(pname)
+                                    .map(|p| p.model.clone())
+                                    .unwrap_or_else(|| cfg.model.clone())
+                            } else {
+                                cfg.model.clone()
+                            };
 
-                                let primary_api_type = if let Some(ref pname) = cfg.primary_profile {
-                                    cfg.model_profiles.get(pname)
-                                        .map(|p| p.api_type.clone())
-                                        .unwrap_or_else(|| cfg.api_type.clone())
-                                } else {
-                                    cfg.api_type.clone()
-                                };
+                            let primary_api_type = if let Some(ref pname) = cfg.primary_profile {
+                                cfg.model_profiles
+                                    .get(pname)
+                                    .map(|p| p.api_type.clone())
+                                    .unwrap_or_else(|| cfg.api_type.clone())
+                            } else {
+                                cfg.api_type.clone()
+                            };
 
-                                let primary_key = if let Some(ref pname) = cfg.primary_profile {
-                                    cfg.model_profiles.get(pname)
-                                        .and_then(|p| p.api_key.clone())
-                                } else {
-                                    // Check env for legacy key
-                                    std::env::var("ANTHROPIC_API_KEY").ok()
-                                };
+                            let primary_key = if let Some(ref pname) = cfg.primary_profile {
+                                cfg.model_profiles
+                                    .get(pname)
+                                    .and_then(|p| p.api_key.clone())
+                            } else {
+                                // Check env for legacy key
+                                std::env::var("ANTHROPIC_API_KEY").ok()
+                            };
 
-                                let primary_base_url = if let Some(ref pname) = cfg.primary_profile {
-                                    cfg.model_profiles.get(pname)
-                                        .and_then(|p| p.base_url.clone())
-                                        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-                                } else {
-                                    cfg.openai_base_url.clone()
-                                        .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
-                                };
+                            let primary_base_url = if let Some(ref pname) = cfg.primary_profile {
+                                cfg.model_profiles
+                                    .get(pname)
+                                    .and_then(|p| p.base_url.clone())
+                                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                            } else {
+                                cfg.openai_base_url
+                                    .clone()
+                                    .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
+                            };
 
-                                let primary_window = if let Some(ref pname) = cfg.primary_profile {
-                                    cfg.model_profiles.get(pname)
-                                        .map(|p| p.context_window)
-                                        .unwrap_or(cfg.context_window)
-                                } else {
-                                    cfg.context_window
-                                };
+                            let primary_window = if let Some(ref pname) = cfg.primary_profile {
+                                cfg.model_profiles
+                                    .get(pname)
+                                    .map(|p| p.context_window)
+                                    .unwrap_or(cfg.context_window)
+                            } else {
+                                cfg.context_window
+                            };
 
-                                let primary_threshold = if let Some(ref pname) = cfg.primary_profile {
-                                    cfg.model_profiles.get(pname)
-                                        .map(|p| p.auto_compact_threshold_ratio)
-                                        .unwrap_or(cfg.auto_compact_threshold_ratio)
-                                } else {
-                                    cfg.auto_compact_threshold_ratio
-                                };
+                            let primary_threshold = if let Some(ref pname) = cfg.primary_profile {
+                                cfg.model_profiles
+                                    .get(pname)
+                                    .map(|p| p.auto_compact_threshold_ratio)
+                                    .unwrap_or(cfg.auto_compact_threshold_ratio)
+                            } else {
+                                cfg.auto_compact_threshold_ratio
+                            };
 
-                                // Build fallback chain
-                                let fallback_chain: Vec<serde_json::Value> = if !cfg.fallback_profiles.is_empty() {
-                                    cfg.fallback_profiles.iter().filter_map(|name| {
-                                        cfg.model_profiles.get(name).map(|p| {
-                                            serde_json::json!({
-                                                "name": name,
-                                                "model": p.model,
-                                                "api_type": p.api_type,
-                                                "context_window": p.context_window,
-                                                "api_key_masked": mask_key(&p.api_key),
+                            // Build fallback chain
+                            let fallback_chain: Vec<serde_json::Value> =
+                                if !cfg.fallback_profiles.is_empty() {
+                                    cfg.fallback_profiles
+                                        .iter()
+                                        .filter_map(|name| {
+                                            cfg.model_profiles.get(name).map(|p| {
+                                                serde_json::json!({
+                                                    "name": name,
+                                                    "model": p.model,
+                                                    "api_type": p.api_type,
+                                                    "context_window": p.context_window,
+                                                    "api_key_masked": mask_key(&p.api_key),
+                                                })
                                             })
                                         })
-                                    }).collect()
+                                        .collect()
                                 } else {
-                                    cfg.fallback_models.iter().map(|m| {
-                                        serde_json::json!({
-                                            "name": m,
-                                            "model": m,
+                                    cfg.fallback_models
+                                        .iter()
+                                        .map(|m| {
+                                            serde_json::json!({
+                                                "name": m,
+                                                "model": m,
+                                            })
                                         })
-                                    }).collect()
+                                        .collect()
                                 };
 
-                                let result = serde_json::json!({
-                                    "primary_model": primary_model,
-                                    "primary_api_type": primary_api_type,
-                                    "primary_api_key_masked": mask_key(&primary_key),
-                                    "primary_base_url": primary_base_url,
-                                    "primary_context_window": primary_window,
-                                    "primary_threshold_ratio": primary_threshold,
-                                    "fallback_chain": fallback_chain,
-                                    "max_retries_per_model": cfg.max_retries_per_model,
-                                });
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, result).await;
-                            }
-                            ClientMethod::ConfigShow => {
-                                // Serialize config with api_key masked
-                                let mask_key_in_value = |v: &mut serde_json::Value| {
-                                    if let serde_json::Value::String(s) = v {
-                                        if s.len() > 8 && !s.contains("****") {
-                                            let prefix = &s[..4];
-                                            let suffix = &s[s.len()-4..];
-                                            *v = serde_json::Value::String(format!("{}****{}", prefix, suffix));
-                                        }
+                            let result = serde_json::json!({
+                                "primary_model": primary_model,
+                                "primary_api_type": primary_api_type,
+                                "primary_api_key_masked": mask_key(&primary_key),
+                                "primary_base_url": primary_base_url,
+                                "primary_context_window": primary_window,
+                                "primary_threshold_ratio": primary_threshold,
+                                "fallback_chain": fallback_chain,
+                                "max_retries_per_model": cfg.max_retries_per_model,
+                            });
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard.send_response(id, result).await;
+                        }
+                        ClientMethod::ConfigShow => {
+                            // Serialize config with api_key masked
+                            let mask_key_in_value = |v: &mut serde_json::Value| {
+                                if let serde_json::Value::String(s) = v {
+                                    if s.len() > 8 && !s.contains("****") {
+                                        let prefix = &s[..4];
+                                        let suffix = &s[s.len() - 4..];
+                                        *v = serde_json::Value::String(format!(
+                                            "{}****{}",
+                                            prefix, suffix
+                                        ));
                                     }
-                                };
+                                }
+                            };
 
-                                let mut config_json = serde_json::to_value(&shared.baoclaw_config)
-                                    .unwrap_or(serde_json::json!({}));
+                            let mut config_json = serde_json::to_value(&shared.baoclaw_config)
+                                .unwrap_or(serde_json::json!({}));
 
-                                // Mask all api_key fields in model_profiles
-                                if let Some(profiles) = config_json.get_mut("model_profiles").and_then(|v| v.as_object_mut()) {
-                                    for (_, profile) in profiles.iter_mut() {
-                                        if let Some(obj) = profile.as_object_mut() {
-                                            if let Some(key) = obj.get_mut("api_key") {
-                                                mask_key_in_value(key);
-                                            }
+                            // Mask all api_key fields in model_profiles
+                            if let Some(profiles) = config_json
+                                .get_mut("model_profiles")
+                                .and_then(|v| v.as_object_mut())
+                            {
+                                for (_, profile) in profiles.iter_mut() {
+                                    if let Some(obj) = profile.as_object_mut() {
+                                        if let Some(key) = obj.get_mut("api_key") {
+                                            mask_key_in_value(key);
                                         }
                                     }
                                 }
-
-                                let mut conn_guard = conn.lock().await;
-                                let _ = conn_guard.send_response(id, serde_json::json!({"config": config_json})).await;
                             }
+
+                            let mut conn_guard = conn.lock().await;
+                            let _ = conn_guard
+                                .send_response(id, serde_json::json!({"config": config_json}))
+                                .await;
                         }
                     }
-                    Err(e) => {
-                        let mut conn_guard = conn.lock().await;
-                        let _ = conn_guard.send_error(Some(id), -32601, format!("{}", e)).await;
-                    }
+                }
+                Err(e) => {
+                    let mut conn_guard = conn.lock().await;
+                    let _ = conn_guard
+                        .send_error(Some(id), -32601, format!("{}", e))
+                        .await;
                 }
             }
-            _ => {}
         }
     }
 
@@ -2252,27 +2958,63 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         }
     };
 
-    let (init_id, init_cwd, init_model, _init_resume_session_id, init_shared_session_id) = match init_msg {
+    let (
+        init_id,
+        init_cwd,
+        init_model,
+        _init_resume_session_id,
+        init_shared_session_id,
+        init_protocol_version,
+    ) = match init_msg {
         JsonRpcMessage::Request(req) => {
             let id = req.id.clone();
             match parse_client_method(&req) {
-                Ok(ClientMethod::Initialize { cwd: c, model: m, resume_session_id: r, shared_session_id: s, .. }) => {
-                    (id, c, m, r, s)
-                }
+                Ok(ClientMethod::Initialize {
+                    cwd: c,
+                    model: m,
+                    protocol_version: p,
+                    resume_session_id: r,
+                    shared_session_id: s,
+                    ..
+                }) => (id, c, m, r, s, p),
                 Ok(_) => {
-                    let _ = conn.send_error(Some(req.id), -32600,
-                        "Expected 'initialize' as first request".into()).await;
+                    let _ = conn
+                        .send_error(
+                            Some(req.id),
+                            -32600,
+                            "Expected 'initialize' as first request".into(),
+                        )
+                        .await;
                     return;
                 }
                 Err(e) => {
-                    let _ = conn.send_error(Some(req.id), -32600,
-                        format!("Invalid init: {}", e)).await;
+                    let _ = conn
+                        .send_error(Some(req.id), -32600, format!("Invalid init: {}", e))
+                        .await;
                     return;
                 }
             }
         }
-        _ => { return; }
+        _ => {
+            return;
+        }
     };
+
+    if let Some(protocol_version) = init_protocol_version {
+        if protocol_version != IPC_PROTOCOL_VERSION {
+            let _ = conn
+                .send_error(
+                    Some(init_id),
+                    -32001,
+                    format!(
+                        "Incompatible IPC protocol version '{}'; daemon supports '{}'. Upgrade the client or daemon.",
+                        protocol_version, IPC_PROTOCOL_VERSION
+                    ),
+                )
+                .await;
+            return;
+        }
+    }
 
     let model = init_model
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
@@ -2286,14 +3028,18 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         // on the same cwd get independent sessions and don't block each other.
         let cwd_hash = format!("{:x}", md5_simple(&work_cwd.to_string_lossy()))[..8].to_string();
         let session_id_clone = format!("{}-{}", cwd_hash, shared_session_id);
-        eprintln!("Client connecting to session '{}' (cwd: {})", session_id_clone, work_cwd.display());
+        eprintln!(
+            "Client connecting to session '{}' (cwd: {})",
+            session_id_clone,
+            work_cwd.display()
+        );
         let shared_clone = shared.clone();
         let model_clone = model.clone();
         let work_cwd_clone = work_cwd.clone();
 
-        let (session, is_new) = shared.session_registry.get_or_create(
-            &session_id_clone,
-            || {
+        let (session, is_new) = shared
+            .session_registry
+            .get_or_create(&session_id_clone, || {
                 QueryEngine::new(QueryEngineConfig {
                     cwd: work_cwd_clone,
                     tools: shared_clone.engine_tools.clone(),
@@ -2309,23 +3055,26 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     fallback_models: shared_clone.baoclaw_config.fallback_models.clone(),
                     max_retries_per_model: shared_clone.baoclaw_config.max_retries_per_model,
                     context_window: shared_clone.baoclaw_config.context_window,
-                    auto_compact_threshold_ratio: shared_clone.baoclaw_config.auto_compact_threshold_ratio,
+                    auto_compact_threshold_ratio: shared_clone
+                        .baoclaw_config
+                        .auto_compact_threshold_ratio,
                     parent_turn_id: None,
                     agent_label: None,
                     session_memory: Some(Arc::new(
-                        crate::engine::session_memory::SessionMemory::load(&session_id_clone)
+                        crate::engine::session_memory::SessionMemory::load(&session_id_clone),
                     )),
                     file_cache: Some(Arc::clone(&shared_clone.file_cache)),
                     tool_result_store: shared_clone.tool_result_store.as_ref().map(Arc::clone),
                     hook_manager: Some(Arc::clone(&shared_clone.hook_manager)),
                 })
-            },
-        ).await;
+            })
+            .await;
 
         // Auto-register this project in the registry
-        shared.project_registry.ensure_registered(
-            &work_cwd.to_string_lossy(), None
-        ).await;
+        shared
+            .project_registry
+            .ensure_registered(&work_cwd.to_string_lossy(), None)
+            .await;
 
         // ── Resume session history: summary-first strategy ──
         // Inspired by Claude Code: load pre-written summary + recent tail,
@@ -2333,11 +3082,13 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         let current_msg_count = session.engine_read().await.get_messages().len();
         if is_new || current_msg_count == 0 {
             let cwd_str_for_resume = work_cwd.to_string_lossy().to_string();
-            if let Some(rid) = engine::transcript::find_latest_session_for_cwd(&cwd_str_for_resume) {
+            if let Some(rid) = engine::transcript::find_latest_session_for_cwd(&cwd_str_for_resume)
+            {
                 match engine::transcript::TranscriptWriter::load(&rid) {
                     Ok(entries) => {
                         let entry_count = entries.len();
-                        let old_summary_obj = crate::engine::session_memory::SessionMemory::load(&rid);
+                        let old_summary_obj =
+                            crate::engine::session_memory::SessionMemory::load(&rid);
                         let old_summary = old_summary_obj.get();
                         let has_summary = old_summary_obj.is_available();
 
@@ -2349,11 +3100,16 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                             eprintln!("Session resume: loading pre-written summary + {} recent entries (of {} total)",
                                 tail_size, entry_count);
                             engine::transcript::rebuild_messages_from_transcript_limited(
-                                &entries, tail_size, Some(&old_summary),
+                                &entries,
+                                tail_size,
+                                Some(&old_summary),
                             )
                         } else if entry_count <= 400 {
                             // Tier 2: small session, no summary — safe to rebuild all
-                            eprintln!("Session resume: small session ({} entries), rebuilding all", entry_count);
+                            eprintln!(
+                                "Session resume: small session ({} entries), rebuilding all",
+                                entry_count
+                            );
                             engine::transcript::rebuild_messages_from_transcript(&entries)
                         } else {
                             // Tier 3 (fallback): large session with NO summary
@@ -2367,7 +3123,8 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                                 entry_count, tail_size
                             );
                             let tail_entries = &entries[entry_count - tail_size..];
-                            let mut msgs = engine::transcript::rebuild_messages_from_transcript(tail_entries);
+                            let mut msgs =
+                                engine::transcript::rebuild_messages_from_transcript(tail_entries);
 
                             // Prepend a warning so the LLM knows context is incomplete
                             if !msgs.is_empty() {
@@ -2398,8 +3155,12 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                             // Seed the new session's memory with the old summary
                             engine.seed_session_memory(&old_summary);
 
-                            eprintln!("Resumed session {} ({} entries → {} messages)",
-                                rid, entry_count, engine.get_messages().len());
+                            eprintln!(
+                                "Resumed session {} ({} entries → {} messages)",
+                                rid,
+                                entry_count,
+                                engine.get_messages().len()
+                            );
                         }
                     }
                     Err(e) => eprintln!("Failed to resume session {}: {}", rid, e),
@@ -2411,18 +3172,33 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
         let msg_count = session.engine_read().await.get_messages().len();
 
         // Send init response with shared: true
-        let _ = conn.send_response(init_id, serde_json::json!({
-            "capabilities": { "tools": true, "streaming": true, "permissions": true },
-            "session_id": &session_id_clone,
-            "shared": true,
-            "reconnected": msg_count > 0,
-            "resumed": false,
-            "message_count": msg_count,
-        })).await;
+        let _ = conn
+            .send_response(
+                init_id,
+                serde_json::json!({
+                    "capabilities": { "tools": true, "streaming": true, "permissions": true },
+                    "session_id": &session_id_clone,
+                    "shared": true,
+                    "reconnected": msg_count > 0,
+                    "resumed": false,
+                    "message_count": msg_count,
+                    "model": session.engine_read().await.get_model(),
+                }),
+            )
+            .await;
 
         // Enter shared-mode RPC loop
         let hook_cwd = work_cwd.to_string_lossy().to_string();
-        handle_shared_client(conn, shared, session.clone(), client_id, broadcast_rx, work_cwd, session_id_clone.clone()).await;
+        handle_shared_client(
+            conn,
+            shared,
+            session.clone(),
+            client_id,
+            broadcast_rx,
+            work_cwd,
+            session_id_clone.clone(),
+        )
+        .await;
 
         // Client disconnect handling (Task 6.1)
         let is_last = session.remove_client(client_id).await;
@@ -2438,14 +3214,15 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                 drop(engine);
 
                 // Estimate session duration from first and last message timestamps
-                let duration_secs = if messages_clone.len() >= 2 {
-                    let first_ts = &messages_clone.first().unwrap().timestamp;
-                    let last_ts = &messages_clone.last().unwrap().timestamp;
+                let duration_secs = if let [first, .., last] = messages_clone.as_slice() {
+                    let first_ts = &first.timestamp;
+                    let last_ts = &last.timestamp;
                     (|| -> Option<u64> {
                         let t1 = chrono::DateTime::parse_from_rfc3339(first_ts).ok()?;
                         let t2 = chrono::DateTime::parse_from_rfc3339(last_ts).ok()?;
                         Some((t2 - t1).num_seconds().max(0) as u64)
-                    })().unwrap_or(0)
+                    })()
+                    .unwrap_or(0)
                 } else {
                     0
                 };
@@ -2462,17 +3239,21 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     let engine = session.engine_read().await;
                     if let Some(ref sm) = engine.get_session_memory() {
                         if !sm.is_available() && messages_clone.len() >= 4 {
-                            eprintln!("Session close: generating heuristic session memory ({} messages)",
-                                messages_clone.len());
+                            eprintln!(
+                                "Session close: generating heuristic session memory ({} messages)",
+                                messages_clone.len()
+                            );
 
-                            let mut summary_parts = vec![
-                                "# Session Summary".to_string(),
-                            ];
+                            let mut summary_parts = vec!["# Session Summary".to_string()];
 
                             // Extract user messages as task list
                             let mut task_descriptions = Vec::new();
                             for msg in &messages_clone {
-                                if let crate::models::message::MessageContent::User { message, .. } = &msg.content {
+                                if let crate::models::message::MessageContent::User {
+                                    message,
+                                    ..
+                                } = &msg.content
+                                {
                                     if let serde_json::Value::String(s) = &message.content {
                                         let first_line = s.lines().next().unwrap_or("");
                                         if !first_line.is_empty() && first_line.len() < 200 {
@@ -2489,8 +3270,12 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                                 }
                             }
 
-                            summary_parts.push(format!("\n## Stats\n- Messages: {}\n- Duration: {}s\n- Cost: ${:.4}",
-                                messages_clone.len(), duration_secs, estimated_cost));
+                            summary_parts.push(format!(
+                                "\n## Stats\n- Messages: {}\n- Duration: {}s\n- Cost: ${:.4}",
+                                messages_clone.len(),
+                                duration_secs,
+                                estimated_cost
+                            ));
 
                             let summary = summary_parts.join("\n");
                             sm.update(summary);
@@ -2499,19 +3284,28 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
                     }
                 }
 
-                shared_clone.evolution_engine.on_session_close(
-                    &session_id_clone,
-                    &hook_cwd,
-                    &model,
-                    &messages_clone,
-                    &usage,
-                    estimated_cost,
-                    duration_secs,
-                ).await;
+                shared_clone
+                    .evolution_engine
+                    .on_session_close(
+                        &session_id_clone,
+                        &hook_cwd,
+                        &model,
+                        &messages_clone,
+                        &usage,
+                        estimated_cost,
+                        duration_secs,
+                    )
+                    .await;
             }
 
-            shared_clone.session_registry.remove(&session_id_clone).await;
-            eprintln!("Shared session '{}' removed (last client disconnected)", session_id_clone);
+            shared_clone
+                .session_registry
+                .remove(&session_id_clone)
+                .await;
+            eprintln!(
+                "Shared session '{}' removed (last client disconnected)",
+                session_id_clone
+            );
         }
 
         eprintln!("Shared client {} session ended", client_id);
@@ -2520,8 +3314,13 @@ async fn handle_client(mut conn: IpcConnection, shared: SharedState) {
 
     // All clients use shared mode.
     eprintln!("Client disconnected: no shared_session_id provided");
-    let _ = conn.send_error(Some(init_id), -32600,
-        "shared_session_id is required".into()).await;
+    let _ = conn
+        .send_error(
+            Some(init_id),
+            -32600,
+            "shared_session_id is required".into(),
+        )
+        .await;
 }
 
 /// Run the daemon under a Windows service context.
@@ -2545,7 +3344,10 @@ pub fn run_daemon_main_with_shutdown_check() {
 
     let cwd = std::env::current_dir().unwrap_or_default();
 
-    eprintln!("[service] Launching daemon subprocess: {} --daemon", exe.display());
+    eprintln!(
+        "[service] Launching daemon subprocess: {} --daemon",
+        exe.display()
+    );
 
     let mut child = match std::process::Command::new(&exe)
         .arg("--daemon")
@@ -2572,7 +3374,12 @@ pub fn run_daemon_main_with_shutdown_check() {
             // On Windows, kill() sends a TerminateProcess which is forceful;
             // for graceful shutdown we'd need CTRL_BREAK_EVENT, but the daemon's
             // session persistence is also handled by its periodic save logic.
-            let _ = child.kill();
+            if let Err(e) = child.kill() {
+                eprintln!(
+                    "[daemon] WARNING: could not kill engine child: {} (may have already exited)",
+                    e
+                );
+            }
             break;
         }
 
@@ -2594,8 +3401,10 @@ pub fn run_daemon_main_with_shutdown_check() {
         }
     }
 
-    // Ensure child is reaped
-    let _ = child.wait();
+    // Ensure child is reaped; failure here would leak a zombie — surface it.
+    if let Err(e) = child.wait() {
+        eprintln!("[daemon] WARNING: child wait failed: {}", e);
+    }
 }
 
 #[tokio::main]
@@ -2641,24 +3450,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Parse --cwd flag or use current directory
-    let cwd_str = args.iter().position(|a| a == "--cwd")
+    let cwd_str = args
+        .iter()
+        .position(|a| a == "--cwd")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.to_string())
-        .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string());
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|d| d.to_string_lossy().to_string())
+                .unwrap_or_else(|_| ".".to_string())
+        });
     let _cwd = PathBuf::from(&cwd_str);
 
     // Parse --resume flag for session resumption
-    let cli_resume_session_id = args.iter().position(|a| a == "--resume")
+    let cli_resume_session_id = args
+        .iter()
+        .position(|a| a == "--resume")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.to_string());
 
     // Parse --think flag for extended thinking
     let cli_thinking_config = if args.iter().any(|a| a == "--think") {
-        let budget = args.iter().position(|a| a == "--think")
+        let budget = args
+            .iter()
+            .position(|a| a == "--think")
             .and_then(|i| args.get(i + 1))
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(10240);
-        ThinkingConfig::Enabled { budget_tokens: budget }
+        ThinkingConfig::Enabled {
+            budget_tokens: budget,
+        }
     } else {
         ThinkingConfig::Disabled
     };
@@ -2666,8 +3487,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse --sandbox flag for sandboxed command execution
     // Usage: --sandbox bwrap | --sandbox docker | --sandbox none
     // If flag is omitted, no sandbox is used (direct execution).
-    let sandbox_config: Option<Arc<engine::sandbox::SandboxConfig>> =
-        args.iter().position(|a| a == "--sandbox")
+    if let Some(mode) = args
+        .iter()
+        .position(|arg| arg == "--sandbox")
+        .and_then(|index| args.get(index + 1))
+    {
+        if !matches!(
+            mode.as_str(),
+            "bwrap" | "bubblewrap" | "docker" | "none" | "off"
+        ) {
+            return Err(format!(
+                "Unknown sandbox mode '{}'. Use bwrap, docker, or none.",
+                mode
+            )
+            .into());
+        }
+    }
+    let sandbox_config: Option<Arc<engine::sandbox::SandboxConfig>> = args
+        .iter()
+        .position(|a| a == "--sandbox")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str())
         .map(|mode| {
@@ -2688,10 +3526,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("[sandbox] Sandbox disabled (direct execution)");
                     SandboxBackend::None
                 }
-                other => {
-                    eprintln!("[sandbox] WARNING: unknown sandbox mode '{}', falling back to auto-detect", other);
-                    SandboxConfig::auto_detect().backend
-                }
+                _ => unreachable!("sandbox mode validated before parsing"),
             };
             let mut cfg = SandboxConfig {
                 backend,
@@ -2735,8 +3570,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Validate sandbox configuration at startup
     if let Some(ref cfg) = sandbox_config {
         if let Some(err) = cfg.validate() {
-            eprintln!("[sandbox] ERROR: {}", err);
-            eprintln!("[sandbox] Falling back to direct execution (no sandbox)");
+            return Err(format!("Sandbox configuration invalid: {}", err).into());
         } else {
             eprintln!("[sandbox] ✓ Sandbox ready: {}", cfg.description());
         }
@@ -2745,15 +3579,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create socket: prefer fixed machine-level path (P3-1c), fall back to cwd-hash
     let socket_path = resolve_daemon_socket(&cwd_str);
 
-    // Clean up stale fixed socket if it exists but no daemon is listening
-    if socket_path.exists() {
-        if tokio::net::UnixStream::connect(&socket_path).await.is_err() {
-            // No daemon listening — remove stale socket file
-            let _ = std::fs::remove_file(&socket_path);
-        }
-    }
-
-    // Bind IPC server
+    // IpcServer::bind probes and removes stale sockets, avoiding a
+    // check-then-delete race during daemon startup.
     let server = IpcServer::bind(&socket_path).await?;
 
     // Output socket path for clients to find
@@ -2766,7 +3593,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if is_daemon {
         let log_path = socket_path.with_extension("log");
         let log_file = std::fs::OpenOptions::new()
-            .create(true).append(true).open(&log_path).ok();
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
 
         #[cfg(unix)]
         {
@@ -2776,18 +3606,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     libc::dup2(f.as_raw_fd(), 2); // stderr → log
                 }
             } else {
-                let devnull = std::fs::File::open("/dev/null").unwrap();
+                // Init-time: /dev/null is guaranteed to exist on unix targets;
+                // failure here means the fd table is exhausted — aborting startup
+                // is the correct behavior, hence unwrap is intentional.
+                let devnull = std::fs::File::open("/dev/null")
+                    .expect("/dev/null must be openable at startup");
                 unsafe {
                     libc::dup2(devnull.as_raw_fd(), 2);
                 }
             }
-            let devnull = std::fs::File::open("/dev/null").unwrap();
+            let devnull =
+                std::fs::File::open("/dev/null").expect("/dev/null must be openable at startup");
             unsafe {
                 libc::dup2(devnull.as_raw_fd(), 1); // stdout → /dev/null
             }
         }
 
-        eprintln!("baoclaw-core daemon started (pid={}, cwd={})", std::process::id(), cwd_str);
+        eprintln!(
+            "baoclaw-core daemon started (pid={}, cwd={})",
+            std::process::id(),
+            cwd_str
+        );
     }
 
     // Load BaoClaw config from ~/.baoclaw/config.json
@@ -2829,8 +3668,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Determine the effective primary profile for API client construction.
     // After normalize_profiles, primary_profile is always Some if model is set.
     let primary_profile: config::ModelProfile = {
-        let name = baoclaw_config.primary_profile.as_deref().unwrap_or("primary");
-        baoclaw_config.model_profiles.get(name)
+        let name = baoclaw_config
+            .primary_profile
+            .as_deref()
+            .unwrap_or("primary");
+        baoclaw_config
+            .model_profiles
+            .get(name)
             .cloned()
             .unwrap_or_else(|| {
                 // Fallback: construct from legacy fields
@@ -2852,9 +3696,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let base_url = resolve_base_url(&primary_profile);
         match primary_profile.api_type.as_str() {
             "openai" => {
-                eprintln!("Using OpenAI-compatible API (model: {}, base_url: {})",
+                eprintln!(
+                    "Using OpenAI-compatible API (model: {}, base_url: {})",
                     primary_profile.model,
-                    base_url.as_deref().unwrap_or("https://api.openai.com"));
+                    base_url.as_deref().unwrap_or("https://api.openai.com")
+                );
                 let config = ApiClientConfig {
                     api_key,
                     base_url,
@@ -2865,9 +3711,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             _ => {
                 let api_path = std::env::var("ANTHROPIC_API_PATH").ok();
-                eprintln!("Using Anthropic API (model: {}, base_url: {})",
+                eprintln!(
+                    "Using Anthropic API (model: {}, base_url: {})",
                     primary_profile.model,
-                    base_url.as_deref().unwrap_or("https://api.anthropic.com"));
+                    base_url.as_deref().unwrap_or("https://api.anthropic.com")
+                );
                 let config = ApiClientConfig {
                     api_key,
                     base_url,
@@ -2894,7 +3742,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let additional_dirs = vec![baoclaw_home];
 
     // Create evolution engine for self-improvement
-    let evolution_engine = Arc::new(engine::evolution::EvolutionEngine::new(std::path::Path::new(&cwd_str)));
+    let evolution_engine = Arc::new(engine::evolution::EvolutionEngine::new(
+        std::path::Path::new(&cwd_str),
+    ));
 
     // Build the core tool list (everything except AgentTool itself, which is added after)
     // BashTool is optionally sandboxed based on --sandbox CLI flag
@@ -2916,7 +3766,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(MemoryTool::new()),
         Arc::new(ProjectNoteTool::new()),
         Arc::new(tools::builtins::SkillTool::new(PathBuf::from(&cwd_str))),
-        Arc::new(tools::builtins::EvolveTool::new(Arc::clone(&evolution_engine))),
+        Arc::new(tools::builtins::EvolveTool::new(Arc::clone(
+            &evolution_engine,
+        ))),
     ];
 
     // AgentTool gets the full core tool set so sub-agents can write, edit, run bash, etc.
@@ -2929,61 +3781,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine_tools: Vec<Arc<dyn tools::Tool>> = {
         let mut all = engine_tools;
 
-//         // MCP integration: discover and connect to MCP servers (with timeout)
-//         // Singleton check: ensure MCP is only initialized once
-//         if MCP_INITIALIZED.load(Ordering::SeqCst) {
-//             eprintln!("MCP already initialized, skipping...");
-//         } else {
-//             MCP_INITIALIZED.store(true, Ordering::SeqCst);
-//         let mcp_servers = discovery::mcp_config::discover_mcp_servers(std::path::Path::new(&cwd_str)).await;
-//         for server_info in &mcp_servers {
-//             if server_info.disabled {
-//                 continue;
-//             }
-//             if let Some(ref command) = server_info.command {
-//                 let config = mcp::McpServerConfig {
-//                     name: server_info.name.clone(),
-//                     command: command.clone(),
-//                     args: server_info.args.clone(),
-//                     env: std::collections::HashMap::new(),
-//                     transport: mcp::McpTransportType::Stdio,
-//                 };
-//                 let mut client = mcp::McpClient::new(config);
-//                 let connect_result = tokio::time::timeout(
-//                     std::time::Duration::from_secs(30),
-//                     client.connect_stdio(),
-//                 ).await;
-//                 match connect_result {
-//                     Ok(Ok(())) => {
-//                         let client = Arc::new(client);
-//                         if let Ok(tools) = client.list_tools().await {
-//                             eprintln!("MCP server '{}': {} tools discovered", server_info.name, tools.len());
-//                             for tool_def in &tools {
-//                                 eprintln!("  MCP tool: {}", tool_def.name);
-//                             }
-//                             for tool_def in tools {
-//                                 let wrapper = McpToolWrapper::new(
-//                                     Arc::clone(&client),
-//                                     tool_def,
-//                                     server_info.name.clone(),
-//                                 );
-//                                 all.push(Arc::new(wrapper));
-//                             }
-//                         } else {
-//                             eprintln!("MCP server '{}': list_tools failed", server_info.name);
-//                         }
-//                         eprintln!("MCP server '{}' connected", server_info.name);
-//                     }
-//                     Ok(Err(e)) => {
-//                         eprintln!("Warning: MCP server '{}' failed to connect: {}", server_info.name, e);
-//                     }
-//                     Err(_) => {
-//                         eprintln!("Warning: MCP server '{}' connection timed out (30s)", server_info.name);
-//                     }
-//                 }
-//             }
-//         }
-// 
+        //         // MCP integration: discover and connect to MCP servers (with timeout)
+        //         // Singleton check: ensure MCP is only initialized once
+        //         if MCP_INITIALIZED.load(Ordering::SeqCst) {
+        //             eprintln!("MCP already initialized, skipping...");
+        //         } else {
+        //             MCP_INITIALIZED.store(true, Ordering::SeqCst);
+        //         let mcp_servers = discovery::mcp_config::discover_mcp_servers(std::path::Path::new(&cwd_str)).await;
+        //         for server_info in &mcp_servers {
+        //             if server_info.disabled {
+        //                 continue;
+        //             }
+        //             if let Some(ref command) = server_info.command {
+        //                 let config = mcp::McpServerConfig {
+        //                     name: server_info.name.clone(),
+        //                     command: command.clone(),
+        //                     args: server_info.args.clone(),
+        //                     env: std::collections::HashMap::new(),
+        //                     transport: mcp::McpTransportType::Stdio,
+        //                 };
+        //                 let mut client = mcp::McpClient::new(config);
+        //                 let connect_result = tokio::time::timeout(
+        //                     std::time::Duration::from_secs(30),
+        //                     client.connect_stdio(),
+        //                 ).await;
+        //                 match connect_result {
+        //                     Ok(Ok(())) => {
+        //                         let client = Arc::new(client);
+        //                         if let Ok(tools) = client.list_tools().await {
+        //                             eprintln!("MCP server '{}': {} tools discovered", server_info.name, tools.len());
+        //                             for tool_def in &tools {
+        //                                 eprintln!("  MCP tool: {}", tool_def.name);
+        //                             }
+        //                             for tool_def in tools {
+        //                                 let wrapper = McpToolWrapper::new(
+        //                                     Arc::clone(&client),
+        //                                     tool_def,
+        //                                     server_info.name.clone(),
+        //                                 );
+        //                                 all.push(Arc::new(wrapper));
+        //                             }
+        //                         } else {
+        //                             eprintln!("MCP server '{}': list_tools failed", server_info.name);
+        //                         }
+        //                         eprintln!("MCP server '{}' connected", server_info.name);
+        //                     }
+        //                     Ok(Err(e)) => {
+        //                         eprintln!("Warning: MCP server '{}' failed to connect: {}", server_info.name, e);
+        //                     }
+        //                     Err(_) => {
+        //                         eprintln!("Warning: MCP server '{}' connection timed out (30s)", server_info.name);
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //
 
         all.push(Arc::new(ToolSearchTool::new(all.clone())));
         eprintln!("Total tools registered: {} (including MCP)", all.len());
@@ -2991,7 +3843,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Load skill content for system prompt injection
-    let skill_prompt = discovery::skills::load_skills_for_prompt(std::path::Path::new(&cwd_str)).await;
+    let skill_prompt =
+        discovery::skills::load_skills_for_prompt(std::path::Path::new(&cwd_str)).await;
     if let Some(ref sp) = skill_prompt {
         eprintln!("Loaded skills into system prompt ({} chars)", sp.len());
     }
@@ -3000,15 +3853,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory_store = Arc::new(engine::memory::MemoryStore::load());
     let memory_prompt = memory_store.build_prompt_fragment().await;
     if let Some(ref mp) = memory_prompt {
-        eprintln!("Loaded long-term memory into system prompt ({} chars)", mp.len());
+        eprintln!(
+            "Loaded long-term memory into system prompt ({} chars)",
+            mp.len()
+        );
     }
 
     // Combine skill + memory into append_system_prompt
     let combined_append_prompt = {
         let mut parts = Vec::new();
-        if let Some(sp) = skill_prompt { parts.push(sp); }
-        if let Some(mp) = memory_prompt { parts.push(mp); }
-        if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
+        if let Some(sp) = skill_prompt {
+            parts.push(sp);
+        }
+        if let Some(mp) = memory_prompt {
+            parts.push(mp);
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n\n"))
+        }
     };
 
     // Reuse existing project session or create new one.
@@ -3091,8 +3955,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         evolution_engine,
         cron_manager: Arc::new(engine::cron::CronManager::new()),
         project_registry: Arc::new(engine::projects::ProjectRegistry::new()),
-        file_cache: Arc::new(tokio::sync::Mutex::new(engine::file_cache::FileCache::default_capacity())),
-        tool_result_store: Some(Arc::new(engine::tool_result_store::ToolResultStore::for_session(&session_id))),
+        file_cache: Arc::new(tokio::sync::Mutex::new(
+            engine::file_cache::FileCache::default_capacity(),
+        )),
+        tool_result_store: Some(Arc::new(
+            engine::tool_result_store::ToolResultStore::for_session(&session_id),
+        )),
         hook_manager: Arc::new(engine::hooks::HookManager::new()),
         team_executor,
     };
@@ -3114,73 +3982,75 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cron_tool_result_store = shared.tool_result_store.as_ref().map(Arc::clone);
         let cron_hook_manager = Arc::clone(&shared.hook_manager);
 
-        let run_fn: Arc<dyn Fn(String, Option<String>) -> tokio::task::JoinHandle<String> + Send + Sync> =
-            Arc::new(move |prompt: String, cwd: Option<String>| {
-                let tools = cron_tools.clone();
-                let api_client = Arc::clone(&cron_api_client);
-                let baoclaw_config = cron_baoclaw_config.clone();
-                let thinking_config = cron_thinking_config.clone();
-                let append_prompt = cron_append_prompt.clone();
-                let _session_id = cron_session_id.clone();
-                let file_cache = Arc::clone(&cron_file_cache);
-                let tool_result_store = cron_tool_result_store.as_ref().map(Arc::clone);
-                let hook_manager = Arc::clone(&cron_hook_manager);
+        let run_fn: Arc<
+            dyn Fn(String, Option<String>) -> tokio::task::JoinHandle<String> + Send + Sync,
+        > = Arc::new(move |prompt: String, cwd: Option<String>| {
+            let tools = cron_tools.clone();
+            let api_client = Arc::clone(&cron_api_client);
+            let baoclaw_config = cron_baoclaw_config.clone();
+            let thinking_config = cron_thinking_config.clone();
+            let append_prompt = cron_append_prompt.clone();
+            let _session_id = cron_session_id.clone();
+            let file_cache = Arc::clone(&cron_file_cache);
+            let tool_result_store = cron_tool_result_store.as_ref().map(Arc::clone);
+            let hook_manager = Arc::clone(&cron_hook_manager);
 
-                let job_session_id = format!("cron-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+            let job_session_id = format!("cron-{}", &uuid::Uuid::new_v4().to_string()[..8]);
 
-                tokio::spawn(async move {
-                    let cwd_path = cwd.map(PathBuf::from)
-                        .unwrap_or_else(|| std::env::var("HOME")
-                            .map(PathBuf::from)
-                            .unwrap_or_else(|_| PathBuf::from("/tmp")));
+            tokio::spawn(async move {
+                let cwd_path = cwd.map(PathBuf::from).unwrap_or_else(|| {
+                    std::env::var("HOME")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|_| PathBuf::from("/tmp"))
+                });
 
-                    let mut engine = QueryEngine::new(QueryEngineConfig {
-                        cwd: cwd_path,
-                        tools,
-                        api_client,
-                        model: baoclaw_config.model.clone(),
-                        thinking_config,
-                        max_turns: Some(10),
-                        max_budget_usd: Some(0.5),
-                        verbose: false,
-                        custom_system_prompt: None,
-                        append_system_prompt: append_prompt,
-                        session_id: Some(job_session_id),
-                        fallback_models: baoclaw_config.fallback_models.clone(),
-                        max_retries_per_model: baoclaw_config.max_retries_per_model,
-                        context_window: baoclaw_config.context_window,
-                        auto_compact_threshold_ratio: baoclaw_config.auto_compact_threshold_ratio,
-                        parent_turn_id: None,
-                        agent_label: Some("cron".to_string()),
-                        session_memory: None,
-                        file_cache: Some(file_cache),
-                        tool_result_store,
-                        hook_manager: Some(hook_manager),
-                    });
+                let mut engine = QueryEngine::new(QueryEngineConfig {
+                    cwd: cwd_path,
+                    tools,
+                    api_client,
+                    model: baoclaw_config.model.clone(),
+                    thinking_config,
+                    max_turns: Some(10),
+                    max_budget_usd: Some(0.5),
+                    verbose: false,
+                    custom_system_prompt: None,
+                    append_system_prompt: append_prompt,
+                    session_id: Some(job_session_id),
+                    fallback_models: baoclaw_config.fallback_models.clone(),
+                    max_retries_per_model: baoclaw_config.max_retries_per_model,
+                    context_window: baoclaw_config.context_window,
+                    auto_compact_threshold_ratio: baoclaw_config.auto_compact_threshold_ratio,
+                    parent_turn_id: None,
+                    agent_label: Some("cron".to_string()),
+                    session_memory: None,
+                    file_cache: Some(file_cache),
+                    tool_result_store,
+                    hook_manager: Some(hook_manager),
+                });
 
-                    let mut rx = engine.submit_message(prompt).await;
-                    let mut result = String::new();
-                    while let Some(event) = rx.recv().await {
-                        match event {
-                            EngineEvent::AssistantChunk { content, .. } => result.push_str(&content),
-                            EngineEvent::Result(qr) => {
-                                if let Some(text) = qr.text {
-                                    if !text.is_empty() && result.is_empty() {
-                                        result = text;
-                                    }
+                let mut rx = engine.submit_message(prompt).await;
+                let mut result = String::new();
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        EngineEvent::AssistantChunk { content, .. } => result.push_str(&content),
+                        EngineEvent::Result(qr) => {
+                            if let Some(text) = qr.text {
+                                if !text.is_empty() && result.is_empty() {
+                                    result = text;
                                 }
-                                break;
                             }
-                            EngineEvent::Error(_) => break,
-                            _ => {}
+                            break;
                         }
+                        EngineEvent::Error(_) => break,
+                        _ => {}
                     }
-                    if result.is_empty() {
-                        result = "(no output)".to_string();
-                    }
-                    result
-                })
-            });
+                }
+                if result.is_empty() {
+                    result = "(no output)".to_string();
+                }
+                result
+            })
+        });
 
         tokio::spawn(async move {
             cron_manager.start_scheduler(run_fn).await;
@@ -3195,7 +4065,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let memory_cleanup = Arc::clone(&shared.memory_cleanup);
         tokio::spawn(async move {
-            memory_cleanup.start().await;
+            let _ = memory_cleanup.start().await;
         });
     }
 
@@ -3215,7 +4085,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(unix)]
             let terminate = async {
                 let mut sig = signal::unix::signal(signal::unix::SignalKind::terminate())
-                    .expect("failed to install SIGTERM handler");
+                    .expect("failed to install SIGTERM handler (init-time; no recovery possible)");
                 sig.recv().await;
             };
 

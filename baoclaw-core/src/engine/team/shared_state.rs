@@ -90,8 +90,10 @@ pub struct AgentResultForMerge {
 /// Strategy for merging agent results.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum MergeStrategy {
     /// Concatenate all results with a separator.
+    #[default]
     Concat,
     /// Collect results into a JSON array.
     JsonArray,
@@ -105,12 +107,6 @@ pub enum MergeStrategy {
     SuccessOnly,
     /// Custom merge using a provided function name.
     Custom(String),
-}
-
-impl Default for MergeStrategy {
-    fn default() -> Self {
-        Self::Concat
-    }
 }
 
 impl std::fmt::Display for MergeStrategy {
@@ -210,7 +206,7 @@ impl SharedStateManager {
         let key = key.into();
         let mut data = self.data.write().await;
         data.insert(key.clone(), value);
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.kv_operations += 1;
@@ -223,11 +219,11 @@ impl SharedStateManager {
     pub async fn get(&self, key: &str) -> Option<serde_json::Value> {
         let data = self.data.read().await;
         let value = data.get(key).cloned();
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.kv_operations += 1;
-        
+
         value
     }
 
@@ -235,11 +231,11 @@ impl SharedStateManager {
     pub async fn contains(&self, key: &str) -> bool {
         let data = self.data.read().await;
         let exists = data.contains_key(key);
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.kv_operations += 1;
-        
+
         exists
     }
 
@@ -247,11 +243,11 @@ impl SharedStateManager {
     pub async fn remove(&self, key: &str) -> Option<serde_json::Value> {
         let mut data = self.data.write().await;
         let value = data.remove(key);
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.kv_operations += 1;
-        
+
         value
     }
 
@@ -294,7 +290,7 @@ impl SharedStateManager {
         for (key, value) in pairs {
             data.insert(key, value);
         }
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.kv_operations += count as u64;
@@ -312,28 +308,25 @@ impl SharedStateManager {
         let current = data.get(key);
         let new_value = f(current);
         data.insert(key.to_string(), new_value.clone());
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.kv_operations += 1;
-        
+
         Some(new_value)
     }
 
     /// Increment a numeric value.
     pub async fn increment(&self, key: &str, amount: f64) -> f64 {
         let mut data = self.data.write().await;
-        let current = data
-            .get(key)
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let current = data.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0);
         let new_value = current + amount;
         data.insert(key.to_string(), serde_json::json!(new_value));
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.kv_operations += 1;
-        
+
         new_value
     }
 
@@ -356,7 +349,7 @@ impl SharedStateManager {
         let event = ProgressEvent::new(agent_id, message, progress);
         // Ignore send errors (no subscribers is OK)
         let _ = self.progress_tx.send(event);
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.progress_broadcasts += 1;
@@ -372,7 +365,7 @@ impl SharedStateManager {
     ) {
         let event = ProgressEvent::new(agent_id, message, progress).with_data(data);
         let _ = self.progress_tx.send(event);
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.progress_broadcasts += 1;
@@ -391,7 +384,7 @@ impl SharedStateManager {
     pub async fn store_result(&self, result: AgentResultForMerge) {
         let mut results = self.results.write().await;
         results.push(result);
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.results_stored += 1;
@@ -402,7 +395,7 @@ impl SharedStateManager {
         let mut results = self.results.write().await;
         let count = new_results.len();
         results.extend(new_results);
-        
+
         // Update metrics
         let mut metrics = self.metrics.write().await;
         metrics.results_stored += count as u64;
@@ -494,7 +487,7 @@ impl SharedStateManager {
         let failed: Vec<_> = results.iter().filter(|r| !r.success).collect();
 
         let mut summary = String::new();
-        summary.push_str(&format!("# Team Results Summary\n\n"));
+        summary.push_str("# Team Results Summary\n\n");
         summary.push_str(&format!("Total agents: {}\n", results.len()));
         summary.push_str(&format!("Successful: {}\n", successful.len()));
         summary.push_str(&format!("Failed: {}\n", failed.len()));
@@ -527,18 +520,12 @@ impl SharedStateManager {
 
     /// Take only the first result.
     fn merge_first(&self, results: &[AgentResultForMerge]) -> String {
-        results
-            .first()
-            .map(|r| r.text.clone())
-            .unwrap_or_default()
+        results.first().map(|r| r.text.clone()).unwrap_or_default()
     }
 
     /// Take only the last result.
     fn merge_last(&self, results: &[AgentResultForMerge]) -> String {
-        results
-            .last()
-            .map(|r| r.text.clone())
-            .unwrap_or_default()
+        results.last().map(|r| r.text.clone()).unwrap_or_default()
     }
 
     /// Filter by success.
@@ -728,25 +715,29 @@ mod tests {
     async fn test_merge_concat() {
         let manager = SharedStateManager::new();
 
-        manager.store_result(AgentResultForMerge {
-            agent_id: "a".to_string(),
-            text: "First".to_string(),
-            success: true,
-            tokens: 10,
-            cost_usd: 0.01,
-            duration_ms: 100,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "a".to_string(),
+                text: "First".to_string(),
+                success: true,
+                tokens: 10,
+                cost_usd: 0.01,
+                duration_ms: 100,
+                metadata: HashMap::new(),
+            })
+            .await;
 
-        manager.store_result(AgentResultForMerge {
-            agent_id: "b".to_string(),
-            text: "Second".to_string(),
-            success: true,
-            tokens: 20,
-            cost_usd: 0.02,
-            duration_ms: 200,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "b".to_string(),
+                text: "Second".to_string(),
+                success: true,
+                tokens: 20,
+                cost_usd: 0.02,
+                duration_ms: 200,
+                metadata: HashMap::new(),
+            })
+            .await;
 
         let merged = manager.merge_results(MergeStrategy::Concat).await;
         assert!(merged.text.contains("[a] First"));
@@ -759,15 +750,17 @@ mod tests {
     async fn test_merge_json_array() {
         let manager = SharedStateManager::new();
 
-        manager.store_result(AgentResultForMerge {
-            agent_id: "a".to_string(),
-            text: "Result".to_string(),
-            success: true,
-            tokens: 10,
-            cost_usd: 0.01,
-            duration_ms: 100,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "a".to_string(),
+                text: "Result".to_string(),
+                success: true,
+                tokens: 10,
+                cost_usd: 0.01,
+                duration_ms: 100,
+                metadata: HashMap::new(),
+            })
+            .await;
 
         let merged = manager.merge_results(MergeStrategy::JsonArray).await;
         assert!(merged.text.starts_with("["));
@@ -778,25 +771,29 @@ mod tests {
     async fn test_merge_first_last() {
         let manager = SharedStateManager::new();
 
-        manager.store_result(AgentResultForMerge {
-            agent_id: "first".to_string(),
-            text: "First result".to_string(),
-            success: true,
-            tokens: 10,
-            cost_usd: 0.01,
-            duration_ms: 100,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "first".to_string(),
+                text: "First result".to_string(),
+                success: true,
+                tokens: 10,
+                cost_usd: 0.01,
+                duration_ms: 100,
+                metadata: HashMap::new(),
+            })
+            .await;
 
-        manager.store_result(AgentResultForMerge {
-            agent_id: "last".to_string(),
-            text: "Last result".to_string(),
-            success: true,
-            tokens: 20,
-            cost_usd: 0.02,
-            duration_ms: 200,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "last".to_string(),
+                text: "Last result".to_string(),
+                success: true,
+                tokens: 20,
+                cost_usd: 0.02,
+                duration_ms: 200,
+                metadata: HashMap::new(),
+            })
+            .await;
 
         let first = manager.merge_results(MergeStrategy::FirstOnly).await;
         assert_eq!(first.text, "First result");
@@ -809,25 +806,29 @@ mod tests {
     async fn test_merge_success_only() {
         let manager = SharedStateManager::new();
 
-        manager.store_result(AgentResultForMerge {
-            agent_id: "success".to_string(),
-            text: "Success".to_string(),
-            success: true,
-            tokens: 10,
-            cost_usd: 0.01,
-            duration_ms: 100,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "success".to_string(),
+                text: "Success".to_string(),
+                success: true,
+                tokens: 10,
+                cost_usd: 0.01,
+                duration_ms: 100,
+                metadata: HashMap::new(),
+            })
+            .await;
 
-        manager.store_result(AgentResultForMerge {
-            agent_id: "failure".to_string(),
-            text: "Failure".to_string(),
-            success: false,
-            tokens: 20,
-            cost_usd: 0.02,
-            duration_ms: 200,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "failure".to_string(),
+                text: "Failure".to_string(),
+                success: false,
+                tokens: 20,
+                cost_usd: 0.02,
+                duration_ms: 200,
+                metadata: HashMap::new(),
+            })
+            .await;
 
         let merged = manager.merge_results(MergeStrategy::SuccessOnly).await;
         assert!(merged.text.contains("Success"));
@@ -842,15 +843,17 @@ mod tests {
 
         manager.set("key", serde_json::json!("value")).await;
         manager.broadcast_progress("agent", "progress", 0.5).await;
-        manager.store_result(AgentResultForMerge {
-            agent_id: "a".to_string(),
-            text: "result".to_string(),
-            success: true,
-            tokens: 10,
-            cost_usd: 0.01,
-            duration_ms: 100,
-            metadata: HashMap::new(),
-        }).await;
+        manager
+            .store_result(AgentResultForMerge {
+                agent_id: "a".to_string(),
+                text: "result".to_string(),
+                success: true,
+                tokens: 10,
+                cost_usd: 0.01,
+                duration_ms: 100,
+                metadata: HashMap::new(),
+            })
+            .await;
 
         let metrics = manager.get_metrics().await;
         assert!(metrics.kv_operations >= 1);
@@ -863,22 +866,30 @@ mod tests {
         let manager1 = SharedStateManager::new();
 
         manager1.set("key1", serde_json::json!("value1")).await;
-        manager1.store_result(AgentResultForMerge {
-            agent_id: "a".to_string(),
-            text: "result".to_string(),
-            success: true,
-            tokens: 10,
-            cost_usd: 0.01,
-            duration_ms: 100,
-            metadata: HashMap::new(),
-        }).await;
+        manager1
+            .store_result(AgentResultForMerge {
+                agent_id: "a".to_string(),
+                text: "result".to_string(),
+                success: true,
+                tokens: 10,
+                cost_usd: 0.01,
+                duration_ms: 100,
+                metadata: HashMap::new(),
+            })
+            .await;
 
         let exported = manager1.export().await;
 
         let manager2 = SharedStateManager::new();
-        manager2.import(exported).await.expect("Import should succeed");
+        manager2
+            .import(exported)
+            .await
+            .expect("Import should succeed");
 
-        assert_eq!(manager2.get("key1").await, Some(serde_json::json!("value1")));
+        assert_eq!(
+            manager2.get("key1").await,
+            Some(serde_json::json!("value1"))
+        );
         let results = manager2.get_results().await;
         assert_eq!(results.len(), 1);
     }
@@ -889,12 +900,18 @@ mod tests {
         manager1.set("shared", serde_json::json!("data")).await;
 
         let manager2 = manager1.clone();
-        
+
         // Both managers share the same underlying data
-        assert_eq!(manager2.get("shared").await, Some(serde_json::json!("data")));
-        
+        assert_eq!(
+            manager2.get("shared").await,
+            Some(serde_json::json!("data"))
+        );
+
         manager2.set("shared", serde_json::json!("modified")).await;
-        assert_eq!(manager1.get("shared").await, Some(serde_json::json!("modified")));
+        assert_eq!(
+            manager1.get("shared").await,
+            Some(serde_json::json!("modified"))
+        );
     }
 
     #[tokio::test]

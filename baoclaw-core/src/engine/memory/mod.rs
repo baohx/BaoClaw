@@ -15,10 +15,7 @@ pub mod decay;
 pub mod store;
 
 // Re-export commonly used types for convenience
-pub use store::{MemoryEntry, MemoryStore, MemoryError, parse_category};
-pub use decay::{
-    DecayConfig, 
-    apply_decay
-};
 pub use archive::MemoryArchive;
 pub use cleanup::MemoryCleanupScheduler;
+pub use decay::{apply_decay, DecayConfig};
+pub use store::{parse_category, MemoryEntry, MemoryStore};

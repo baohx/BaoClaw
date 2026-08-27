@@ -15,10 +15,7 @@ pub enum FallbackAction {
         delay: Duration,
     },
     /// Fall back to the next model in the chain.
-    Fallback {
-        from: String,
-        to: String,
-    },
+    Fallback { from: String, to: String },
     /// All models in the chain have been exhausted.
     Exhausted {
         models_tried: Vec<String>,
@@ -40,7 +37,7 @@ pub struct FallbackController {
 impl FallbackController {
     /// Create a new FallbackController from config.
     /// The chain is [primary_model, fallback1, fallback2, ...].
-    /// 
+    ///
     /// Supports both old format (model + fallback_models strings) and new format
     /// (model_profiles + primary_profile + fallback_profiles). The new format
     /// is preferred; if model_profiles is populated, it takes precedence.
@@ -49,7 +46,7 @@ impl FallbackController {
         let chain = if !config.model_profiles.is_empty() {
             // New format (P1-1): read from model_profiles
             let mut chain = Vec::new();
-            
+
             // Add primary profile's model
             if let Some(ref primary_name) = config.primary_profile {
                 if let Some(primary_profile) = config.model_profiles.get(primary_name.as_str()) {
@@ -62,17 +59,20 @@ impl FallbackController {
                 // No primary_profile set, use old model field
                 chain.push(config.model.clone());
             }
-            
+
             // Add fallback profiles' models (in order)
             for fallback_name in config.fallback_profiles.iter() {
                 if let Some(fallback_profile) = config.model_profiles.get(fallback_name.as_str()) {
                     chain.push(fallback_profile.model.clone());
                 } else {
                     // Fallback profile name not found, skip
-                    eprintln!("Warning: fallback profile '{}' not found in model_profiles, skipping", fallback_name);
+                    eprintln!(
+                        "Warning: fallback profile '{}' not found in model_profiles, skipping",
+                        fallback_name
+                    );
                 }
             }
-            
+
             chain
         } else {
             // Old format: model + fallback_models (backward compatibility)
@@ -80,7 +80,7 @@ impl FallbackController {
             chain.extend(config.fallback_models.iter().cloned());
             chain
         };
-        
+
         Self {
             chain,
             current_index: 0,
@@ -100,10 +100,7 @@ impl FallbackController {
 
         if self.retry_count < self.max_retries_per_model {
             // Still have retries left on current model
-            let delay = calculate_backoff(
-                self.retry_count - 1,
-                &RetryConfig::default(),
-            );
+            let delay = calculate_backoff(self.retry_count - 1, &RetryConfig::default());
             FallbackAction::Retry {
                 model: self.chain[self.current_index].clone(),
                 attempt: self.retry_count,
@@ -215,7 +212,10 @@ mod tests {
 
         // Third rate limit → Exhausted (no fallbacks)
         match fc.on_rate_limit() {
-            FallbackAction::Exhausted { models_tried, total_retries } => {
+            FallbackAction::Exhausted {
+                models_tried,
+                total_retries,
+            } => {
                 assert_eq!(models_tried, vec!["opus"]);
                 assert_eq!(total_retries, 3);
             }
@@ -270,7 +270,10 @@ mod tests {
 
         // Sixth → Exhausted
         match fc.on_rate_limit() {
-            FallbackAction::Exhausted { models_tried, total_retries } => {
+            FallbackAction::Exhausted {
+                models_tried,
+                total_retries,
+            } => {
                 assert_eq!(models_tried, vec!["opus", "sonnet", "haiku"]);
                 assert_eq!(total_retries, 6);
             }
@@ -294,7 +297,10 @@ mod tests {
 
         // Second rate limit exhausts sonnet → exhausted
         match fc.on_rate_limit() {
-            FallbackAction::Exhausted { models_tried, total_retries } => {
+            FallbackAction::Exhausted {
+                models_tried,
+                total_retries,
+            } => {
                 assert_eq!(models_tried, vec!["opus", "sonnet"]);
                 assert_eq!(total_retries, 2);
             }

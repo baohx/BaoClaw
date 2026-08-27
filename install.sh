@@ -43,6 +43,10 @@ copy_gateway() {
   local dst="$INSTALL_DIR/$name"
   [ ! -d "$src" ] && return 0
   mkdir -p "$dst/src" "$dst/public" "$dst/tui" 2>/dev/null
+  # Kök seviye TS kaynakları (ts-ipc cli.ts / client.ts / vb. kökte tutar)
+  for f in "$src"/*.ts "$src"/*.tsx; do
+    [ -f "$f" ] && cp "$f" "$dst/"
+  done
   # 复制 TS/TSX 源码
   for f in "$src"/src/*.ts "$src"/src/*.tsx; do
     [ -f "$f" ] && cp "$f" "$dst/src/"
@@ -59,6 +63,9 @@ copy_gateway() {
   fi
   # public 静态资源（web）
   [ -d "$src/public" ] && cp -r "$src/public/." "$dst/public/" 2>/dev/null
+  # Gateway-specific install hooks and patch-package patches
+  [ -d "$src/scripts" ] && cp -r "$src/scripts/." "$dst/scripts/" 2>/dev/null
+  [ -d "$src/patches" ] && cp -r "$src/patches/." "$dst/patches/" 2>/dev/null
   # 元信息
   cp "$src/package.json" "$dst/" 2>/dev/null
   cp "$src/package-lock.json" "$dst/" 2>/dev/null
@@ -127,7 +134,7 @@ make_launcher "baoclaw-tui"       "ts-ipc/tui/index.tsx"           "Rich termina
 make_launcher "baoclaw-web"       "baoclaw-web/src/server.ts"      "Web browser chat"
 make_launcher "baoclaw-telegram"  "baoclaw-telegram/src/gateway.ts" "Telegram bot gateway"
 make_launcher "baoclaw-feishu"    "baoclaw-feishu/src/gateway.ts"  "Feishu bot gateway"
-make_launcher "baoclaw-whatsapp"  "baoclaw-whatsapp/src/session.ts" "WhatsApp gateway"
+make_launcher "baoclaw-whatsapp"  "baoclaw-whatsapp/src/gateway.ts" "WhatsApp gateway"
 
 # 7. 创建 MCP 服务器启动脚本
 mkdir -p "$INSTALL_DIR/bin"
@@ -151,7 +158,8 @@ if [ -d "$SYSTEMD_DIR" ] && [ -f "$SYSTEMD_DIR/baoclaw.service" ]; then
         echo ""
         echo "⚠️  Updating systemd service to start MCP servers..."
         # 添加 ExecStartPre 启动 MCP 服务器
-        sed -i 's|ExecStart=/home/baohx@spdbfl/.baoclaw/bin/baoclaw-core --daemon|ExecStartPre=/home/baohx@spdbfl/.baoclaw/bin/mcp-servers start\nExecStart=/home/baohx@spdbfl/.baoclaw/bin/baoclaw-core --daemon|' "$SYSTEMD_DIR/baoclaw.service"
+        BAOCLAW_BIN="$HOME/.baoclaw/bin"
+        sed -i "s|ExecStart=${BAOCLAW_BIN}/baoclaw-core --daemon|ExecStartPre=${BAOCLAW_BIN}/mcp-servers start\nExecStart=${BAOCLAW_BIN}/baoclaw-core --daemon|" "$SYSTEMD_DIR/baoclaw.service"
         echo "✓ systemd service updated"
         echo "  Run: systemctl --user daemon-reload && systemctl --user restart baoclaw"
     fi

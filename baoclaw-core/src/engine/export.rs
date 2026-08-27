@@ -168,22 +168,20 @@ mod tests {
 
     #[test]
     fn test_format_with_tool_calls() {
-        let entries = vec![
-            ExportEntry {
-                role: "assistant".to_string(),
-                text: "让我查看一下文件".to_string(),
-                timestamp: "2024-01-15 10:30:01".to_string(),
-                turn: 1,
-                tools: Some(vec![ToolCallInfo {
-                    name: "Bash".to_string(),
-                    id: Some("tu_123".to_string()),
-                    detail: Some("command: ls -la".to_string()),
-                    result: Some(Value::String("file.txt\ndir/".to_string())),
-                }]),
-                is_tool_result: None,
-                cost_usd: None,
-            },
-        ];
+        let entries = vec![ExportEntry {
+            role: "assistant".to_string(),
+            text: "让我查看一下文件".to_string(),
+            timestamp: "2024-01-15 10:30:01".to_string(),
+            turn: 1,
+            tools: Some(vec![ToolCallInfo {
+                name: "Bash".to_string(),
+                id: Some("tu_123".to_string()),
+                detail: Some("command: ls -la".to_string()),
+                result: Some(Value::String("file.txt\ndir/".to_string())),
+            }]),
+            is_tool_result: None,
+            cost_usd: None,
+        }];
         let md = format_transcript_to_markdown(&entries);
         assert!(md.contains("### 工具调用: Bash"));
         assert!(md.contains("command: ls -la"));

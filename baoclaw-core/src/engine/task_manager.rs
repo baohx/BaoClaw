@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, watch};
-use serde::{Serialize, Deserialize};
+use tokio::sync::{watch, RwLock};
 
 use crate::api::unified::UnifiedClient;
 use crate::engine::query_engine::{EngineEvent, QueryEngine, QueryEngineConfig, ThinkingConfig};
@@ -94,7 +94,10 @@ impl TaskManager {
 
         // Create abort channel for this task
         let (abort_tx, _abort_rx) = watch::channel(false);
-        self.abort_handles.write().await.insert(task_id.clone(), abort_tx);
+        self.abort_handles
+            .write()
+            .await
+            .insert(task_id.clone(), abort_tx);
 
         // Clone what we need for the spawned task
         let tasks = Arc::clone(&self.tasks);
@@ -116,7 +119,8 @@ impl TaskManager {
                 max_budget_usd: None,
                 verbose: false,
                 custom_system_prompt: Some(
-                    "You are a background task agent. Complete the given task efficiently.".to_string()
+                    "You are a background task agent. Complete the given task efficiently."
+                        .to_string(),
                 ),
                 append_system_prompt: None,
                 session_id: None,
@@ -232,12 +236,14 @@ mod tests {
         let tools: Vec<Arc<dyn Tool>> = vec![];
         let manager = TaskManager::new(api_client, tools);
 
-        let task_id = manager.create_task(
-            "test task".to_string(),
-            "do something".to_string(),
-            std::path::PathBuf::from("/tmp"),
-            "claude-sonnet-4-20250514".to_string(),
-        ).await;
+        let task_id = manager
+            .create_task(
+                "test task".to_string(),
+                "do something".to_string(),
+                std::path::PathBuf::from("/tmp"),
+                "claude-sonnet-4-20250514".to_string(),
+            )
+            .await;
 
         assert!(!task_id.is_empty());
         assert_eq!(task_id.len(), 8); // UUID first 8 chars
@@ -249,12 +255,14 @@ mod tests {
         let tools: Vec<Arc<dyn Tool>> = vec![];
         let manager = TaskManager::new(api_client, tools);
 
-        let task_id = manager.create_task(
-            "test task".to_string(),
-            "do something".to_string(),
-            std::path::PathBuf::from("/tmp"),
-            "claude-sonnet-4-20250514".to_string(),
-        ).await;
+        let task_id = manager
+            .create_task(
+                "test task".to_string(),
+                "do something".to_string(),
+                std::path::PathBuf::from("/tmp"),
+                "claude-sonnet-4-20250514".to_string(),
+            )
+            .await;
 
         let tasks = manager.list_tasks().await;
         assert_eq!(tasks.len(), 1);
@@ -268,12 +276,14 @@ mod tests {
         let tools: Vec<Arc<dyn Tool>> = vec![];
         let manager = TaskManager::new(api_client, tools);
 
-        let task_id = manager.create_task(
-            "test task".to_string(),
-            "do something".to_string(),
-            std::path::PathBuf::from("/tmp"),
-            "claude-sonnet-4-20250514".to_string(),
-        ).await;
+        let task_id = manager
+            .create_task(
+                "test task".to_string(),
+                "do something".to_string(),
+                std::path::PathBuf::from("/tmp"),
+                "claude-sonnet-4-20250514".to_string(),
+            )
+            .await;
 
         let task = manager.get_task_status(&task_id).await;
         assert!(task.is_some());
@@ -298,12 +308,14 @@ mod tests {
         let tools: Vec<Arc<dyn Tool>> = vec![];
         let manager = TaskManager::new(api_client, tools);
 
-        let task_id = manager.create_task(
-            "test task".to_string(),
-            "do something".to_string(),
-            std::path::PathBuf::from("/tmp"),
-            "claude-sonnet-4-20250514".to_string(),
-        ).await;
+        let task_id = manager
+            .create_task(
+                "test task".to_string(),
+                "do something".to_string(),
+                std::path::PathBuf::from("/tmp"),
+                "claude-sonnet-4-20250514".to_string(),
+            )
+            .await;
 
         let stopped = manager.stop_task(&task_id).await;
         assert!(stopped);

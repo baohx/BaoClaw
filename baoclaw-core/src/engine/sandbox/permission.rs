@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use super::profile::SandboxProfile;
 use super::config::SandboxConfigFile;
+use super::profile::SandboxProfile;
 
 /// Escalation grant record.
 #[derive(Clone, Debug)]
@@ -41,14 +41,9 @@ pub enum EscalationResult {
         actual_profile: String,
     },
     /// Escalation was denied by user or policy.
-    Denied {
-        reason: String,
-    },
+    Denied { reason: String },
     /// Escalation is pending user confirmation.
-    Pending {
-        request_id: String,
-        message: String,
-    },
+    Pending { request_id: String, message: String },
 }
 
 /// Permission escalation request.
@@ -156,7 +151,13 @@ impl PermissionManager {
             target: target.to_string(),
             current_profile: profile.name.clone(),
             desired_profile: needed_profile.to_string(),
-            message: Self::format_escalation_message(tool, action, target, &profile.name, needed_profile),
+            message: Self::format_escalation_message(
+                tool,
+                action,
+                target,
+                &profile.name,
+                needed_profile,
+            ),
         })
     }
 
@@ -174,7 +175,7 @@ impl PermissionManager {
         // Check temporary grants
         if let Ok(mut grants) = self.temp_grants.lock() {
             let now = Instant::now();
-            grants.retain(|g| g.expires_at.map_or(true, |exp| now < exp));
+            grants.retain(|g| g.expires_at.is_none_or(|exp| now < exp));
 
             for grant in grants.iter() {
                 if grant.tool == tool
@@ -282,7 +283,10 @@ impl PermissionManager {
             };
 
             if let Ok(mut grants) = self.permanent_grants.lock() {
-                let key = (request.tool.clone(), Self::grant_key(&request.action, &request.target));
+                let key = (
+                    request.tool.clone(),
+                    Self::grant_key(&request.action, &request.target),
+                );
                 grants.insert(key, grant);
             }
 
@@ -298,7 +302,9 @@ impl PermissionManager {
                 target: request.target.clone(),
                 profile: actual_profile.clone(),
                 granted_at: Instant::now(),
-                expires_at: duration.map(|d| Instant::now() + d).or(Some(Instant::now() + Duration::from_secs(3600))),
+                expires_at: duration
+                    .map(|d| Instant::now() + d)
+                    .or(Some(Instant::now() + Duration::from_secs(3600))),
             };
 
             if let Ok(mut grants) = self.temp_grants.lock() {
@@ -322,11 +328,7 @@ impl PermissionManager {
 
     /// Get a pending request by ID.
     pub fn get_pending(&self, request_id: &str) -> Option<EscalationRequest> {
-        self.pending_requests
-            .lock()
-            .ok()?
-            .get(request_id)
-            .cloned()
+        self.pending_requests.lock().ok()?.get(request_id).cloned()
     }
 
     /// List all pending requests.
@@ -356,18 +358,23 @@ impl PermissionManager {
 
     /// Get statistics about blocked actions (for learning which profiles to adjust).
     pub fn blocked_stats(&self) -> Vec<(String, String, usize)> {
-        let history = self.blocked_history.lock().unwrap_or_else(|e| e.into_inner());
+        let history = self
+            .blocked_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         let mut counts: HashMap<(String, String), usize> = HashMap::new();
         for entry in history.iter() {
-            *counts.entry((entry.tool.clone(), entry.action.clone())).or_default() += 1;
+            *counts
+                .entry((entry.tool.clone(), entry.action.clone()))
+                .or_default() += 1;
         }
 
         let mut stats: Vec<_> = counts
             .into_iter()
             .map(|((tool, action), count)| (tool, action, count))
             .collect();
-        stats.sort_by(|a, b| b.2.cmp(&a.2));
+        stats.sort_by_key(|a| std::cmp::Reverse(a.2));
         stats
     }
 
@@ -375,7 +382,7 @@ impl PermissionManager {
     pub fn active_temp_grants(&self) -> usize {
         if let Ok(mut grants) = self.temp_grants.lock() {
             let now = Instant::now();
-            grants.retain(|g| g.expires_at.map_or(true, |exp| now < exp));
+            grants.retain(|g| g.expires_at.is_none_or(|exp| now < exp));
             grants.len()
         } else {
             0
@@ -384,7 +391,13 @@ impl PermissionManager {
 
     // ── helpers ──
 
-    fn format_escalation_message(tool: &str, action: &str, target: &str, current: &str, desired: &str) -> String {
+    fn format_escalation_message(
+        tool: &str,
+        action: &str,
+        target: &str,
+        current: &str,
+        desired: &str,
+    ) -> String {
         format!(
             "⚠️  {} wants to perform '{}' on '{}', but current profile '{}' does not allow it.\n \
              Requested escalation to '{}' profile.",
@@ -405,9 +418,9 @@ impl Default for PermissionManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::config::SandboxConfigFile;
     use super::super::profile::SandboxProfile;
+    use super::*;
 
     #[test]
     fn test_escalation_needed_for_network() {
@@ -415,13 +428,8 @@ mod tests {
         let profile = SandboxProfile::read_only();
         let config = SandboxConfigFile::default();
 
-        let request = manager.check_escalation_needed(
-            "Bash",
-            "network",
-            "npmjs.org",
-            &profile,
-            &config,
-        );
+        let request =
+            manager.check_escalation_needed("Bash", "network", "npmjs.org", &profile, &config);
         assert!(request.is_some());
         let req = request.unwrap();
         assert_eq!(req.desired_profile, "web_dev");
@@ -435,13 +443,7 @@ mod tests {
         let config = SandboxConfigFile::default();
 
         // web_dev allows npmjs.org
-        let result = manager.request_escalation(
-            "Bash",
-            "network",
-            "npmjs.org",
-            &profile,
-            &config,
-        );
+        let result = manager.request_escalation("Bash", "network", "npmjs.org", &profile, &config);
         match result {
             EscalationResult::Denied { reason } => {
                 assert!(reason.contains("within current profile"));
@@ -457,13 +459,7 @@ mod tests {
         let config = SandboxConfigFile::default();
 
         // First request — should be pending
-        let result = manager.request_escalation(
-            "Bash",
-            "network",
-            "npmjs.org",
-            &profile,
-            &config,
-        );
+        let result = manager.request_escalation("Bash", "network", "npmjs.org", &profile, &config);
 
         let request_id = match result {
             EscalationResult::Pending { request_id, .. } => request_id,
@@ -475,13 +471,7 @@ mod tests {
         assert!(manager.get_pending(&request_id).is_none());
 
         // Request again for confirmation test
-        let result2 = manager.request_escalation(
-            "Bash",
-            "network",
-            "npmjs.org",
-            &profile,
-            &config,
-        );
+        let result2 = manager.request_escalation("Bash", "network", "npmjs.org", &profile, &config);
         let request_id2 = match result2 {
             EscalationResult::Pending { request_id, .. } => request_id,
             _ => panic!("Expected Pending"),
@@ -490,7 +480,11 @@ mod tests {
         // Confirm the escalation
         let result3 = manager.confirm_escalation(&request_id2, true, None);
         match result3 {
-            EscalationResult::Granted { permanent, actual_profile, .. } => {
+            EscalationResult::Granted {
+                permanent,
+                actual_profile,
+                ..
+            } => {
                 assert!(permanent);
                 assert_eq!(actual_profile, "web_dev");
             }
@@ -498,13 +492,7 @@ mod tests {
         }
 
         // Now the same action should be auto-granted
-        let result4 = manager.request_escalation(
-            "Bash",
-            "network",
-            "npmjs.org",
-            &profile,
-            &config,
-        );
+        let result4 = manager.request_escalation("Bash", "network", "npmjs.org", &profile, &config);
         match result4 {
             EscalationResult::Granted { profile: p, .. } => {
                 assert_eq!(p, "web_dev");
@@ -519,30 +507,29 @@ mod tests {
         let profile = SandboxProfile::read_only();
         let config = SandboxConfigFile::default();
 
-        let result = manager.request_escalation(
-            "FileWrite",
-            "file_write",
-            "src/main.rs",
-            &profile,
-            &config,
-        );
+        let result =
+            manager.request_escalation("FileWrite", "file_write", "src/main.rs", &profile, &config);
 
         let request_id = match result {
             EscalationResult::Pending { request_id, .. } => request_id,
             _ => panic!("Expected Pending"),
         };
 
-        // Grant with very short duration
-        manager.confirm_escalation(&request_id, false, Some(Duration::from_millis(1)));
+        // Grant with longer duration to survive test execution latency under tarpaulin
+        manager.confirm_escalation(&request_id, false, Some(Duration::from_millis(500)));
 
         // Should still have active grant immediately
-        assert!(manager.has_active_grant("FileWrite", "file_write", "src/main.rs").is_some());
+        assert!(manager
+            .has_active_grant("FileWrite", "file_write", "src/main.rs")
+            .is_some());
 
         // Wait for grant to expire
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(600));
 
         // Grant should have expired
-        assert!(manager.has_active_grant("FileWrite", "file_write", "src/main.rs").is_none());
+        assert!(manager
+            .has_active_grant("FileWrite", "file_write", "src/main.rs")
+            .is_none());
     }
 
     #[test]
@@ -570,13 +557,8 @@ mod tests {
         let config = SandboxConfigFile::default();
 
         // Create a permanent grant
-        let result = manager.request_escalation(
-            "Bash",
-            "permanent_op",
-            "/some/path",
-            &profile,
-            &config,
-        );
+        let result =
+            manager.request_escalation("Bash", "permanent_op", "/some/path", &profile, &config);
         let request_id = match result {
             EscalationResult::Pending { request_id, .. } => request_id,
             _ => panic!("Expected Pending"),
@@ -584,13 +566,17 @@ mod tests {
         manager.confirm_escalation(&request_id, true, None);
 
         // Should be granted
-        assert!(manager.has_active_grant("Bash", "permanent_op", "/some/path").is_some());
+        assert!(manager
+            .has_active_grant("Bash", "permanent_op", "/some/path")
+            .is_some());
 
         // Revoke
         assert!(manager.revoke_permanent("Bash", "permanent_op", "/some/path"));
 
         // Should no longer be granted
-        assert!(manager.has_active_grant("Bash", "permanent_op", "/some/path").is_none());
+        assert!(manager
+            .has_active_grant("Bash", "permanent_op", "/some/path")
+            .is_none());
     }
 
     #[test]

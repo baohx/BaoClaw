@@ -1,6 +1,7 @@
 // TUI Types for BaoClaw
 
-export type ContentBlockType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'code';
+export type ContentBlockType =
+  "text" | "thinking" | "tool_use" | "tool_result" | "code";
 
 export interface ContentBlock {
   type: ContentBlockType;
@@ -8,13 +9,13 @@ export interface ContentBlock {
   language?: string;
   toolName?: string;
   toolId?: string;
-  input?: unknown;           // tool_use input parameters
-  isError?: boolean;         // tool_result error flag
+  input?: unknown; // tool_use input parameters
+  isError?: boolean; // tool_result error flag
 }
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: ContentBlock[];
   timestamp: Date;
 }
@@ -22,30 +23,30 @@ export interface Message {
 export interface Session {
   id: string;
   model: string;
-  status: 'idle' | 'streaming' | 'thinking' | 'error';
+  status: "idle" | "streaming" | "thinking" | "error";
 }
 
 export interface ToolProgress {
   name: string;
-  status: 'running' | 'completed' | 'error';
+  status: "running" | "completed" | "error";
   output?: string;
 }
 
 export type ActionType =
-  | 'ADD_MESSAGE'
-  | 'SET_STREAMING'
-  | 'APPEND_STREAM'
-  | 'SET_THINKING'
-  | 'APPEND_THINKING'
-  | 'SET_TOOLS'
-  | 'UPDATE_TOOL'
-  | 'ADD_TOOL_USE'
-  | 'ADD_TOOL_RESULT'
-  | 'SET_SESSION'
-  | 'SET_INPUT'
-  | 'SET_ERROR'
-  | 'CLEAR_ERROR'
-  | 'RESET';
+  | "ADD_MESSAGE"
+  | "SET_STREAMING"
+  | "APPEND_STREAM"
+  | "SET_THINKING"
+  | "APPEND_THINKING"
+  | "SET_TOOLS"
+  | "UPDATE_TOOL"
+  | "ADD_TOOL_USE"
+  | "ADD_TOOL_RESULT"
+  | "SET_SESSION"
+  | "SET_INPUT"
+  | "SET_ERROR"
+  | "CLEAR_ERROR"
+  | "RESET";
 
 export interface Action {
   type: ActionType;

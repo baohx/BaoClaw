@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::engine::file_cache::FileCache;
-use crate::engine::tool_result_store::ToolResultStore;
+use crate::infra::file_cache::FileCache;
+use crate::infra::tool_result_store::ToolResultStore;
 
 /// Tool execution result
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,15 +19,25 @@ pub struct ToolResult {
 #[derive(Clone, Debug)]
 pub enum ValidationResult {
     Ok,
-    Invalid { message: String, code: Option<String> },
+    Invalid {
+        message: String,
+        code: Option<String>,
+    },
 }
 
 /// Permission check result from a tool's perspective
 #[derive(Clone, Debug)]
 pub enum ToolPermissionCheckResult {
-    Allow { updated_input: Value },
-    Ask { message: String, updated_input: Value },
-    Deny { message: String },
+    Allow {
+        updated_input: Value,
+    },
+    Ask {
+        message: String,
+        updated_input: Value,
+    },
+    Deny {
+        message: String,
+    },
 }
 
 /// Progress sender trait for tools to report progress
@@ -97,11 +107,7 @@ pub trait Tool: Send + Sync {
     ) -> Result<ToolResult, ToolError>;
 
     /// Validate the input before execution
-    async fn validate_input(
-        &self,
-        _input: &Value,
-        _context: &ToolContext,
-    ) -> ValidationResult {
+    async fn validate_input(&self, _input: &Value, _context: &ToolContext) -> ValidationResult {
         ValidationResult::Ok
     }
 

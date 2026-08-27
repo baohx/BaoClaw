@@ -260,7 +260,9 @@ pub fn apply_decay(memories: &mut [MemoryEntry], config: &DecayConfig) -> Vec<St
         }
 
         // Calculate days since last update
-        let last_time = memory.last_recalled_at.as_ref()
+        let last_time = memory
+            .last_recalled_at
+            .as_ref()
             .or(Some(&memory.created_at))
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&chrono::Utc));
@@ -430,22 +432,20 @@ mod tests {
 
     #[test]
     fn test_apply_decay_marks_for_archive() {
-        let mut memories = vec![
-            MemoryEntry {
-                id: "old".to_string(),
-                content: "old memory".to_string(),
-                category: MemoryCategory::Fact,
-                created_at: "2020-01-01T00:00:00Z".to_string(), // Very old
-                source: "test".to_string(),
-                importance: 0.5,
-                recall_count: 0,
-                last_recalled_at: None,
-                archived: false,
-            },
-        ];
+        let mut memories = vec![MemoryEntry {
+            id: "old".to_string(),
+            content: "old memory".to_string(),
+            category: MemoryCategory::Fact,
+            created_at: "2020-01-01T00:00:00Z".to_string(), // Very old
+            source: "test".to_string(),
+            importance: 0.5,
+            recall_count: 0,
+            last_recalled_at: None,
+            archived: false,
+        }];
         let config = DecayConfig::default();
         let to_archive = apply_decay(&mut memories, &config);
-        
+
         // After many years of decay, this should be archived
         assert!(memories[0].archived);
         assert_eq!(to_archive, vec!["old".to_string()]);
@@ -453,22 +453,20 @@ mod tests {
 
     #[test]
     fn test_apply_decay_skips_archived() {
-        let mut memories = vec![
-            MemoryEntry {
-                id: "already-archived".to_string(),
-                content: "archived memory".to_string(),
-                category: MemoryCategory::Fact,
-                created_at: "2020-01-01T00:00:00Z".to_string(),
-                source: "test".to_string(),
-                importance: 0.01, // Very low
-                recall_count: 0,
-                last_recalled_at: None,
-                archived: true, // Already archived
-            },
-        ];
+        let mut memories = vec![MemoryEntry {
+            id: "already-archived".to_string(),
+            content: "archived memory".to_string(),
+            category: MemoryCategory::Fact,
+            created_at: "2020-01-01T00:00:00Z".to_string(),
+            source: "test".to_string(),
+            importance: 0.01, // Very low
+            recall_count: 0,
+            last_recalled_at: None,
+            archived: true, // Already archived
+        }];
         let config = DecayConfig::default();
         let to_archive = apply_decay(&mut memories, &config);
-        
+
         // Should not double-archive
         assert!(to_archive.is_empty());
     }

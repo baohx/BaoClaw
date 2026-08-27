@@ -13,8 +13,11 @@
  *                                                or 60 s timeout → onTimeout()
  */
 
-import { SenderTracker, type PermissionRequest } from './senderTracker.js';
-import { IpcClient } from './ipcClient.js';
+import { SenderTracker, type PermissionRequest } from "./senderTracker.js";
+import { IpcClient } from "../../ts-ipc/index.js";
+import { createLogger } from "../../ts-ipc/logger.js";
+
+const logger = createLogger("whatsapp");
 
 /** Time (ms) before an unanswered permission request is automatically denied. */
 const PERMISSION_TIMEOUT_MS = 60_000; // 60 seconds
@@ -79,15 +82,15 @@ export class PermissionManager {
     toolName: string,
     description?: string,
   ): string {
-    const desc = description?.trim() || '无';
+    const desc = description?.trim() || "无";
     return [
-      '🔐 *权限请求*',
+      "🔐 *权限请求*",
       `工具: ${toolName}`,
       `描述: ${desc}`,
-      '',
-      '请回复 *yes* 允许 或 *no* 拒绝',
-      '（60秒后自动拒绝）',
-    ].join('\n');
+      "",
+      "请回复 *yes* 允许 或 *no* 拒绝",
+      "（60秒后自动拒绝）",
+    ].join("\n");
   }
 
   // ── Registration ──────────────────────────────────────────────────────────
@@ -198,12 +201,12 @@ export class PermissionManager {
 
     // 2. Parse the reply.
     const normalized = text.trim().toLowerCase();
-    let decision: 'allow' | 'deny' | null = null;
+    let decision: "allow" | "deny" | null = null;
 
-    if (normalized === 'yes' || normalized === 'allow') {
-      decision = 'allow';
-    } else if (normalized === 'no' || normalized === 'deny') {
-      decision = 'deny';
+    if (normalized === "yes" || normalized === "allow") {
+      decision = "allow";
+    } else if (normalized === "no" || normalized === "deny") {
+      decision = "deny";
     }
 
     // 3. Not a recognised keyword — leave the request pending.
@@ -213,14 +216,14 @@ export class PermissionManager {
 
     // 4. Forward the decision to the daemon.
     try {
-      await ipcClient.request('permissionResponse', {
+      await ipcClient.request("permissionResponse", {
         tool_use_id: pending.tool_use_id,
         decision,
       });
     } catch (err) {
       // Swallow IPC errors — the daemon may have disconnected. We still
       // clean up the local state so the user is not stuck.
-      console.error(
+      logger.error(
         `Failed to send permissionResponse for ${pending.tool_use_id}: ${err}`,
       );
     }

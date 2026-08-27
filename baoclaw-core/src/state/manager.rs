@@ -175,8 +175,7 @@ fn diff_usage(old: &Usage, new: &Usage, patches: &mut Vec<StatePatch>) {
         patches.push(StatePatch {
             path: "/usage/cache_creation_input_tokens".to_string(),
             op: PatchOp::Replace {
-                value: serde_json::to_value(&new.cache_creation_input_tokens)
-                    .unwrap_or(Value::Null),
+                value: serde_json::to_value(new.cache_creation_input_tokens).unwrap_or(Value::Null),
             },
         });
     }
@@ -184,8 +183,7 @@ fn diff_usage(old: &Usage, new: &Usage, patches: &mut Vec<StatePatch>) {
         patches.push(StatePatch {
             path: "/usage/cache_read_input_tokens".to_string(),
             op: PatchOp::Replace {
-                value: serde_json::to_value(&new.cache_read_input_tokens)
-                    .unwrap_or(Value::Null),
+                value: serde_json::to_value(new.cache_read_input_tokens).unwrap_or(Value::Null),
             },
         });
     }
@@ -215,9 +213,7 @@ fn diff_tasks(
                 if old_val != new_val {
                     patches.push(StatePatch {
                         path: format!("/tasks/{}", id),
-                        op: PatchOp::Replace {
-                            value: new_val,
-                        },
+                        op: PatchOp::Replace { value: new_val },
                     });
                 }
             }
@@ -489,7 +485,8 @@ mod tests {
     fn test_diff_task_added() {
         let old = default_state();
         let mut new = old.clone();
-        new.tasks.insert("b12345678".to_string(), sample_task("b12345678"));
+        new.tasks
+            .insert("b12345678".to_string(), sample_task("b12345678"));
         let patches = diff_states(&old, &new);
         assert_eq!(patches.len(), 1);
         assert_eq!(patches[0].path, "/tasks/b12345678");
@@ -499,7 +496,8 @@ mod tests {
     #[test]
     fn test_diff_task_removed() {
         let mut old = default_state();
-        old.tasks.insert("b12345678".to_string(), sample_task("b12345678"));
+        old.tasks
+            .insert("b12345678".to_string(), sample_task("b12345678"));
         let new = default_state();
         let patches = diff_states(&old, &new);
         assert_eq!(patches.len(), 1);
@@ -510,7 +508,8 @@ mod tests {
     #[test]
     fn test_diff_task_changed() {
         let mut old = default_state();
-        old.tasks.insert("b12345678".to_string(), sample_task("b12345678"));
+        old.tasks
+            .insert("b12345678".to_string(), sample_task("b12345678"));
         let mut new = old.clone();
         new.tasks.get_mut("b12345678").unwrap().status = TaskStatus::Completed;
         new.tasks.get_mut("b12345678").unwrap().end_time = Some(1700000001000);
@@ -546,7 +545,9 @@ mod tests {
     #[test]
     fn test_core_state_serialization_roundtrip() {
         let mut state = default_state();
-        state.tasks.insert("b12345678".to_string(), sample_task("b12345678"));
+        state
+            .tasks
+            .insert("b12345678".to_string(), sample_task("b12345678"));
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: CoreState = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.session_id, state.session_id);

@@ -1,11 +1,12 @@
+use futures::stream::Stream;
 /// Unified API client that wraps either Anthropic or OpenAI client.
 /// Provides the same `create_message_stream` interface regardless of backend.
-
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use futures::stream::Stream;
 
-use super::client::{AnthropicClient, ApiClientConfig, ApiError, ApiStreamEvent, CreateMessageRequest, SseStream};
+use super::client::{
+    AnthropicClient, ApiClientConfig, ApiError, ApiStreamEvent, CreateMessageRequest, SseStream,
+};
 use super::openai_client::{OpenAiClient, OpenAiSseStream};
 
 /// Unified stream that wraps either Anthropic SseStream or OpenAI stream.

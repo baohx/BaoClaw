@@ -14,7 +14,7 @@
 //!     final-doc (depends on merge-report)
 //!   - budget: $5.00, 500K tokens, 30min timeout
 
-use baoclaw_core::engine::team::scheduler::{DagScheduler, DagNode};
+use baoclaw_core::engine::team::scheduler::{DagNode, DagScheduler};
 use baoclaw_core::engine::team::types::{AgentTeam, TeamMode};
 use std::collections::HashSet;
 
@@ -61,10 +61,20 @@ fn test_dag_agents_have_correct_dependencies() {
     // merge-report depends on all 5 previous agents
     let merge = team.get_agent("merge-report").unwrap();
     assert_eq!(
-        merge.dependencies.iter().map(|s| s.as_str()).collect::<HashSet<_>>(),
-        vec!["security-scan", "style-check", "arch-review", "perf-bench", "dep-scan"]
-            .into_iter()
-            .collect::<HashSet<_>>()
+        merge
+            .dependencies
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<HashSet<_>>(),
+        vec![
+            "security-scan",
+            "style-check",
+            "arch-review",
+            "perf-bench",
+            "dep-scan"
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>()
     );
 
     // final-doc depends only on merge-report
@@ -107,18 +117,34 @@ fn test_dag_scheduler_topological_sort_from_json() {
         .collect();
 
     // merge-report must come after all its dependencies
-    let merge_pos = positions.iter().find(|(id, _)| *id == "merge-report").unwrap().1;
-    for dep in &["security-scan", "style-check", "arch-review", "perf-bench", "dep-scan"] {
+    let merge_pos = positions
+        .iter()
+        .find(|(id, _)| *id == "merge-report")
+        .unwrap()
+        .1;
+    for dep in &[
+        "security-scan",
+        "style-check",
+        "arch-review",
+        "perf-bench",
+        "dep-scan",
+    ] {
         let dep_pos = positions.iter().find(|(id, _)| id == dep).unwrap().1;
         assert!(
             dep_pos < merge_pos,
             "merge-report depends on {} but appears before it ({} vs {})",
-            dep, dep_pos, merge_pos
+            dep,
+            dep_pos,
+            merge_pos
         );
     }
 
     // final-doc must come after merge-report
-    let final_pos = positions.iter().find(|(id, _)| *id == "final-doc").unwrap().1;
+    let final_pos = positions
+        .iter()
+        .find(|(id, _)| *id == "final-doc")
+        .unwrap()
+        .1;
     assert!(merge_pos < final_pos);
 }
 
@@ -193,7 +219,13 @@ fn test_agent_team_dag_all_ready_after_dependencies_complete() {
     let mut team = load_audit_dag();
 
     // Complete all 5 first-wave agents
-    for id in &["security-scan", "style-check", "arch-review", "perf-bench", "dep-scan"] {
+    for id in &[
+        "security-scan",
+        "style-check",
+        "arch-review",
+        "perf-bench",
+        "dep-scan",
+    ] {
         let agent = team.get_agent_mut(id).unwrap();
         agent.complete(format!("{} done", id), 50, 0.005);
     }
@@ -235,7 +267,10 @@ fn test_agent_team_dag_results_collection() {
     // All 7 agents completed
     let results = team.collect_results();
     assert_eq!(results.len(), 7);
-    assert_eq!(results.get("final-doc"), Some(&"Final document generated".to_string()));
+    assert_eq!(
+        results.get("final-doc"),
+        Some(&"Final document generated".to_string())
+    );
 }
 
 // ── Summary / Budget ─────────────────────────────────────────────────
@@ -254,7 +289,9 @@ fn test_dag_team_summary() {
     team.get_agent_mut("arch-review")
         .unwrap()
         .fail("Timeout".into());
-    team.get_agent_mut("dep-scan").unwrap().skip("dependency failed".into());
+    team.get_agent_mut("dep-scan")
+        .unwrap()
+        .skip("dependency failed".into());
     team.calculate_totals();
 
     let summary = team.summary();
@@ -310,8 +347,11 @@ fn test_dag_cycle_detection_rejects_cycle() {
     let result = scheduler.build();
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.code.contains("cycle") || err.message.to_lowercase().contains("cycle"),
-        "Expected cycle error, got: {:?}", err);
+    assert!(
+        err.code.contains("cycle") || err.message.to_lowercase().contains("cycle"),
+        "Expected cycle error, got: {:?}",
+        err
+    );
 }
 
 #[test]
@@ -331,13 +371,19 @@ fn test_dag_self_dependency_rejected() {
 
 #[test]
 fn test_dag_priority_ordering_in_waves() {
-    use baoclaw_core::engine::team::scheduler::{DagScheduler, DagNode};
+    use baoclaw_core::engine::team::scheduler::{DagNode, DagScheduler};
 
     let mut scheduler = DagScheduler::new();
     // All same wave but different priorities
-    scheduler.add_node(DagNode::new("low", "Low").with_priority(0)).unwrap();
-    scheduler.add_node(DagNode::new("medium", "Medium").with_priority(5)).unwrap();
-    scheduler.add_node(DagNode::new("high", "High").with_priority(10)).unwrap();
+    scheduler
+        .add_node(DagNode::new("low", "Low").with_priority(0))
+        .unwrap();
+    scheduler
+        .add_node(DagNode::new("medium", "Medium").with_priority(5))
+        .unwrap();
+    scheduler
+        .add_node(DagNode::new("high", "High").with_priority(10))
+        .unwrap();
     scheduler.build().unwrap();
 
     let waves = scheduler.execution_waves().unwrap();

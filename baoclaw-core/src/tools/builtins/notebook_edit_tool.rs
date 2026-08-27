@@ -4,8 +4,16 @@ use serde_json::{json, Value};
 use super::path_utils::resolve_and_validate_path;
 use crate::tools::trait_def::*;
 
+const MAX_NOTEBOOK_BYTES: u64 = 10 * 1024 * 1024;
+
 /// Jupyter Notebook editing tool — operates on .ipynb JSON structure
 pub struct NotebookEditTool;
+
+impl Default for NotebookEditTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl NotebookEditTool {
     pub fn new() -> Self {
@@ -44,10 +52,7 @@ impl Tool for NotebookEditTool {
                 },
                 "to_index": { "type": "integer", "description": "Target index for move_cell" }
             })),
-            required: Some(vec![
-                "notebook_path".to_string(),
-                "operation".to_string(),
-            ]),
+            required: Some(vec!["notebook_path".to_string(), "operation".to_string()]),
             description: Some("Edit Jupyter notebook cells".to_string()),
         }
     }
@@ -69,7 +74,17 @@ impl Tool for NotebookEditTool {
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'notebook_path'".to_string()))?;
 
         let resolved = resolve_and_validate_path(notebook_path_str, &context.cwd, &[])
-            .map_err(|e| ToolError::ExecutionFailed(e))?;
+            .map_err(ToolError::ExecutionFailed)?;
+        let size = tokio::fs::metadata(&resolved)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to inspect notebook: {}", e)))?
+            .len();
+        if size > MAX_NOTEBOOK_BYTES {
+            return Err(ToolError::ExecutionFailed(format!(
+                "Notebook exceeds the {} byte safety limit",
+                MAX_NOTEBOOK_BYTES
+            )));
+        }
 
         let operation = input
             .get("operation")
@@ -96,19 +111,13 @@ impl Tool for NotebookEditTool {
                     .get("cell_type")
                     .and_then(|v| v.as_str())
                     .unwrap_or("code");
-                let source = input
-                    .get("source")
-                    .cloned()
-                    .unwrap_or(json!([]));
+                let source = input.get("source").cloned().unwrap_or(json!([]));
                 edit_notebook_insert(&mut notebook, idx, cell_type, source)?;
             }
             "replace_cell" => {
                 let idx = cell_index
                     .ok_or_else(|| ToolError::ExecutionFailed("Missing 'cell_index'".into()))?;
-                let source = input
-                    .get("source")
-                    .cloned()
-                    .unwrap_or(json!([]));
+                let source = input.get("source").cloned().unwrap_or(json!([]));
                 edit_notebook_replace(&mut notebook, idx, source)?;
             }
             "delete_cell" => {
@@ -117,8 +126,9 @@ impl Tool for NotebookEditTool {
                 edit_notebook_delete(&mut notebook, idx)?;
             }
             "move_cell" => {
-                let from = cell_index
-                    .ok_or_else(|| ToolError::ExecutionFailed("Missing 'cell_index' (from)".into()))?;
+                let from = cell_index.ok_or_else(|| {
+                    ToolError::ExecutionFailed("Missing 'cell_index' (from)".into())
+                })?;
                 let to = input
                     .get("to_index")
                     .and_then(|v| v.as_u64())
@@ -141,10 +151,7 @@ impl Tool for NotebookEditTool {
             .await
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write notebook: {}", e)))?;
 
-        let cell_count = notebook["cells"]
-            .as_array()
-            .map(|a| a.len())
-            .unwrap_or(0);
+        let cell_count = notebook["cells"].as_array().map(|a| a.len()).unwrap_or(0);
 
         Ok(ToolResult {
             data: json!({
@@ -158,11 +165,9 @@ impl Tool for NotebookEditTool {
 }
 
 fn get_cells_mut(notebook: &mut Value) -> Result<&mut Vec<Value>, ToolError> {
-    notebook["cells"]
-        .as_array_mut()
-        .ok_or_else(|| {
-            ToolError::ExecutionFailed("Invalid notebook: missing cells array".to_string())
-        })
+    notebook["cells"].as_array_mut().ok_or_else(|| {
+        ToolError::ExecutionFailed("Invalid notebook: missing cells array".to_string())
+    })
 }
 
 fn edit_notebook_insert(

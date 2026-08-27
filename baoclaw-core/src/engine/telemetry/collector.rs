@@ -8,9 +8,7 @@ use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use super::types::{
-    DailyStats, SessionSnapshot, ToolUsageStat, UsageStats,
-};
+use super::types::{DailyStats, SessionSnapshot, ToolUsageStat, UsageStats};
 
 /// Default path for the telemetry database.
 fn default_db_path() -> PathBuf {
@@ -104,8 +102,7 @@ impl TelemetryCollector {
         tools: Vec<String>,
     ) -> Result<(), String> {
         let now = chrono::Utc::now().timestamp();
-        let tools_json = serde_json::to_string(&tools)
-            .unwrap_or_else(|_| "[]".to_string());
+        let tools_json = serde_json::to_string(&tools).unwrap_or_else(|_| "[]".to_string());
 
         let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
         conn.execute(
@@ -127,6 +124,7 @@ impl TelemetryCollector {
     }
 
     /// Record a completed session. Updates the session entry with final stats.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_session(
         &self,
         session_id: &str,
@@ -217,13 +215,11 @@ impl TelemetryCollector {
             std::collections::HashMap::new();
         let mut total_tools = 0u64;
 
-        for row_result in tool_rows {
-            if let Ok(tools_json) = row_result {
-                if let Ok(tools) = serde_json::from_str::<Vec<String>>(&tools_json) {
-                    total_tools += tools.len() as u64;
-                    for tool in tools {
-                        *tool_counts.entry(tool).or_insert(0) += 1;
-                    }
+        for tools_json in tool_rows.flatten() {
+            if let Ok(tools) = serde_json::from_str::<Vec<String>>(&tools_json) {
+                total_tools += tools.len() as u64;
+                for tool in tools {
+                    *tool_counts.entry(tool).or_insert(0) += 1;
                 }
             }
         }
@@ -269,26 +265,24 @@ impl TelemetryCollector {
         let mut tool_map: std::collections::HashMap<String, ToolUsageStat> =
             std::collections::HashMap::new();
 
-        for row_result in rows {
-            if let Ok(tools_json) = row_result {
-                if let Ok(tools) = serde_json::from_str::<Vec<String>>(&tools_json) {
-                    for tool in tools {
-                        let entry = tool_map
-                            .entry(tool.clone())
-                            .or_insert_with(|| ToolUsageStat::new(tool));
-                        entry.call_count += 1;
-                        // We don't track success/error per call here;
-                        // this is a simplified count. In a full implementation,
-                        // these would come from individual tool result records.
-                        entry.success_count += 1;
-                    }
+        for tools_json in rows.flatten() {
+            if let Ok(tools) = serde_json::from_str::<Vec<String>>(&tools_json) {
+                for tool in tools {
+                    let entry = tool_map
+                        .entry(tool.clone())
+                        .or_insert_with(|| ToolUsageStat::new(tool));
+                    entry.call_count += 1;
+                    // We don't track success/error per call here;
+                    // this is a simplified count. In a full implementation,
+                    // these would come from individual tool result records.
+                    entry.success_count += 1;
                 }
             }
         }
 
         // Also collect tool names from the turns where the tools_used JSON is stored
         let mut result: Vec<ToolUsageStat> = tool_map.into_values().collect();
-        result.sort_by(|a, b| b.call_count.cmp(&a.call_count));
+        result.sort_by_key(|a| std::cmp::Reverse(a.call_count));
 
         Ok(result)
     }
@@ -446,7 +440,14 @@ mod tests {
             .record_turn("s1", 200, 100, 0.002, 1500, vec!["FileRead".to_string()])
             .unwrap();
         collector
-            .record_turn("s2", 300, 150, 0.003, 2000, vec!["Bash".to_string(), "Grep".to_string()])
+            .record_turn(
+                "s2",
+                300,
+                150,
+                0.003,
+                2000,
+                vec!["Bash".to_string(), "Grep".to_string()],
+            )
             .unwrap();
 
         let stats = collector.get_stats().unwrap();
@@ -498,7 +499,14 @@ mod tests {
             .record_turn("s1", 10, 5, 0.001, 500, vec!["Bash".to_string()])
             .unwrap();
         collector
-            .record_turn("s1", 10, 5, 0.001, 500, vec!["Bash".to_string(), "FileRead".to_string()])
+            .record_turn(
+                "s1",
+                10,
+                5,
+                0.001,
+                500,
+                vec!["Bash".to_string(), "FileRead".to_string()],
+            )
             .unwrap();
         collector
             .record_turn("s2", 10, 5, 0.001, 500, vec!["Grep".to_string()])
@@ -559,7 +567,14 @@ mod tests {
     fn test_stats_most_used_tool() {
         let (collector, _dir) = test_collector();
         collector
-            .record_turn("s1", 10, 5, 0.001, 500, vec!["FileRead".to_string(), "FileRead".to_string()])
+            .record_turn(
+                "s1",
+                10,
+                5,
+                0.001,
+                500,
+                vec!["FileRead".to_string(), "FileRead".to_string()],
+            )
             .unwrap();
         collector
             .record_turn("s1", 10, 5, 0.001, 500, vec!["Bash".to_string()])

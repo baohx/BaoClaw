@@ -7,10 +7,9 @@
 //! - `/docs` — Documentation generation
 //! - `/refactor` — Safe refactoring workflow
 
-pub mod types;
 pub mod builtins;
 pub mod engine;
+pub mod types;
 
 #[cfg(test)]
 mod engine_tests;
-

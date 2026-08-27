@@ -45,10 +45,7 @@ pub async fn discover_plugins(cwd: &Path) -> Vec<PluginInfo> {
     plugins
 }
 
-async fn scan_plugins_dir(
-    dir: &Path,
-    source: &str,
-) -> Result<Vec<PluginInfo>, std::io::Error> {
+async fn scan_plugins_dir(dir: &Path, source: &str) -> Result<Vec<PluginInfo>, std::io::Error> {
     let mut plugins = Vec::new();
 
     let mut entries = fs::read_dir(dir).await?;
@@ -61,24 +58,23 @@ async fn scan_plugins_dir(
         let manifest_path = plugin_dir.join("plugin.json");
 
         // Try to read manifest
-        let (name, version, description) = if let Ok(content) =
-            fs::read_to_string(&manifest_path).await
-        {
-            if let Ok(manifest) = serde_json::from_str::<PluginManifest>(&content) {
-                (
-                    manifest.name.unwrap_or_else(|| {
-                        entry.file_name().to_string_lossy().to_string()
-                    }),
-                    manifest.version,
-                    manifest.description,
-                )
+        let (name, version, description) =
+            if let Ok(content) = fs::read_to_string(&manifest_path).await {
+                if let Ok(manifest) = serde_json::from_str::<PluginManifest>(&content) {
+                    (
+                        manifest
+                            .name
+                            .unwrap_or_else(|| entry.file_name().to_string_lossy().to_string()),
+                        manifest.version,
+                        manifest.description,
+                    )
+                } else {
+                    (entry.file_name().to_string_lossy().to_string(), None, None)
+                }
             } else {
+                // No manifest, use directory name
                 (entry.file_name().to_string_lossy().to_string(), None, None)
-            }
-        } else {
-            // No manifest, use directory name
-            (entry.file_name().to_string_lossy().to_string(), None, None)
-        };
+            };
 
         // Check for sub-features
         let has_tools = plugin_dir.join("tools").exists();

@@ -140,10 +140,7 @@ fn parse_user_md(content: &str) -> UserProfile {
             "Projects" => parse_projects(&lines, &mut profile.project_preferences),
             "Stats" => parse_stats(&lines, &mut profile.stats),
             "Custom Instructions" => {
-                let text: Vec<String> = lines
-                    .iter()
-                    .map(|l| l.to_string())
-                    .collect();
+                let text: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
                 profile.custom_instructions = text.join("\n").trim().to_string();
             }
             _ => {} // Ignore unknown sections (including the top-level "# User Profile")
@@ -389,6 +386,12 @@ fn profile_to_markdown(profile: &UserProfile) -> String {
 
 // ── UserProfileManager impl ──────────────────────────────────────────────────
 
+impl Default for UserProfileManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UserProfileManager {
     /// Create a new manager, loading existing profile or creating default.
     pub fn new() -> Self {
@@ -519,7 +522,7 @@ impl UserProfileManager {
             }
         }
         // Sort by count descending, keep top 10
-        p.stats.top_tools.sort_by(|a, b| b.1.cmp(&a.1));
+        p.stats.top_tools.sort_by_key(|a| std::cmp::Reverse(a.1));
         p.stats.top_tools.truncate(10);
 
         // Merge task types
@@ -530,7 +533,7 @@ impl UserProfileManager {
                 p.stats.common_tasks.push((task.clone(), 1));
             }
         }
-        p.stats.common_tasks.sort_by(|a, b| b.1.cmp(&a.1));
+        p.stats.common_tasks.sort_by_key(|a| std::cmp::Reverse(a.1));
         p.stats.common_tasks.truncate(10);
 
         p.updated_at = chrono::Utc::now().to_rfc3339();
@@ -576,7 +579,10 @@ impl UserProfileManager {
             parts.push(format!("The user's name is **{}**.", name));
         }
         if let Some(ref lang) = p.preferred_language {
-            parts.push(format!("Respond in **{}** unless the user writes in another language.", lang));
+            parts.push(format!(
+                "Respond in **{}** unless the user writes in another language.",
+                lang
+            ));
         }
         if !p.coding_style.is_empty() {
             parts.push("\n## Coding Style Preferences".to_string());

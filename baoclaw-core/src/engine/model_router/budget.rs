@@ -203,15 +203,16 @@ impl BudgetManager {
                     manager.ensure_reset();
                     manager
                 }
-                Err(_) => {
-                    let mut manager = Self::default();
-                    manager.persist_path = Some(path);
-                    manager
-                }
+                Err(_) => BudgetManager {
+                    persist_path: Some(path.clone()),
+                    ..Self::default()
+                },
             },
             Err(_) => {
-                let mut manager = Self::default();
-                manager.persist_path = Some(path);
+                let manager = BudgetManager {
+                    persist_path: Some(path.clone()),
+                    ..Self::default()
+                };
                 let _ = manager.save();
                 manager
             }
@@ -220,25 +221,18 @@ impl BudgetManager {
 
     /// Save the current budget state to the persistence file.
     fn save(&self) -> Result<(), String> {
-        let path = self
-            .persist_path
-            .clone()
-            .unwrap_or_else(budget_file_path);
+        let path = self.persist_path.clone().unwrap_or_else(budget_file_path);
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                format!("Failed to create budget directory: {}", e)
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create budget directory: {}", e))?;
         }
 
-        let json = serde_json::to_string_pretty(self).map_err(|e| {
-            format!("Failed to serialize budget: {}", e)
-        })?;
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize budget: {}", e))?;
 
-        std::fs::write(&path, json).map_err(|e| {
-            format!("Failed to write budget file: {}", e)
-        })?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write budget file: {}", e))?;
 
         Ok(())
     }
@@ -288,7 +282,7 @@ mod tests {
     fn test_can_afford_allowed() {
         let mut bm = BudgetManager::new(10.0, 200.0);
         let model = make_model(0.003, 0.015); // Sonnet-like pricing
-        // 1000 tokens → input=700, output=300 → cost ~0.0066
+                                              // 1000 tokens → input=700, output=300 → cost ~0.0066
         let result = bm.can_afford(&model, 1000);
         assert_eq!(result, BudgetResult::Allowed);
     }

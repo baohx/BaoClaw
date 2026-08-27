@@ -2,7 +2,7 @@
 mod tests {
     use crate::engine::template::engine::TemplateEngine;
     use crate::engine::template::engine::{VariableCollectResult, VariablePrompt};
-    use crate::engine::template::types::{Template, WorkflowAction, WorkflowStep, Variable};
+    use crate::engine::template::types::{Template, Variable, WorkflowAction, WorkflowStep};
     use std::collections::HashMap;
     use tempfile::TempDir;
 
@@ -145,7 +145,13 @@ mod tests {
     fn test_list_all_includes_all_builtins() {
         let engine = TemplateEngine::new();
         let names: Vec<&str> = engine.list_all().iter().map(|t| t.name.as_str()).collect();
-        for expected in &["Code Review", "Bug Fix", "Feature Implementation", "Documentation", "Refactoring"] {
+        for expected in &[
+            "Code Review",
+            "Bug Fix",
+            "Feature Implementation",
+            "Documentation",
+            "Refactoring",
+        ] {
             assert!(names.contains(expected), "Missing builtin: {}", expected);
         }
     }
@@ -162,8 +168,10 @@ mod tests {
         vars.insert("focus".to_string(), "unsafe blocks".to_string());
         let prompt = engine.build_system_prompt(template, &vars);
         // Should have substituted or returned the template text
-        assert!(!prompt.is_empty() || template.system_prompt_addon.is_empty(),
-            "Empty prompt but template has addon text");
+        assert!(
+            !prompt.is_empty() || template.system_prompt_addon.is_empty(),
+            "Empty prompt but template has addon text"
+        );
     }
 
     // ─── collect_variables ───
@@ -226,7 +234,11 @@ mod tests {
 
         // Verify step 1 has substituted language
         let step0 = steps.first().unwrap();
-        assert!(step0.step.contains("Go"), "Expected 'Go' in step text, got: {}", step0.step);
+        assert!(
+            step0.step.contains("Go"),
+            "Expected 'Go' in step text, got: {}",
+            step0.step
+        );
     }
 
     #[test]
@@ -240,7 +252,11 @@ mod tests {
 
         let template = engine.find_by_name("cond_false").unwrap();
         let steps = engine.expand_steps(template, &HashMap::new());
-        assert_eq!(steps.len(), 1, "Step 2 should be filtered when condition is 'false'");
+        assert_eq!(
+            steps.len(),
+            1,
+            "Step 2 should be filtered when condition is 'false'"
+        );
     }
 
     #[test]
@@ -255,7 +271,11 @@ mod tests {
         vars.insert("language".to_string(), "Rust".to_string());
         vars.insert("step0.output".to_string(), "Found 3 bugs".to_string());
         let steps = engine.expand_steps(template, &vars);
-        assert_eq!(steps.len(), 2, "Both steps should be included when condition passes");
+        assert_eq!(
+            steps.len(),
+            2,
+            "Both steps should be included when condition passes"
+        );
     }
 
     // ─── create / delete ───

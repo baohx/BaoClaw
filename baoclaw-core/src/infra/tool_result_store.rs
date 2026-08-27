@@ -4,7 +4,6 @@
 /// full content is written to a file under the session directory and only a
 /// short preview is kept in the conversation context. This prevents large
 /// outputs from consuming the context window.
-
 use std::path::PathBuf;
 
 /// Default threshold in bytes: 30 KB.
@@ -80,7 +79,13 @@ impl ToolResultStore {
         // Sanitise tool_use_id for use as a filename
         let safe_id: String = tool_use_id
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let file_path = self.base_dir.join(format!("{}.txt", safe_id));
 
@@ -136,16 +141,14 @@ mod tests {
     #[test]
     fn test_should_persist_below_threshold() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(100);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(100);
         assert!(!store.should_persist("short"));
     }
 
     #[test]
     fn test_should_persist_above_threshold() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(100);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(100);
         let long = "x".repeat(200);
         assert!(store.should_persist(&long));
     }
@@ -153,8 +156,7 @@ mod tests {
     #[test]
     fn test_persist_creates_file() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(10);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(10);
 
         let content = "x".repeat(50);
         let result = store.persist(&content, "test-123").unwrap();
@@ -167,8 +169,7 @@ mod tests {
     #[test]
     fn test_persist_preview_truncation() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(10);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(10);
 
         let content = "abcdefghij".repeat(500); // 5000 chars
         let result = store.persist(&content, "test-456").unwrap();
@@ -180,8 +181,7 @@ mod tests {
     #[test]
     fn test_format_persisted_output() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(10);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(10);
 
         let content = "x".repeat(4000);
         let persisted = store.persist(&content, "tool-789").unwrap();
@@ -196,8 +196,7 @@ mod tests {
     #[test]
     fn test_persist_and_format_below_threshold() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(1000);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(1000);
 
         assert!(store.persist_and_format("short content", "abc").is_none());
     }
@@ -205,8 +204,7 @@ mod tests {
     #[test]
     fn test_persist_and_format_above_threshold() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(10);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(10);
 
         let content = "x".repeat(500);
         let result = store.persist_and_format(&content, "abc").unwrap();
@@ -217,8 +215,7 @@ mod tests {
     #[test]
     fn test_sanitise_tool_use_id() {
         let dir = TempDir::new().unwrap();
-        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf())
-            .with_threshold(10);
+        let store = ToolResultStore::with_base_dir(dir.path().to_path_buf()).with_threshold(10);
 
         let content = "x".repeat(50);
         let result = store.persist(&content, "tool/use:id*bad").unwrap();

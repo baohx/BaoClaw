@@ -85,7 +85,7 @@ pub enum WorkflowAction {
     },
 
     /// Ask the user for input.
-    #[serde(rename = "ask")] 
+    #[serde(rename = "ask")]
     Ask {
         /// Question to display.
         question: String,
@@ -231,20 +231,26 @@ mod tests {
             trigger: "/test".into(),
             variables: {
                 let mut m = HashMap::new();
-                m.insert("branch".to_string(), Variable {
-                    default: String::new(),
-                    prompt: "Which branch?".into(),
-                    required: true,
-                    pattern: None,
-                    help: String::new(),
-                });
-                m.insert("optional".to_string(), Variable {
-                    default: "no".into(),
-                    prompt: "Optional?".into(),
-                    required: false,
-                    pattern: None,
-                    help: String::new(),
-                });
+                m.insert(
+                    "branch".to_string(),
+                    Variable {
+                        default: String::new(),
+                        prompt: "Which branch?".into(),
+                        required: true,
+                        pattern: None,
+                        help: String::new(),
+                    },
+                );
+                m.insert(
+                    "optional".to_string(),
+                    Variable {
+                        default: "no".into(),
+                        prompt: "Optional?".into(),
+                        required: false,
+                        pattern: None,
+                        help: String::new(),
+                    },
+                );
                 m
             },
             ..Template::new("Test", "/test")
@@ -280,13 +286,16 @@ mod tests {
             },
             condition: None,
         }];
-        t.variables.insert("branch".to_string(), Variable {
-            default: "main".into(),
-            prompt: "Branch?".into(),
-            required: true,
-            pattern: None,
-            help: String::new(),
-        });
+        t.variables.insert(
+            "branch".to_string(),
+            Variable {
+                default: "main".into(),
+                prompt: "Branch?".into(),
+                required: true,
+                pattern: None,
+                help: String::new(),
+            },
+        );
         t.tags = vec!["review".into(), "git".into()];
 
         let json = serde_json::to_string_pretty(&t).unwrap();

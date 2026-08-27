@@ -1,11 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { IpcClient } from './client.js';
-import { StatePatch, QueryResult, ErrorInfo } from './types.js';
-import { setupStreamHandlers, applyStatePatches, StreamHandlerManager } from './streamHandler.js';
+import { useState, useEffect, useCallback, useRef } from "react";
+import { IpcClient } from "./client.js";
+import { StatePatch, QueryResult, ErrorInfo } from "./types.js";
+import {
+  setupStreamHandlers,
+  applyStatePatches,
+  StreamHandlerManager,
+} from "./streamHandler.js";
 
 export interface Message {
   uuid: string;
-  type: 'user' | 'assistant' | 'tool_use' | 'tool_result';
+  type: "user" | "assistant" | "tool_use" | "tool_result";
   content: string;
   toolName?: string;
   toolUseId?: string;
@@ -41,7 +45,7 @@ export function useRustEngine(client: IpcClient | null): UseRustEngineReturn {
   const [isConnected, setIsConnected] = useState(false);
 
   // Refs for current assistant message accumulation
-  const currentAssistantText = useRef('');
+  const currentAssistantText = useRef("");
   const handlerManager = useRef<StreamHandlerManager | null>(null);
 
   // Set up stream handlers when client changes
@@ -56,12 +60,12 @@ export function useRustEngine(client: IpcClient | null): UseRustEngineReturn {
     handlerManager.current = manager;
 
     // Handle assistant text chunks — accumulate and update in-place
-    manager.onEventType('assistant_chunk', (event) => {
+    manager.onEventType("assistant_chunk", (event) => {
       currentAssistantText.current += event.content;
       // Update the last assistant message in-place
-      setMessages(prev => {
+      setMessages((prev) => {
         const last = prev[prev.length - 1];
-        if (last && last.type === 'assistant') {
+        if (last && last.type === "assistant") {
           return [
             ...prev.slice(0, -1),
             { ...last, content: currentAssistantText.current },
@@ -72,19 +76,19 @@ export function useRustEngine(client: IpcClient | null): UseRustEngineReturn {
           ...prev,
           {
             uuid: crypto.randomUUID(),
-            type: 'assistant' as const,
+            type: "assistant" as const,
             content: currentAssistantText.current,
           },
         ];
       });
     });
 
-    manager.onEventType('tool_use', (event) => {
-      setMessages(prev => [
+    manager.onEventType("tool_use", (event) => {
+      setMessages((prev) => [
         ...prev,
         {
           uuid: crypto.randomUUID(),
-          type: 'tool_use' as const,
+          type: "tool_use" as const,
           content: JSON.stringify(event.input),
           toolName: event.toolName,
           toolUseId: event.toolUseId,
@@ -92,32 +96,35 @@ export function useRustEngine(client: IpcClient | null): UseRustEngineReturn {
       ]);
     });
 
-    manager.onEventType('tool_result', (event) => {
-      setMessages(prev => [
+    manager.onEventType("tool_result", (event) => {
+      setMessages((prev) => [
         ...prev,
         {
           uuid: crypto.randomUUID(),
-          type: 'tool_result' as const,
-          content: typeof event.output === 'string' ? event.output : JSON.stringify(event.output),
+          type: "tool_result" as const,
+          content:
+            typeof event.output === "string"
+              ? event.output
+              : JSON.stringify(event.output),
           toolUseId: event.toolUseId,
           isError: event.isError,
         },
       ]);
     });
 
-    manager.onEventType('result', (event) => {
+    manager.onEventType("result", (event) => {
       setLastResult(event.result);
       setIsProcessing(false);
     });
 
-    manager.onEventType('error', (event) => {
+    manager.onEventType("error", (event) => {
       setError(event.error);
       setIsProcessing(false);
     });
 
     // Handle state patches
     manager.onStatePatch((patches: StatePatch[]) => {
-      setCoreState(prev => {
+      setCoreState((prev) => {
         const next = { ...prev };
         applyStatePatches(next, patches);
         return next;
@@ -131,33 +138,36 @@ export function useRustEngine(client: IpcClient | null): UseRustEngineReturn {
   }, [client]);
 
   // Submit a message
-  const submitMessage = useCallback(async (prompt: string) => {
-    if (!client) throw new Error('Not connected');
+  const submitMessage = useCallback(
+    async (prompt: string) => {
+      if (!client) throw new Error("Not connected");
 
-    // Add user message
-    setMessages(prev => [
-      ...prev,
-      {
-        uuid: crypto.randomUUID(),
-        type: 'user' as const,
-        content: prompt,
-      },
-    ]);
+      // Add user message
+      setMessages((prev) => [
+        ...prev,
+        {
+          uuid: crypto.randomUUID(),
+          type: "user" as const,
+          content: prompt,
+        },
+      ]);
 
-    // Reset state for new query
-    currentAssistantText.current = '';
-    setIsProcessing(true);
-    setError(null);
-    setLastResult(null);
+      // Reset state for new query
+      currentAssistantText.current = "";
+      setIsProcessing(true);
+      setError(null);
+      setLastResult(null);
 
-    // Send to Rust core
-    await client.request('submitMessage', { prompt });
-  }, [client]);
+      // Send to Rust core
+      await client.request("submitMessage", { prompt });
+    },
+    [client],
+  );
 
   // Abort current query
   const abort = useCallback(async () => {
     if (!client) return;
-    await client.request('abort');
+    await client.request("abort");
   }, [client]);
 
   return {

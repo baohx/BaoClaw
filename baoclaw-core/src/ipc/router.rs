@@ -23,6 +23,8 @@ pub enum ClientMethod {
         model: Option<String>,
         settings: Value,
         #[serde(default)]
+        protocol_version: Option<String>,
+        #[serde(default)]
         resume_session_id: Option<String>,
         #[serde(default)]
         shared_session_id: Option<String>,
@@ -67,25 +69,15 @@ pub enum ClientMethod {
     #[serde(rename = "listMcpResources")]
     ListMcpResources,
     #[serde(rename = "readMcpResource")]
-    ReadMcpResource {
-        server_name: String,
-        uri: String,
-    },
+    ReadMcpResource { server_name: String, uri: String },
     #[serde(rename = "taskCreate")]
-    TaskCreate {
-        description: String,
-        prompt: String,
-    },
+    TaskCreate { description: String, prompt: String },
     #[serde(rename = "taskList")]
     TaskList,
     #[serde(rename = "taskStatus")]
-    TaskStatus {
-        task_id: String,
-    },
+    TaskStatus { task_id: String },
     #[serde(rename = "taskStop")]
-    TaskStop {
-        task_id: String,
-    },
+    TaskStop { task_id: String },
     #[serde(rename = "memoryList")]
     MemoryList,
     #[serde(rename = "memoryAdd")]
@@ -95,29 +87,21 @@ pub enum ClientMethod {
         category: String,
     },
     #[serde(rename = "memoryDelete")]
-    MemoryDelete {
-        id: String,
-    },
+    MemoryDelete { id: String },
     #[serde(rename = "memoryClear")]
     MemoryClear,
     #[serde(rename = "memoryStats")]
     MemoryStats,
     #[serde(rename = "memoryArchive")]
-    MemoryArchive {
-        id: String,
-    },
+    MemoryArchive { id: String },
     #[serde(rename = "memoryRestore")]
-    MemoryRestore {
-        id: String,
-    },
+    MemoryRestore { id: String },
     #[serde(rename = "memoryArchiveList")]
     MemoryArchiveList,
     #[serde(rename = "memoryCleanup")]
     MemoryCleanup,
     #[serde(rename = "switchCwd")]
-    SwitchCwd {
-        cwd: PathBuf,
-    },
+    SwitchCwd { cwd: PathBuf },
     #[serde(rename = "cronAdd")]
     CronAdd {
         name: String,
@@ -159,9 +143,7 @@ pub enum ClientMethod {
         max_results: usize,
     },
     #[serde(rename = "docUpload")]
-    DocUpload {
-        file_path: String,
-    },
+    DocUpload { file_path: String },
     #[serde(rename = "export")]
     Export {
         #[serde(default)]
@@ -188,10 +170,7 @@ pub enum ClientMethod {
         task_id: Option<String>,
     },
     #[serde(rename = "specEdit")]
-    SpecEdit {
-        feature_name: String,
-        phase: String,
-    },
+    SpecEdit { feature_name: String, phase: String },
     #[serde(rename = "hooksList")]
     HooksList,
     #[serde(rename = "hooksAdd")]
@@ -208,13 +187,9 @@ pub enum ClientMethod {
         priority: i32,
     },
     #[serde(rename = "hooksToggle")]
-    HooksToggle {
-        id: String,
-    },
+    HooksToggle { id: String },
     #[serde(rename = "hooksRemove")]
-    HooksRemove {
-        id: String,
-    },
+    HooksRemove { id: String },
 
     // ── Team Management RPC ──
     #[serde(rename = "teamSpawn")]
@@ -233,41 +208,25 @@ pub enum ClientMethod {
     #[serde(rename = "teamList")]
     TeamList,
     #[serde(rename = "teamStatus")]
-    TeamStatus {
-        team_id: String,
-    },
+    TeamStatus { team_id: String },
     #[serde(rename = "teamResults")]
-    TeamResults {
-        team_id: String,
-    },
+    TeamResults { team_id: String },
     #[serde(rename = "teamAbort")]
-    TeamAbort {
-        team_id: String,
-    },
+    TeamAbort { team_id: String },
     #[serde(rename = "teamExecute")]
-    TeamExecute {
-        team_id: String,
-    },
+    TeamExecute { team_id: String },
 
     // ── Template Engine RPC ──
     #[serde(rename = "templateList")]
     TemplateList,
     #[serde(rename = "templateCreate")]
-    TemplateCreate {
-        json: String,
-    },
+    TemplateCreate { json: String },
     #[serde(rename = "templateDelete")]
-    TemplateDelete {
-        name: String,
-    },
+    TemplateDelete { name: String },
     #[serde(rename = "templateExport")]
-    TemplateExport {
-        name: String,
-    },
+    TemplateExport { name: String },
     #[serde(rename = "templateImport")]
-    TemplateImport {
-        url: String,
-    },
+    TemplateImport { url: String },
 
     // ── Git Integration RPC ──
     #[serde(rename = "gitPrCreate")]
@@ -282,9 +241,7 @@ pub enum ClientMethod {
     #[serde(rename = "gitBranchList")]
     GitBranchList,
     #[serde(rename = "gitBranchCreate")]
-    GitBranchCreate {
-        name: String,
-    },
+    GitBranchCreate { name: String },
     #[serde(rename = "gitConflictCheck")]
     GitConflictCheck,
     #[serde(rename = "gitCommitAmend")]
@@ -296,9 +253,7 @@ pub enum ClientMethod {
     #[serde(rename = "modelList")]
     ModelList,
     #[serde(rename = "modelRoute")]
-    ModelRoute {
-        task: String,
-    },
+    ModelRoute { task: String },
     #[serde(rename = "modelBudget")]
     ModelBudget,
     #[serde(rename = "modelStats")]
@@ -308,13 +263,9 @@ pub enum ClientMethod {
     #[serde(rename = "telemetryStats")]
     TelemetryStats,
     #[serde(rename = "telemetryTrends")]
-    TelemetryTrends {
-        days: u32,
-    },
+    TelemetryTrends { days: u32 },
     #[serde(rename = "telemetryExport")]
-    TelemetryExport {
-        format: String,
-    },
+    TelemetryExport { format: String },
 
     // ── Permission Gate RPC ──
     #[serde(rename = "permissionStatus")]
@@ -351,9 +302,7 @@ pub enum ClientMethod {
         rule_content: Option<String>,
     },
     #[serde(rename = "permissions.setMode")]
-    PermissionsSetMode {
-        mode: String,
-    },
+    PermissionsSetMode { mode: String },
 
     // ── Session Info / Token / Cost RPC (P2-2) ──
     #[serde(rename = "session.tokens")]
@@ -368,9 +317,13 @@ pub enum ClientMethod {
     ConfigShow,
 }
 
-fn default_tail_count() -> usize { 10 }
+fn default_tail_count() -> usize {
+    10
+}
 
-fn default_category() -> String { "fact".to_string() }
+fn default_category() -> String {
+    "fact".to_string()
+}
 
 /// Parse a JSON-RPC request into a ClientMethod
 pub fn parse_client_method(request: &JsonRpcRequest) -> Result<ClientMethod, RouterError> {
@@ -457,6 +410,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_initialize_protocol_version() {
+        let req = make_request(
+            "initialize",
+            json!({"cwd": "/tmp", "settings": {}, "protocol_version": "1"}),
+        );
+        let method = parse_client_method(&req).unwrap();
+        match method {
+            ClientMethod::Initialize {
+                protocol_version, ..
+            } => assert_eq!(protocol_version.as_deref(), Some("1")),
+            _ => panic!("Expected Initialize"),
+        }
+    }
+
+    #[test]
     fn test_parse_submit_message_string_prompt() {
         let req = make_request(
             "submitMessage",
@@ -529,9 +497,7 @@ mod tests {
         );
         let method = parse_client_method(&req).unwrap();
         match method {
-            ClientMethod::PermissionResponse {
-                decision, rule, ..
-            } => {
+            ClientMethod::PermissionResponse { decision, rule, .. } => {
                 assert_eq!(decision, "deny");
                 assert_eq!(rule, None);
             }
@@ -589,8 +555,11 @@ mod tests {
         let err = parse_client_method(&req).unwrap_err();
         match err {
             RouterError::InvalidParams(msg) => {
-                assert!(msg.contains("cwd") || msg.contains("missing field"),
-                    "Error should mention missing field, got: {}", msg);
+                assert!(
+                    msg.contains("cwd") || msg.contains("missing field"),
+                    "Error should mention missing field, got: {}",
+                    msg
+                );
             }
             _ => panic!("Expected InvalidParams, got {:?}", err),
         }
@@ -599,10 +568,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_params_wrong_type() {
         // cwd should be a string/path, not a number
-        let req = make_request(
-            "initialize",
-            json!({"cwd": 42, "settings": {}}),
-        );
+        let req = make_request("initialize", json!({"cwd": 42, "settings": {}}));
         let err = parse_client_method(&req).unwrap_err();
         match err {
             RouterError::InvalidParams(_) => {}
@@ -641,10 +607,7 @@ mod tests {
 
     #[test]
     fn test_parse_switch_model() {
-        let req = make_request(
-            "switchModel",
-            json!({ "model": "claude-opus-4-20250514" }),
-        );
+        let req = make_request("switchModel", json!({ "model": "claude-opus-4-20250514" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::SwitchModel { model } => {
@@ -713,7 +676,10 @@ mod tests {
         );
         let method = parse_client_method(&req).unwrap();
         match method {
-            ClientMethod::TaskCreate { description, prompt } => {
+            ClientMethod::TaskCreate {
+                description,
+                prompt,
+            } => {
                 assert_eq!(description, "Refactor auth module");
                 assert_eq!(prompt, "Refactor the auth module");
             }
@@ -737,10 +703,7 @@ mod tests {
 
     #[test]
     fn test_parse_task_status() {
-        let req = make_request(
-            "taskStatus",
-            json!({ "task_id": "abc12345" }),
-        );
+        let req = make_request("taskStatus", json!({ "task_id": "abc12345" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::TaskStatus { task_id } => {
@@ -752,10 +715,7 @@ mod tests {
 
     #[test]
     fn test_parse_task_stop() {
-        let req = make_request(
-            "taskStop",
-            json!({ "task_id": "abc12345" }),
-        );
+        let req = make_request("taskStop", json!({ "task_id": "abc12345" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::TaskStop { task_id } => {
@@ -767,10 +727,7 @@ mod tests {
 
     #[test]
     fn test_parse_doc_upload() {
-        let req = make_request(
-            "docUpload",
-            json!({ "file_path": "/home/user/report.pdf" }),
-        );
+        let req = make_request("docUpload", json!({ "file_path": "/home/user/report.pdf" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::DocUpload { file_path } => {
@@ -812,7 +769,15 @@ mod tests {
         );
         let method = parse_client_method(&req).unwrap();
         match method {
-            ClientMethod::HooksAdd { id, name, trigger, filter, action, enabled, priority } => {
+            ClientMethod::HooksAdd {
+                id,
+                name,
+                trigger,
+                filter,
+                action,
+                enabled,
+                priority,
+            } => {
                 assert_eq!(id, "auto-lint");
                 assert_eq!(name, "Auto Lint on Save");
                 assert_eq!(trigger, "file_edited");
@@ -838,7 +803,15 @@ mod tests {
         );
         let method = parse_client_method(&req).unwrap();
         match method {
-            ClientMethod::HooksAdd { id, name, trigger, filter, action, enabled, priority } => {
+            ClientMethod::HooksAdd {
+                id,
+                name,
+                trigger,
+                filter,
+                action,
+                enabled,
+                priority,
+            } => {
                 assert_eq!(id, "test-hook");
                 assert_eq!(name, "Test Hook");
                 assert_eq!(trigger, "file_created");
@@ -860,10 +833,7 @@ mod tests {
 
     #[test]
     fn test_parse_hooks_toggle() {
-        let req = make_request(
-            "hooksToggle",
-            json!({ "id": "auto-lint" }),
-        );
+        let req = make_request("hooksToggle", json!({ "id": "auto-lint" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::HooksToggle { id } => {
@@ -882,10 +852,7 @@ mod tests {
 
     #[test]
     fn test_parse_hooks_remove() {
-        let req = make_request(
-            "hooksRemove",
-            json!({ "id": "auto-lint" }),
-        );
+        let req = make_request("hooksRemove", json!({ "id": "auto-lint" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::HooksRemove { id } => {
@@ -916,7 +883,12 @@ mod tests {
         );
         let method = parse_client_method(&req).unwrap();
         match method {
-            ClientMethod::TeamSpawn { count, mode, task, policy } => {
+            ClientMethod::TeamSpawn {
+                count,
+                mode,
+                task,
+                policy,
+            } => {
                 assert_eq!(count, Some(3));
                 assert_eq!(mode, "parallel");
                 assert_eq!(task, "Analyze the codebase");
@@ -937,7 +909,9 @@ mod tests {
         );
         let method = parse_client_method(&req).unwrap();
         match method {
-            ClientMethod::TeamSpawn { count, mode, task, .. } => {
+            ClientMethod::TeamSpawn {
+                count, mode, task, ..
+            } => {
                 assert_eq!(count, None);
                 assert_eq!(mode, "sequence");
                 assert_eq!(task, "First analyze, then implement");
@@ -987,10 +961,7 @@ mod tests {
 
     #[test]
     fn test_parse_team_status() {
-        let req = make_request(
-            "teamStatus",
-            json!({ "team_id": "team-123" }),
-        );
+        let req = make_request("teamStatus", json!({ "team_id": "team-123" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::TeamStatus { team_id } => {
@@ -1009,10 +980,7 @@ mod tests {
 
     #[test]
     fn test_parse_team_results() {
-        let req = make_request(
-            "teamResults",
-            json!({ "team_id": "team-456" }),
-        );
+        let req = make_request("teamResults", json!({ "team_id": "team-456" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::TeamResults { team_id } => {
@@ -1024,10 +992,7 @@ mod tests {
 
     #[test]
     fn test_parse_team_abort() {
-        let req = make_request(
-            "teamAbort",
-            json!({ "team_id": "team-789" }),
-        );
+        let req = make_request("teamAbort", json!({ "team_id": "team-789" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::TeamAbort { team_id } => {
@@ -1039,10 +1004,7 @@ mod tests {
 
     #[test]
     fn test_parse_team_execute() {
-        let req = make_request(
-            "teamExecute",
-            json!({ "team_id": "team-abc" }),
-        );
+        let req = make_request("teamExecute", json!({ "team_id": "team-abc" }));
         let method = parse_client_method(&req).unwrap();
         match method {
             ClientMethod::TeamExecute { team_id } => {

@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 
-use crate::engine::memory::{DecayConfig, apply_decay};
-use crate::engine::memory::archive::{MemoryArchive, ArchiveResult};
+use crate::engine::memory::archive::{ArchiveResult, MemoryArchive};
+use crate::engine::memory::{apply_decay, DecayConfig};
 
 const MEMORY_FILE: &str = "memory.jsonl";
 
@@ -124,7 +124,11 @@ impl MemoryStore {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         let file_path = PathBuf::from(&home).join(".baoclaw").join(MEMORY_FILE);
         let entries = Self::read_file(&file_path);
-        eprintln!("Loaded {} long-term memories from {}", entries.len(), file_path.display());
+        eprintln!(
+            "Loaded {} long-term memories from {}",
+            entries.len(),
+            file_path.display()
+        );
         Self {
             entries: Mutex::new(entries),
             file_path: Mutex::new(file_path),
@@ -142,7 +146,11 @@ impl MemoryStore {
             PathBuf::from(&home).join(".baoclaw").join(MEMORY_FILE)
         };
         let entries = Self::read_file(&file_path);
-        eprintln!("Loaded {} project memories from {}", entries.len(), file_path.display());
+        eprintln!(
+            "Loaded {} project memories from {}",
+            entries.len(),
+            file_path.display()
+        );
         Self {
             entries: Mutex::new(entries),
             file_path: Mutex::new(file_path),
@@ -158,7 +166,11 @@ impl MemoryStore {
             PathBuf::from(&home).join(".baoclaw").join(MEMORY_FILE)
         };
         let new_entries = Self::read_file(&new_path);
-        eprintln!("Switched memory to {} ({} entries)", new_path.display(), new_entries.len());
+        eprintln!(
+            "Switched memory to {} ({} entries)",
+            new_path.display(),
+            new_entries.len()
+        );
         *self.entries.lock().await = new_entries;
         *self.file_path.lock().await = new_path;
     }
@@ -192,7 +204,7 @@ impl MemoryStore {
     fn write_all_sync(path: &PathBuf, entries: &[MemoryEntry]) -> Result<(), MemoryError> {
         let lines: Vec<String> = entries
             .iter()
-            .map(|e| serde_json::to_string(e))
+            .map(serde_json::to_string)
             .collect::<Result<Vec<_>, _>>()?;
         std::fs::write(path, lines.join("\n") + "\n")?;
         Ok(())
@@ -260,10 +272,10 @@ impl MemoryStore {
                     "ERROR: memory write task panicked for entry {}: {}",
                     entry.id, e
                 );
-                Err(MemoryError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("spawn_blocking failed: {}", e),
-                )))
+                Err(MemoryError::Io(std::io::Error::other(format!(
+                    "spawn_blocking failed: {}",
+                    e
+                ))))
             }
         }
     }
@@ -287,20 +299,19 @@ impl MemoryStore {
             drop(entries);
             let fp = self.file_path.lock().await.clone();
             // Offload filesystem I/O — lock already released
-            let join_result = tokio::task::spawn_blocking(move || {
-                Self::write_all_sync(&fp, &entries_snapshot)
-            })
-            .await;
+            let join_result =
+                tokio::task::spawn_blocking(move || Self::write_all_sync(&fp, &entries_snapshot))
+                    .await;
             match join_result {
                 Ok(Ok(())) => Ok(true),
                 Ok(Err(e)) => {
                     eprintln!("ERROR: memory delete write failed: {}", e);
                     Err(e)
                 }
-                Err(e) => Err(MemoryError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("spawn_blocking failed: {}", e),
-                ))),
+                Err(e) => Err(MemoryError::Io(std::io::Error::other(format!(
+                    "spawn_blocking failed: {}",
+                    e
+                )))),
             }
         } else {
             Ok(false)
@@ -331,10 +342,10 @@ impl MemoryStore {
                 eprintln!("ERROR: memory clear write failed: {}", e);
                 Err(e)
             }
-            Err(e) => Err(MemoryError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("spawn_blocking failed: {}", e),
-            ))),
+            Err(e) => Err(MemoryError::Io(std::io::Error::other(format!(
+                "spawn_blocking failed: {}",
+                e
+            )))),
         }
     }
 
@@ -349,9 +360,18 @@ impl MemoryStore {
         let mut parts = Vec::new();
         parts.push("# Long-term Memory\n\nThe following are facts, preferences, and decisions remembered from previous conversations. Use them to provide personalized responses.\n".to_string());
 
-        let facts: Vec<&MemoryEntry> = entries.iter().filter(|e| matches!(e.category, MemoryCategory::Fact)).collect();
-        let prefs: Vec<&MemoryEntry> = entries.iter().filter(|e| matches!(e.category, MemoryCategory::Preference)).collect();
-        let decisions: Vec<&MemoryEntry> = entries.iter().filter(|e| matches!(e.category, MemoryCategory::Decision)).collect();
+        let facts: Vec<&MemoryEntry> = entries
+            .iter()
+            .filter(|e| matches!(e.category, MemoryCategory::Fact))
+            .collect();
+        let prefs: Vec<&MemoryEntry> = entries
+            .iter()
+            .filter(|e| matches!(e.category, MemoryCategory::Preference))
+            .collect();
+        let decisions: Vec<&MemoryEntry> = entries
+            .iter()
+            .filter(|e| matches!(e.category, MemoryCategory::Decision))
+            .collect();
 
         if !facts.is_empty() {
             parts.push("## Facts".to_string());
@@ -417,7 +437,10 @@ impl MemoryStore {
         // Write updated memory file
         let fp = self.file_path.lock().await;
         if let Err(e) = Self::write_all_sync(&fp, &entries) {
-            eprintln!("ERROR: memory file rewrite during archive_low_importance failed: {}", e);
+            eprintln!(
+                "ERROR: memory file rewrite during archive_low_importance failed: {}",
+                e
+            );
         }
 
         // Add to archive
@@ -456,7 +479,10 @@ impl MemoryStore {
         // Write updated memory file
         let fp = self.file_path.lock().await;
         if let Err(e) = Self::write_all_sync(&fp, &entries) {
-            eprintln!("ERROR: memory file rewrite during archive_by_id failed: {}", e);
+            eprintln!(
+                "ERROR: memory file rewrite during archive_by_id failed: {}",
+                e
+            );
         }
 
         // Add to archive
@@ -574,9 +600,18 @@ impl MemoryStore {
         let entries = self.entries.lock().await;
 
         let total = entries.len();
-        let facts = entries.iter().filter(|e| matches!(e.category, MemoryCategory::Fact)).count();
-        let preferences = entries.iter().filter(|e| matches!(e.category, MemoryCategory::Preference)).count();
-        let decisions = entries.iter().filter(|e| matches!(e.category, MemoryCategory::Decision)).count();
+        let facts = entries
+            .iter()
+            .filter(|e| matches!(e.category, MemoryCategory::Fact))
+            .count();
+        let preferences = entries
+            .iter()
+            .filter(|e| matches!(e.category, MemoryCategory::Preference))
+            .count();
+        let decisions = entries
+            .iter()
+            .filter(|e| matches!(e.category, MemoryCategory::Decision))
+            .count();
         let archived = entries.iter().filter(|e| e.archived).count();
 
         let avg_importance = if total > 0 {

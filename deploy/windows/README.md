@@ -28,6 +28,7 @@ PowerShell -ExecutionPolicy Bypass -File deploy\windows\install.ps1
 ```
 
 脚本会自动：
+
 1. 定位 `baoclaw-core.exe`
 2. 通过 `sc.exe create` 注册服务（start=auto，开机自启）
 3. 设置服务描述
@@ -72,6 +73,7 @@ Test-Path "$env:TEMP\baoclaw-sockets\baoclaw.sock"
 ```
 
 服务运行时，所有 BaoClaw 客户端（CLI、Web、Telegram 等）会自动连接到同一 socket：
+
 ```
 %TEMP%\baoclaw-sockets\baoclaw.sock
 ```
@@ -156,11 +158,11 @@ sc delete BaoClawDaemon
 
 ## Socket 路径说明
 
-| 平台 | Socket 路径 |
-|------|------------|
-| Windows | `%TEMP%\baoclaw-sockets\baoclaw.sock` |
-| Linux | `$XDG_RUNTIME_DIR/baoclaw.sock`（通常 `/run/user/<UID>/baoclaw.sock`） |
-| macOS | `/tmp/baoclaw-sockets/baoclaw.sock` |
+| 平台    | Socket 路径                                                            |
+| ------- | ---------------------------------------------------------------------- |
+| Windows | `%TEMP%\baoclaw-sockets\baoclaw.sock`                                  |
+| Linux   | `$XDG_RUNTIME_DIR/baoclaw.sock`（通常 `/run/user/<UID>/baoclaw.sock`） |
+| macOS   | `/tmp/baoclaw-sockets/baoclaw.sock`                                    |
 
 所有客户端（CLI、Web UI、Telegram Bot 等）都连接到同一 socket，确保会话共享。
 

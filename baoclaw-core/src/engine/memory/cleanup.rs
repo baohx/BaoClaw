@@ -9,10 +9,10 @@
 //! The scheduler runs asynchronously without blocking the main flow.
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::time::Duration;
+use tokio::sync::Mutex;
 
-use crate::engine::memory::{MemoryStore, MemoryArchive, DecayConfig};
+use crate::engine::memory::{DecayConfig, MemoryArchive, MemoryStore};
 
 // DEFAULT_CLEANUP_INTERVAL_HOURS is now configured via DecayConfig.cleanup_interval_hours
 
@@ -116,7 +116,10 @@ impl MemoryCleanupScheduler {
         eprintln!("Memory cleanup: starting maintenance run...");
 
         // Run maintenance on memory store
-        let result = self.memory_store.run_maintenance(&self.archive, &self.config).await;
+        let result = self
+            .memory_store
+            .run_maintenance(&self.archive, &self.config)
+            .await;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -201,9 +204,7 @@ impl MemoryCleanupScheduler {
                     let result = self.run_cleanup().await;
                     eprintln!(
                         "Memory cleanup: archived {}, deleted {}, took {}ms",
-                        result.archived_count,
-                        result.deleted_count,
-                        result.duration_ms
+                        result.archived_count, result.deleted_count, result.duration_ms
                     );
                 }
 
@@ -247,11 +248,8 @@ mod tests {
         let archive = Arc::new(MemoryArchive::load());
         let config = create_test_config();
 
-        let scheduler = MemoryCleanupScheduler::new(
-            Arc::clone(&store),
-            Arc::clone(&archive),
-            config,
-        );
+        let scheduler =
+            MemoryCleanupScheduler::new(Arc::clone(&store), Arc::clone(&archive), config);
 
         // Should be due for first run
         assert!(scheduler.is_cleanup_due().await);
@@ -267,11 +265,8 @@ mod tests {
         store.clear().await.unwrap();
         archive.clear().await;
 
-        let scheduler = MemoryCleanupScheduler::new(
-            Arc::clone(&store),
-            Arc::clone(&archive),
-            config,
-        );
+        let scheduler =
+            MemoryCleanupScheduler::new(Arc::clone(&store), Arc::clone(&archive), config);
 
         let result = scheduler.run_cleanup().await;
 
@@ -290,11 +285,8 @@ mod tests {
         store.clear().await.unwrap();
         archive.clear().await;
 
-        let scheduler = MemoryCleanupScheduler::new(
-            Arc::clone(&store),
-            Arc::clone(&archive),
-            config,
-        );
+        let scheduler =
+            MemoryCleanupScheduler::new(Arc::clone(&store), Arc::clone(&archive), config);
 
         // Initial state
         let state = scheduler.get_state().await;
@@ -322,11 +314,8 @@ mod tests {
         store.clear().await.unwrap();
         archive.clear().await;
 
-        let scheduler = MemoryCleanupScheduler::new(
-            Arc::clone(&store),
-            Arc::clone(&archive),
-            config,
-        );
+        let scheduler =
+            MemoryCleanupScheduler::new(Arc::clone(&store), Arc::clone(&archive), config);
 
         // Initially due
         assert!(scheduler.is_cleanup_due().await);

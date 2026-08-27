@@ -35,12 +35,11 @@ impl TelemetryExporter {
             sessions,
         };
 
-        let json =
-            serde_json::to_string_pretty(&export).map_err(|e| format!("Serialization error: {}", e))?;
+        let json = serde_json::to_string_pretty(&export)
+            .map_err(|e| format!("Serialization error: {}", e))?;
 
         if let Some(file_path) = path {
-            std::fs::write(file_path, &json)
-                .map_err(|e| format!("Failed to write JSON: {}", e))?;
+            std::fs::write(file_path, &json).map_err(|e| format!("Failed to write JSON: {}", e))?;
         }
 
         Ok(json)
@@ -89,10 +88,7 @@ impl TelemetryExporter {
         csv.push_str("# Sessions\n");
         csv.push_str("session_id,start_time,end_time,turns,tokens,cost,tools_used,files_changed\n");
         for session in &sessions {
-            let end_time = session
-                .end_time
-                .map(|e| e.to_string())
-                .unwrap_or_default();
+            let end_time = session.end_time.map(|e| e.to_string()).unwrap_or_default();
             csv.push_str(&format!(
                 "{},{},{},{},{},{:.6},{},{}\n",
                 session.session_id,
@@ -107,8 +103,7 @@ impl TelemetryExporter {
         }
 
         if let Some(file_path) = path {
-            std::fs::write(file_path, &csv)
-                .map_err(|e| format!("Failed to write CSV: {}", e))?;
+            std::fs::write(file_path, &csv).map_err(|e| format!("Failed to write CSV: {}", e))?;
         }
 
         Ok(csv)
@@ -126,8 +121,8 @@ impl TelemetryExporter {
 
         // General stats
         md.push_str("## Overview\n\n");
-        md.push_str(&format!("| Metric | Value |\n"));
-        md.push_str(&format!("|--------|-------|\n"));
+        md.push_str("| Metric | Value |\n");
+        md.push_str("|--------|-------|\n");
         md.push_str(&format!("| Total Turns | {} |\n", stats.total_turns));
         md.push_str(&format!(
             "| Total Tokens | {} |\n",
@@ -141,14 +136,8 @@ impl TelemetryExporter {
             "| Total Tools Called | {} |\n",
             stats.total_tools_called
         ));
-        md.push_str(&format!(
-            "| Sessions Count | {} |\n",
-            stats.sessions_count
-        ));
-        md.push_str(&format!(
-            "| Files Modified | {} |\n",
-            stats.files_modified
-        ));
+        md.push_str(&format!("| Sessions Count | {} |\n", stats.sessions_count));
+        md.push_str(&format!("| Files Modified | {} |\n", stats.files_modified));
         md.push_str(&format!(
             "| Avg Response Time | {:.0} ms |\n",
             stats.avg_response_time_ms
@@ -215,10 +204,7 @@ impl TelemetryExporter {
                     } else {
                         &day.date
                     };
-                    md.push_str(&format!(
-                        "{} ▏{} {} turns\n",
-                        day_short, bar, day.turns
-                    ));
+                    md.push_str(&format!("{} ▏{} {} turns\n", day_short, bar, day.turns));
                 }
                 md.push_str("```\n");
             }

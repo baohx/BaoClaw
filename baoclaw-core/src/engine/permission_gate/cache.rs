@@ -74,7 +74,10 @@ impl PermissionCache {
         ttl_secs: Option<u64>,
     ) {
         // Only cache session-level and permanent grants
-        if !matches!(decision, DecisionType::AllowSession | DecisionType::AllowPermanent) {
+        if !matches!(
+            decision,
+            DecisionType::AllowSession | DecisionType::AllowPermanent
+        ) {
             return;
         }
 
@@ -111,10 +114,7 @@ impl PermissionCache {
 
     /// Return the number of entries currently in the cache (including expired).
     pub fn len(&self) -> usize {
-        self.entries
-            .lock()
-            .map(|e| e.len())
-            .unwrap_or(0)
+        self.entries.lock().map(|e| e.len()).unwrap_or(0)
     }
 
     /// Return true if the cache is empty.
@@ -145,8 +145,8 @@ impl Default for PermissionCache {
 mod tests {
     use super::*;
 
-    use std::time::UNIX_EPOCH;
     use std::time::SystemTime;
+    use std::time::UNIX_EPOCH;
     fn now_secs() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -236,8 +236,20 @@ mod tests {
     fn test_cache_revoke() {
         let cache = PermissionCache::new();
 
-        cache.store("Bash", "npm install", "node_modules", DecisionType::AllowSession, Some(3600));
-        cache.store("Bash", "npm test", "node_modules", DecisionType::AllowSession, Some(3600));
+        cache.store(
+            "Bash",
+            "npm install",
+            "node_modules",
+            DecisionType::AllowSession,
+            Some(3600),
+        );
+        cache.store(
+            "Bash",
+            "npm test",
+            "node_modules",
+            DecisionType::AllowSession,
+            Some(3600),
+        );
 
         assert_eq!(cache.len(), 2);
 
@@ -264,13 +276,7 @@ mod tests {
         );
 
         // Store a different grant for the same key
-        cache.store(
-            "Bash",
-            "deploy",
-            "prod",
-            DecisionType::AllowPermanent,
-            None,
-        );
+        cache.store("Bash", "deploy", "prod", DecisionType::AllowPermanent, None);
 
         // Should return the latest grant type
         let result = cache.check("Bash", "deploy", "prod");

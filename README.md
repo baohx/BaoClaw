@@ -1,8 +1,8 @@
 # 🐾 BaoClaw v2.1.0
 
-**The AI coding agent that remembers, evolves, and follows you everywhere.**
+**An AI coding agent with persistent memory, multi-client access, and experimental self-improvement features.**
 
-[English](#english) · [中文](#中文) · [📖 Book](book/)
+[English](#english) · [中文](#中文)
 
 ---
 
@@ -10,44 +10,66 @@
 
 ## What is BaoClaw?
 
-BaoClaw is an open-source AI coding agent with a Rust core engine, persistent memory, cross-device session sharing, a cron scheduler, and a self-evolution loop. It runs as a single global daemon on your machine, managing multiple project sessions simultaneously. Your terminal, Telegram, WhatsApp, and Feishu all connect to this one daemon — each routed to the correct project session by working directory.
+BaoClaw is an open-source AI coding agent with a Rust core engine, persistent memory, local multi-client session sharing, a cron scheduler, and experimental self-improvement features. It runs as a single global daemon on your machine, managing multiple project sessions simultaneously. Your terminal, Telegram, WhatsApp, and Feishu can connect to this daemon — each routed to a project session by working directory.
 
-Unlike agents that forget everything when you close the window, BaoClaw builds up knowledge about you and your projects over time. The more you use it, the better it gets.
+BaoClaw can retain selected knowledge about you and your projects over time. Self-improvement features are heuristic and should be reviewed by the user.
 
 ## Key Features
 
 ### 🧠 Persistent Memory
+
 - **Project-level memory** — each project directory gets its own `memory.jsonl`
 - **Global memory** — cross-project facts, preferences, and decisions in `~/.baoclaw/`
 - **Long-term recall** — memories are injected into the system prompt automatically
 - **Manual control** — `/memory add`, `/memory list`, `/memory delete`
 
+## Support Matrix
+
+| Client/platform | Status    | Verified scope and limitations                                                                                                                                                                                             |
+| --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI             | Supported | Unix-socket IPC, project sessions, tools, and streaming; see [`ts-ipc/cli.ts`](ts-ipc/cli.ts) and [`ts-ipc/client.test.ts`](ts-ipc/client.test.ts).                                                                        |
+| Telegram        | Supported | Allowlisted chats and command gateway; see [`gateway.ts`](baoclaw-telegram/src/gateway.ts) and [`authorization.ts`](baoclaw-telegram/src/authorization.ts). Provider credentials and network access are required.          |
+| WhatsApp        | Supported | Allowlist/rate-limit gateway; see [`allowlist.test.ts`](baoclaw-whatsapp/src/allowlist.test.ts). Baileys session credentials are local and provider behavior is external.                                                  |
+| Feishu          | Supported | Exact chat allowlist and command gateway; see [`gateway.ts`](baoclaw-feishu/src/gateway.ts) and [`authorization.test.ts`](baoclaw-feishu/src/authorization.test.ts). Provider credentials and network access are required. |
+| Linux           | Supported | Rust daemon and Unix-socket IPC; CI platform smoke coverage runs on Ubuntu.                                                                                                                                                |
+| macOS           | Supported | Rust daemon and Unix-socket IPC; CI platform smoke coverage runs on macOS.                                                                                                                                                 |
+| Windows/WSL2    | WSL2 only | Run the Unix daemon inside WSL2; native Windows daemon IPC is not supported until named-pipe transport exists.                                                                                                             |
+
+Security boundaries are defense-in-depth, not a guarantee that prompts or tool
+inputs are safe. Review generated skills before promotion and do not provide
+real credentials in examples or test fixtures.
+
 ### 📱 Multi-Client, Global Daemon
+
 - **One daemon, all projects** — a single daemon process manages sessions for all your project directories
 - **Per-project sessions** — each cwd gets its own session with independent history and memory
-- **Cross-device** — start a task on your laptop terminal, continue on Telegram from your phone
+- **Multi-device access** — continue a task from another device when it can reach the daemon through a configured gateway
 - **Real-time streaming** — all clients see tool calls and responses as they happen
 - **No conflicts** — two CLI terminals in different directories use different sessions, no interference
 - **Session persistence** — conversations survive daemon restarts, auto-resumed per project
 
-### 🔄 Self-Evolution Engine
+### 🔄 Self-Evolution Engine (Experimental)
+
 Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learning loop:
+
 - **Trajectory recording** — every interaction is logged with tools used, outcomes, and timing
 - **Skill auto-generation** — complex successful tasks are extracted as reusable skill candidates
 - **Self-evaluation nudge** — every 15 tasks, the agent reflects on patterns and creates/improves skills
 - **User ratings** — rate interactions as good/bad to build preference data
-- **RLHF data export** — export trajectories as JSONL for DPO/RLHF fine-tuning of smaller models
+- **Training-data export** — export trajectories as JSONL in a format that can be adapted for DPO/RLHF fine-tuning
 - **Personal evolution** — skills and trajectories are cross-project (`~/.baoclaw/evolution/`)
-- **Evolve tool** — agent can autonomously create, improve, and promote skills
+- **Evolve tool** — agent can propose, improve, and promote skills; review generated skills before relying on them
 
 ### ⏰ Cron Scheduler
+
 - **Periodic tasks** — schedule prompts to run automatically inside the daemon
 - **Flexible schedules** — `every 30m`, `every 2h`, `daily 09:00`, `weekly mon 09:00`
 - **Result broadcast** — cron results pushed to all connected clients (CLI + Telegram)
 - **Persistent** — jobs saved in `~/.baoclaw/cron.json`, survive daemon restarts
-- **Full agent power** — each job runs with complete tool access
+- **Agent tool access** — each job runs with the tools permitted by the daemon configuration
 
 ### 📄 Document Q&A
+
 - **Upload files** — PDF, DOCX, and images via Telegram or CLI (`@file.pdf`)
 - **Route A** — client-side text extraction (mammoth for DOCX, pdf-parse for PDF)
 - **Route B** — native API document blocks (PDF sent directly to Claude/OpenAI)
@@ -55,6 +77,7 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 - **Tab completion** — `@` triggers file path completion in CLI
 
 ### 🗂️ Project-Scoped Everything
+
 - **`/cd` command** — switch working directory at runtime, like changing projects
 - **Auto-scaffold** — `.baoclaw/` directory with config files created automatically
 - **Session per project** — each directory maps to its own persistent session file
@@ -62,34 +85,38 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 - **Project instructions** — `BAOCLAW.md` loaded into system prompt per project
 - **Memory isolation** — each project has its own memory store
 
-### 🛠️ 20+ Built-in Tools
-| Tool | Description |
-|------|-------------|
-| Bash | Shell commands (respects project cwd) |
-| FileRead / FileWrite / FileEdit | File operations with path validation |
-| Grep / Glob | Code search and file discovery |
-| WebSearch | Brave Search API with retry on rate limits |
-| WebFetch | Fetch and parse web pages |
-| Memory | Long-term memory management |
-| Agent | Sub-agent for parallel tasks |
-| Evolve | Self-improvement: create/improve skills, export training data |
-| Todo | Task list management |
-| Notebook | Jupyter notebook editing |
-| ProjectNote | Project-level notes |
-| ToolSearch | Search across all registered tools |
+### 🛠️ Built-in Tools
+
+| Tool                            | Description                                                   |
+| ------------------------------- | ------------------------------------------------------------- |
+| Bash                            | Shell commands (respects project cwd)                         |
+| FileRead / FileWrite / FileEdit | File operations with path validation                          |
+| Grep / Glob                     | Code search and file discovery                                |
+| WebSearch                       | Brave Search API with retry on rate limits                    |
+| WebFetch                        | Fetch and parse web pages                                     |
+| Memory                          | Long-term memory management                                   |
+| Agent                           | Sub-agent for parallel tasks                                  |
+| Evolve                          | Self-improvement: create/improve skills, export training data |
+| Todo                            | Task list management                                          |
+| Notebook                        | Jupyter notebook editing                                      |
+| ProjectNote                     | Project-level notes                                           |
+| ToolSearch                      | Search across all registered tools                            |
 
 ### 🔌 Extensible
+
 - **MCP support** — connect external MCP servers for additional tools
 - **Skills** — markdown-based skill files loaded into system prompt (personal + project scope)
 - **Plugins** — directory-based plugin system with tools, skills, and MCP configs
-- **200+ LLM models** — Anthropic native + any OpenAI-compatible API (OpenRouter, Ollama, vLLM, etc.)
+- **Many LLM models** — Anthropic native + compatible OpenAI-style APIs (OpenRouter, Ollama, vLLM, etc.)
 
 ### 🔁 Model Fallback
+
 - **Automatic retry** — rate-limited requests retry with exponential backoff
 - **Fallback chain** — configure multiple models; if one is rate-limited, fall back to the next
 - **Transparent** — CLI shows model switches in real-time
 
 ### ⌨️ Keyboard Shortcuts
+
 - **Ctrl+C** during task → abort current task
 - **Ctrl+C** when idle → hint to press again or `/quit`
 - **Ctrl+C × 2** → disconnect from daemon
@@ -100,68 +127,80 @@ Inspired by [Hermes Agent](https://github.com/NousResearch/hermes-agent)'s learn
 Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 
 #### 🔍 Cross-Session Search (#5)
+
 - **SQLite + FTS5** full-text search across all past sessions
 - Search by keyword, get ranked results with context snippets
 - Find that solution you saw 3 weeks ago in seconds
 
 #### ❄️ Frozen Snapshot Caching (#6)
+
 - System prompt and tools list are built **once** and frozen for the entire session
 - Maximizes Anthropic prompt cache hit rate — only the dynamic reminder changes per turn
 - Reduces cost and latency on every API call
 
 #### 👤 User Profile (#7)
+
 - `~/.baoclaw/USER.md` — persistent user profile (name, language, coding style, tool preferences)
 - Auto-loaded into system prompt for personalized responses
 - Session stats merged automatically (total turns, cost, top tools)
 
 #### 🔄 Skill Self-Improvement Loop (#8)
+
 - **5-stage cycle**: Collect → Evaluate → Improve → Validate → Retire
 - Scores skills on relevance rate, success rate, user rating, and staleness
 - Auto-retires persistently poor skills, suggests improvements for mediocre ones
 - Runs periodically to keep your skill set healthy
 
 #### 📐 Adaptive Compact (#9)
-- `AdaptiveCompactTracker` learns the optimal `keep_recent` from compression history
+
+- `AdaptiveCompactTracker` adjusts `keep_recent` heuristically from compression history
 - If the user re-asks about pre-compact content → increase `keep_recent` (preserve more)
 - If compression ratio is poor and no information loss → decrease `keep_recent` (compact harder)
 - Range: 6–30 messages, auto-adjusted per session
 
 #### 🏥 Tool Health Monitoring (#10)
+
 - Tracks success/failure/timeout rates per tool in real time
 - **3 statuses**: Healthy → Degraded (3 consecutive failures) → Disabled (6 failures)
 - Degraded tools get warning messages in the system prompt
 - Auto-recovers after 5 consecutive successes
 
 #### 🎯 Intent Prediction (#11)
+
 - Predicts user intent (coding, debugging, testing, refactoring, git, research…) from message keywords
-- Transition matrix learns what intent typically follows what (e.g., CodeWriting → Testing)
+- Heuristic transition matrix records what intent typically follows what (e.g., CodeWriting → Testing)
 - High-confidence predictions trigger tool preloading hints in the system prompt
 
 #### 🧮 Context Window Allocator (#12)
+
 - Attention score = 0.5×relevance + 0.3×recency + 0.2×frequency
 - Mandatory blocks (system prompt, tools) always included
 - Optional blocks (memory, skills, search results) greedy-fill by score
 - Budget exceeded → lowest-scoring blocks trimmed first
 
 #### 🏖️ Sandbox Execution (#13)
+
 - Three backends: **Bubblewrap** (Linux namespaces) → **Docker** (containers) → None (direct)
 - Auto-detects best available backend at startup
 - Configurable: read-only/read-write mounts, network isolation, memory/CPU limits, timeouts
 - Wrap any command for sandboxed execution with a single `wrap_command()` call
 
 #### 🛡️ Prompt Injection Detection (#14)
+
 - **20 patterns** across 6 categories: instruction override, role hijack, data exfiltration, encoding tricks, hidden payloads, jailbreak
 - Heuristic scoring with diminishing returns + multi-category boost
 - Four severity levels: Clean → Suspicious → Dangerous → Critical
 - `sanitize()` method redacts detected patterns with `[REDACTED]` placeholders
 
 #### 🔐 Subagent Depth Policy (#15)
+
 - Maximum nesting depth: 3 levels
 - **Progressive tool restriction**: Depth 0 = all tools, Depth 1 = safe tools, Depth 2 = read-only, Depth 3 = minimal (FileRead + Bash only)
 - Per-depth budgets: turns cap (100→30→15→5), cost cap ($10→$2→$0.50→$0.10)
 - Exceeded budget → auto-terminate sub-agent
 
 #### 📡 Streaming Tool Executor (#16)
+
 - Real-time chunked output: Started → Progress → Stdout → Stderr → Completed → Error → Heartbeat
 - `StreamWriter` / `StreamReader` pair via `tokio::sync::mpsc`
 - Configurable timeout (5 min default), buffer size, max output (1MB default)
@@ -170,6 +209,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 ### 🚀 v2.1 — Evolution Engine (NEW)
 
 #### 📋 Workflow Template Engine (#17)
+
 - **5 built-in templates**: `code_review`, `bug_fix`, `feature`, `docs`, `refactor`
 - Trigger-based matching (`/review` → code_review template)
 - Variable substitution with `${variable}` syntax and step output references `${stepN.output}`
@@ -178,6 +218,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 - Create custom templates with custom workflows and variables
 
 #### 🌿 Git Integration (#18)
+
 - **Branch Management**: create, list, switch, merge with name validation and protected branch detection
 - **Commit Management**: stage files, commit with conventional format (`feat:`, `fix:`, `chore:`), amend, undo
 - **Conflict Resolution**: detect conflicts from merge markers, resolve by taking ours/theirs
@@ -185,6 +226,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 - SSH and HTTPS credential management with host-based lookup
 
 #### 🧭 Model Router (#19)
+
 - **Intelligent routing**: select model by task type (code/completion/creative/analysis)
 - **Cost-aware**: prefer cheaper models for simple tasks, route to premium models for complex work
 - **Budget tracking**: set spending limits, track token usage, alert on threshold exceeded
@@ -192,12 +234,14 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
 - **Fallback chain**: automatic failover when primary model unavailable
 
 #### 📊 Telemetry & Monitoring (#20)
+
 - **Event collection**: record tool calls, model invocations, errors, session events
 - **Trend analysis**: detect increasing/decreasing/stable patterns over time windows
 - **Multi-format export**: JSON for programmatic use, CSV for spreadsheet analysis
 - **Aggregated statistics**: per-tool usage counts, model distribution, error rates
 
 #### 🔐 Permission Gate (#21)
+
 - **Tool-level access control**: grant/revoke permissions per tool per session
 - **Interactive prompts**: ask user for approval before executing sensitive operations
 - **Permission caching**: cache decisions with configurable TTL to avoid prompt fatigue
@@ -212,7 +256,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
   - Syntax-highlighted code blocks
   - Keyboard shortcuts overlay (`Ctrl+H`)
 - **Unix socket IPC**: JSON-RPC 2.0 over Unix domain sockets with NDJSON streaming
-- Auto-discovers daemon socket at `/tmp/baoclaw-sockets/baoclaw-<pid>.sock`
+- Auto-discovers the fixed daemon socket first (`$XDG_RUNTIME_DIR/baoclaw.sock` on Linux, `/tmp/baoclaw-sockets/baoclaw.sock` on macOS), then falls back to the cwd-hash socket
 
 ## Architecture
 
@@ -238,7 +282,7 @@ Phase 2–4 additions that make BaoClaw smarter, safer, and faster:
        │         └───────┬───────┘         │
        │         ┌───────┴───────┐         │
        │         │ Tool Executor │         │
-       │         │ 20+ built-in  │         │
+       │         │ Built-in tools│         │
        │         │ + MCP servers │         │
        │         └───────────────┘         │
        │  ┌──────────────┐ ┌────────────┐ │
@@ -267,13 +311,13 @@ BaoClaw has two complementary memory layers: **Long-Term Memory** (cross-session
 
 #### Long-Term Memory (`memory.jsonl`)
 
-| Aspect | Detail |
-|--------|--------|
-| **Scope** | Two levels: global (`~/.baoclaw/memory.jsonl`) and project (`<project>/.baoclaw/memory.jsonl`) |
-| **Categories** | `fact` (user told me X), `preference` (user prefers Y), `decision` (we decided Z) |
-| **Storage** | Append-only JSONL, one JSON object per line |
-| **Injection** | Loaded at daemon startup → `build_prompt_fragment()` → appended to system prompt |
-| **Management** | `/memory add`, `/memory list`, `/memory delete`, `/memory clear` |
+| Aspect         | Detail                                                                                         |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| **Scope**      | Two levels: global (`~/.baoclaw/memory.jsonl`) and project (`<project>/.baoclaw/memory.jsonl`) |
+| **Categories** | `fact` (user told me X), `preference` (user prefers Y), `decision` (we decided Z)              |
+| **Storage**    | Append-only JSONL, one JSON object per line                                                    |
+| **Injection**  | Loaded at daemon startup → `build_prompt_fragment()` → appended to system prompt               |
+| **Management** | `/memory add`, `/memory list`, `/memory delete`, `/memory clear`                               |
 
 When the daemon starts, `MemoryStore::load()` reads both files, and `build_prompt_fragment()` generates a formatted block that becomes part of the `append_system_prompt` injected into every conversation turn.
 
@@ -281,15 +325,16 @@ When the daemon starts, `MemoryStore::load()` reads both files, and `build_promp
 
 A per-session rolling summary that persists across the lifetime of a session — like meeting notes that get refined over time.
 
-| Aspect | Detail |
-|--------|--------|
-| **Storage** | `~/.baoclaw/sessions/{session_id}.memory.md` |
-| **First update** | Triggers at **4 messages** (if summary is empty) |
-| **Refresh interval** | Every **10 messages** after the last update |
-| **Thread safety** | `std::sync::Mutex` — safe to share via `Arc<SessionMemory>` |
-| **Persistence** | Written to disk on every `update()` call |
+| Aspect               | Detail                                                      |
+| -------------------- | ----------------------------------------------------------- |
+| **Storage**          | `~/.baoclaw/sessions/{session_id}.memory.md`                |
+| **First update**     | Triggers at **6 messages** (if summary is empty)            |
+| **Refresh interval** | Every **10 messages** after the last update                 |
+| **Thread safety**    | `std::sync::Mutex` — safe to share via `Arc<SessionMemory>` |
+| **Persistence**      | Written to disk on every `update()` call                    |
 
 **How it's used:**
+
 1. **Free compaction** — `session_memory_compact()` uses the existing summary to replace old messages without any API call (keeps last 10 messages)
 2. **Dynamic reminder** — injected into `<system-reminder>` in the user message each turn alongside git status
 3. **Session resume** — when reconnecting, the old summary seeds the new session and triggers immediate compaction if > 50 messages
@@ -298,28 +343,28 @@ A per-session rolling summary that persists across the lifetime of a session —
 
 ### 2. 📐 Context Mechanism
 
-BaoClaw manages a 200K-token context window with a multi-layer compaction strategy and accurate token counting.
+BaoClaw targets a 200K-token context window with a multi-layer compaction strategy and calibrated token counting.
 
 #### Token Counting (`token_counter.rs`)
 
-| Aspect | Detail |
-|--------|--------|
-| **Context window** | 200,000 tokens (default) |
-| **Auto-compact threshold** | 70% = **140,000 tokens** |
-| **Tokenizer** | `cl100k_base` (GPT-4 tokenizer, ~5-10% over-count for Claude) |
-| **Counting strategy** | Calibrated from API response `usage.input_tokens` → anchored baseline + tiktoken delta |
-| **Baseline persistence** | `~/.baoclaw/sessions/{id}.baseline.json` — restores calibration after restart |
+| Aspect                     | Detail                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| **Context window**         | 200,000 tokens (default)                                                               |
+| **Auto-compact threshold** | 70% = **140,000 tokens**                                                               |
+| **Tokenizer**              | `cl100k_base` (GPT-4 tokenizer, ~5-10% over-count for Claude)                          |
+| **Counting strategy**      | Calibrated from API response `usage.input_tokens` → anchored baseline + tiktoken delta |
+| **Baseline persistence**   | `~/.baoclaw/sessions/{id}.baseline.json` — restores calibration after restart          |
 
 **Budget levels (for 200K window):**
 
-| Level | Threshold | Action |
-|-------|-----------|--------|
-| **Normal** | < 140K | Continue normally |
-| **Compact** | ≥ 140K (70%) | Pre-emptive compaction triggered |
-| **Warning** | ≥ 147K | Log warning |
-| **Blocking** | ≥ 164K | MUST compact before next API call |
+| Level        | Threshold    | Action                            |
+| ------------ | ------------ | --------------------------------- |
+| **Normal**   | < 140K       | Continue normally                 |
+| **Compact**  | ≥ 140K (70%) | Pre-emptive compaction triggered  |
+| **Warning**  | ≥ 147K       | Log warning                       |
+| **Blocking** | ≥ 164K       | MUST compact before next API call |
 
-#### 4-Level Compaction Hierarchy
+#### 5-Level Compaction Hierarchy
 
 Compaction is tried from cheapest to most expensive:
 
@@ -358,6 +403,7 @@ Compaction is tried from cheapest to most expensive:
 The system prompt is split into **static** (cached) and **dynamic** (per-turn) parts to maximize API prompt caching:
 
 **Static part** (`build_system_prompt()`) — tagged with `cache_control: ephemeral`:
+
 1. Core system prompt (or custom override)
 2. Working directory + "show full content" instruction
 3. Project instructions from `BAOCLAW.md`
@@ -365,6 +411,7 @@ The system prompt is split into **static** (cached) and **dynamic** (per-turn) p
 5. Append system prompt = **skills** + **long-term memory** + **evolution prompt**
 
 **Dynamic part** (`build_dynamic_reminder()`) — injected into the **last user message** as `<system-reminder>`:
+
 1. Git status (branch, staged/modified/untracked files)
 2. Session memory (rolling summary)
 
@@ -387,6 +434,7 @@ This split ensures the cached system prompt prefix stays stable across turns —
 ```
 
 **Background summary generation** ensures Tier 1 is always available:
+
 - First update at 6 messages, then every 10 messages (`tokio::spawn`, non-blocking)
 - Session close heuristic fallback if background never ran
 - Pre-query compact safety: >500 messages → `session_memory_compact` (free) or tail-trim (no API call)
@@ -395,7 +443,7 @@ This split ensures the cached system prompt prefix stays stable across turns —
 
 ### 3. 🔄 Evolution Mechanism
 
-The self-evolution engine learns from every interaction to create and improve reusable skills.
+The experimental self-evolution engine records interaction data and can create or improve reusable skill candidates.
 
 #### File Layout
 
@@ -412,17 +460,18 @@ The self-evolution engine learns from every interaction to create and improve re
 
 #### Key Thresholds
 
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| `SKILL_CREATION_THRESHOLD` | 3 tool calls | Min complexity to auto-extract a skill candidate |
-| `SELF_EVAL_INTERVAL` | 15 tasks | Trigger self-evaluation nudge |
-| Review trigger | ≥ 2 turns | Only generate `pending_review.json` if session had ≥ 2 turns |
-| Candidate name max | 60 chars | Slugified from user prompt |
-| Topic truncation | 200 chars | Per topic in session summary |
+| Constant                   | Value        | Purpose                                                      |
+| -------------------------- | ------------ | ------------------------------------------------------------ |
+| `SKILL_CREATION_THRESHOLD` | 3 tool calls | Min complexity to auto-extract a skill candidate             |
+| `SELF_EVAL_INTERVAL`       | 15 tasks     | Trigger self-evaluation nudge                                |
+| Review trigger             | ≥ 2 turns    | Only generate `pending_review.json` if session had ≥ 2 turns |
+| Candidate name max         | 60 chars     | Slugified from user prompt                                   |
+| Topic truncation           | 200 chars    | Per topic in session summary                                 |
 
 #### Evolution Lifecycle
 
 **During interaction** (`record_trajectory`):
+
 ```
 Every user interaction
     ├── Append trajectory to trajectories.jsonl
@@ -433,6 +482,7 @@ Every user interaction
 ```
 
 **Session close** (`on_session_close`) — pure Rust, no LLM call:
+
 ```
 Last client disconnects
     ├── Extract from message history:
@@ -443,6 +493,7 @@ Last client disconnects
 ```
 
 **System prompt injection** (`build_prompt_fragment`):
+
 ```
 Start of new session
     ├── Check pending_review.json from previous session
@@ -454,6 +505,7 @@ Start of new session
 ```
 
 **Skill promotion** (`promote_skill`):
+
 ```
 Candidate approved → Move from candidates/ to ~/.baoclaw/skills/{name}.md
                      Remove candidate file
@@ -461,11 +513,12 @@ Candidate approved → Move from candidates/ to ~/.baoclaw/skills/{name}.md
 ```
 
 **Training export** (`export_training_data`):
+
 ```
 Read all trajectories → Create preference pairs
     Each pair: { prompt, response, rating: chosen/rejected/neutral }
     Output: ~/.baoclaw/evolution/training_export.jsonl
-    Suitable for DPO/RLHF fine-tuning
+    Can be adapted for DPO/RLHF fine-tuning
 ```
 
 #### Full Evolution Loop
@@ -501,7 +554,7 @@ Read all trajectories → Create preference pairs
       ├── Write pending_review.json → next session prompt
       │
       ▼
- Export trajectories → RLHF/DPO fine-tuning for smaller models
+  Export trajectories → data suitable for adapting DPO/RLHF datasets
 ```
 
 ---
@@ -542,6 +595,7 @@ The system prompt is assembled in 5 ordered layers. The order matters for API pr
 **Why this split?** The static layers (1-4) are tagged with `cache_control: ephemeral` so the API provider can cache the prefix. Only the dynamic `<system-reminder>` changes every turn — and it's injected into the user message, not the system prompt, so the system prompt cache stays warm.
 
 **How skills & memory are loaded:**
+
 1. At daemon startup: `load_skills_for_prompt(cwd)` → discovers all skill `.md` files
 2. At daemon startup: `MemoryStore::load()` → reads global + project `memory.jsonl`
 3. Combined via `build_append_prompt()` → becomes Layer 4
@@ -603,27 +657,28 @@ Request with primary model
 }
 ```
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `model` | `claude-sonnet-4-20250514` | Primary model (tried first every time) |
-| `fallback_models` | `[]` | Ordered list of fallback models |
-| `max_retries_per_model` | `2` | Retries per model before falling back |
-| Server error max retries | `3` | Built-in limit for 5xx errors |
+| Parameter                | Default                    | Description                            |
+| ------------------------ | -------------------------- | -------------------------------------- |
+| `model`                  | `claude-sonnet-4-20250514` | Primary model (tried first every time) |
+| `fallback_models`        | `[]`                       | Ordered list of fallback models        |
+| `max_retries_per_model`  | `2`                        | Retries per model before falling back  |
+| Server error max retries | `3`                        | Built-in limit for 5xx errors          |
 
 #### Error Recovery Strategies
 
-| Error Type | Strategy | Parameters |
-|------------|----------|------------|
-| IPC disconnect | Restart process | Full daemon restart |
-| State sync failed | Full state sync | Re-sync from scratch |
-| API rate limited (429) | Retry with backoff | 3 attempts, 1s initial delay |
-| API server error (5xx) | Retry with backoff | 3 attempts, exponential (1s→2s→4s) |
-| API auth error | Fatal | Cannot recover automatically |
-| API bad request (context overflow) | Auto-compact | Compact → retry |
-| MCP disconnect | Retry | 5 attempts, 2s initial delay |
-| Tool timeout | Fatal | Report to user |
+| Error Type                         | Strategy           | Parameters                         |
+| ---------------------------------- | ------------------ | ---------------------------------- |
+| IPC disconnect                     | Restart process    | Full daemon restart                |
+| State sync failed                  | Full state sync    | Re-sync from scratch               |
+| API rate limited (429)             | Retry with backoff | 3 attempts, 1s initial delay       |
+| API server error (5xx)             | Retry with backoff | 3 attempts, exponential (1s→2s→4s) |
+| API auth error                     | Fatal              | Cannot recover automatically       |
+| API bad request (context overflow) | Auto-compact       | Compact → retry                    |
+| MCP disconnect                     | Retry              | 5 attempts, 2s initial delay       |
+| Tool timeout                       | Fatal              | Report to user                     |
 
 **Key behaviors:**
+
 - The fallback controller **resets** to the primary model for each new query (cross-turn stateless)
 - **Exponential backoff** prevents hammering a rate-limited endpoint
 - **Circuit breaker**: After 3 consecutive compaction failures, auto-compaction is disabled to avoid wasting API calls
@@ -671,7 +726,8 @@ QueryEngine.submit_message_with_attachments()
 ## Installation
 
 ### Prerequisites
-- **Rust** (1.75+) — [rustup.rs](https://rustup.rs)
+
+- **Rust** (1.96+) — [rustup.rs](https://rustup.rs)
 - **Node.js** (18+) — [nodejs.org](https://nodejs.org)
 - An LLM API key (Anthropic, OpenRouter, or any OpenAI-compatible provider)
 
@@ -772,29 +828,39 @@ npx --prefix ts-ipc tsx ts-ipc/cli.ts
   "api_type": "anthropic",
   "openai_base_url": null,
   "telegram": {
-    "token": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+    "token": "<telegram-bot-token>",
     "allowedChatIds": [12345678]
+  },
+  "feishu": {
+    "allowedChatIds": ["oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
   }
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `model` | string | `claude-sonnet-4-20250514` | Primary LLM model |
-| `fallback_models` | string[] | `[]` | Models to try when primary is rate-limited |
-| `max_retries_per_model` | number | `2` | Retries before falling back to next model |
-| `api_type` | string | `"anthropic"` | `"anthropic"` or `"openai"` |
-| `openai_base_url` | string? | `null` | Base URL for OpenAI-compatible API |
-| `telegram.token` | string | — | Telegram bot token from @BotFather |
-| `telegram.allowedChatIds` | number[] | `[]` | Allowed chat IDs (empty = allow all) |
+| Field                     | Type     | Default                    | Description                                                               |
+| ------------------------- | -------- | -------------------------- | ------------------------------------------------------------------------- |
+| `model`                   | string   | `claude-sonnet-4-20250514` | Primary LLM model                                                         |
+| `fallback_models`         | string[] | `[]`                       | Models to try when primary is rate-limited                                |
+| `max_retries_per_model`   | number   | `2`                        | Retries before falling back to next model                                 |
+| `api_type`                | string   | `"anthropic"`              | `"anthropic"` or `"openai"`                                               |
+| `openai_base_url`         | string?  | `null`                     | Base URL for OpenAI-compatible API                                        |
+| `telegram.token`          | string   | —                          | Telegram bot token from @BotFather                                        |
+| `telegram.allowedChatIds` | number[] | `[]`                       | Allowed chat IDs (required; empty = reject all and refuse startup)        |
+| `feishu.allowedChatIds`   | string[] | `[]`                       | Allowed Feishu chat IDs (required; empty = reject all and refuse startup) |
+
+WhatsApp session credentials are stored under `~/.baoclaw/whatsapp-auth/`.
+The directory is restricted to the owner (`0700`) and credential files to the
+owner (`0600`) after each credentials update.
 
 Environment variable overrides:
+
 - `ANTHROPIC_API_KEY` — API key (required)
 - `ANTHROPIC_MODEL` — overrides `model` field
 - `ANTHROPIC_BASE_URL` — overrides `openai_base_url`
 - `BRAVE_SEARCH_API_KEY` — for WebSearch tool
 
 OpenAI-compatible example:
+
 ```json
 {
   "model": "deepseek-chat",
@@ -813,12 +879,14 @@ Injected into the system prompt for every conversation in this project. Write an
 This is a Python web app using FastAPI + SQLAlchemy.
 
 ## Conventions
+
 - Use type hints everywhere
 - Tests go in tests/ directory
 - Use pytest for testing
 - Database migrations with alembic
 
 ## Important Files
+
 - src/main.py — app entry point
 - src/models/ — SQLAlchemy models
 - src/api/ — FastAPI routes
@@ -888,6 +956,7 @@ version: 2
 # Code Review
 
 When asked to review code:
+
 1. Check for security issues (SQL injection, XSS, etc.)
 2. Check error handling (are errors caught and logged?)
 3. Check naming conventions
@@ -908,65 +977,77 @@ Auto-recorded. Each line is a JSON object:
   "cwd": "/home/user/project",
   "user_prompt": "Fix the login bug",
   "assistant_actions": [
-    {"tool_name": "Grep", "input_summary": "search for login", "output_summary": "found in auth.py", "is_error": false},
-    {"tool_name": "FileEdit", "input_summary": "fix auth.py line 42", "output_summary": "edited", "is_error": false}
+    {
+      "tool_name": "Grep",
+      "input_summary": "search for login",
+      "output_summary": "found in auth.py",
+      "is_error": false
+    },
+    {
+      "tool_name": "FileEdit",
+      "input_summary": "fix auth.py line 42",
+      "output_summary": "edited",
+      "is_error": false
+    }
   ],
-  "outcome": {"Completed": {"final_text_preview": "Fixed the login bug by..."}},
+  "outcome": {
+    "Completed": { "final_text_preview": "Fixed the login bug by..." }
+  },
   "tool_count": 2,
   "duration_ms": 15000,
   "user_rating": "Good"
 }
 ```
 
-Export for RLHF fine-tuning: ask the agent to `export training data` or use the Evolve tool.
+Export training data for later DPO/RLHF dataset preparation: ask the agent to `export training data` or use the Evolve tool.
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `/projects` | Project management: list, switch, new, desc |
-| `/tools` | List registered tools |
-| `/mcp` | List MCP servers |
-| `/skills` | List loaded skills |
-| `/plugins` | List installed plugins |
-| `/model [name]` | Show or switch model |
-| `/think` | Toggle extended thinking mode |
-| `/compact` | Compress conversation context |
-| `/memory` | Long-term memory: list, add, delete, clear |
-| `/cron` | Scheduled tasks: add, list, remove, toggle |
-| `/diff` | Git diff summary |
-| `/commit <msg>` | Stage all and commit |
-| `/git` | Git status (branch, changes) |
-| `/task` | Background tasks: run, list, status, stop |
-| `/voice` | Voice input (requires whisper.cpp) |
-| `/telegram` | Manage Telegram gateway: start, stop, status |
-| `/telemetry` | Toggle telemetry on/off |
-| `@file.pdf` | Attach file for Q&A (PDF, DOCX, images) |
-| `/abort` | Cancel current request (or press Ctrl+C) |
-| `/clear` | Clear screen |
-| `/help` | Show all commands |
-| `/quit` | Disconnect (daemon keeps running) |
-| `/shutdown` | Stop the daemon process |
+| Command         | Description                                  |
+| --------------- | -------------------------------------------- |
+| `/projects`     | Project management: list, switch, new, desc  |
+| `/tools`        | List registered tools                        |
+| `/mcp`          | List MCP servers                             |
+| `/skills`       | List loaded skills                           |
+| `/plugins`      | List installed plugins                       |
+| `/model [name]` | Show or switch model                         |
+| `/think`        | Toggle extended thinking mode                |
+| `/compact`      | Compress conversation context                |
+| `/memory`       | Long-term memory: list, add, delete, clear   |
+| `/cron`         | Scheduled tasks: add, list, remove, toggle   |
+| `/diff`         | Git diff summary                             |
+| `/commit <msg>` | Stage all and commit                         |
+| `/git`          | Git status (branch, changes)                 |
+| `/task`         | Background tasks: run, list, status, stop    |
+| `/voice`        | Voice input (requires whisper.cpp)           |
+| `/telegram`     | Manage Telegram gateway: start, stop, status |
+| `/telemetry`    | Toggle telemetry on/off                      |
+| `@file.pdf`     | Attach file for Q&A (PDF, DOCX, images)      |
+| `/abort`        | Cancel current request (or press Ctrl+C)     |
+| `/clear`        | Clear screen                                 |
+| `/help`         | Show all commands                            |
+| `/quit`         | Disconnect (daemon keeps running)            |
+| `/shutdown`     | Stop the daemon process                      |
 
 ## Telegram Commands
 
 All CLI commands are also available in Telegram:
 
-| Command | Description |
-|---------|-------------|
-| `/tools` `/skills` `/mcp` `/plugins` | List resources |
-| `/model [name]` | Show or switch model |
-| `/think` | Toggle extended thinking |
-| `/compact` | Compress context |
-| `/memory` | Manage memories |
-| `/cron` | Manage scheduled tasks |
-| `/projects` | 项目管理: list, switch, new, desc |
-| `/task` | Manage background tasks |
-| `/diff` `/commit` `/git` | Git operations |
-| `/abort` | Cancel current task |
-| `/status` | Gateway status |
-| `/help` | Show all commands |
-| 📎 Upload file | Send PDF/DOCX/image for Q&A |
+| Command                              | Description                       |
+| ------------------------------------ | --------------------------------- |
+| `/tools` `/skills` `/mcp` `/plugins` | List resources                    |
+| `/model [name]`                      | Show or switch model              |
+| `/think`                             | Toggle extended thinking          |
+| `/compact`                           | Compress context                  |
+| `/memory`                            | Manage memories                   |
+| `/cron`                              | Manage scheduled tasks            |
+| `/projects`                          | 项目管理: list, switch, new, desc |
+| `/task`                              | Manage background tasks           |
+| `/diff` `/commit` `/git`             | Git operations                    |
+| `/abort`                             | Cancel current task               |
+| `/status`                            | Gateway status                    |
+| `/help`                              | Show all commands                 |
+| 📎 Upload file                       | Send PDF/DOCX/image for Q&A       |
 
 ## Telegram Setup
 
@@ -1016,7 +1097,7 @@ Results are pushed to all connected clients (CLI shows ⏰ notification, Telegra
           Better performance ──→ Loop continues
                    │
                    ▼
-          Export trajectories ──→ RLHF/DPO fine-tuning
+           Export trajectories ──→ DPO/RLHF dataset preparation
                                   for smaller models
 ```
 
@@ -1031,7 +1112,7 @@ Results are pushed to all connected clients (CLI shows ⏰ notification, Telegra
 # Output: ~/.baoclaw/evolution/training_export.jsonl
 ```
 
-Each trajectory contains: prompt, tool actions, outcome, user rating (good/bad/neutral). Rated trajectories can be used as preference pairs for DPO training.
+Each trajectory contains: prompt, tool actions, outcome, user rating (good/bad/neutral). Rated trajectories can be used as inputs when preparing preference pairs for DPO training.
 
 ## License
 
@@ -1041,39 +1122,44 @@ MIT
 
 <a name="中文"></a>
 
-## 🐾 BaoClaw — 会记忆、会进化、跨设备的 AI 编程助手
+## 🐾 BaoClaw — 带持久记忆和多客户端访问的 AI 编程助手
 
-BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持久记忆、跨设备会话共享、定时任务和自我进化能力。它以守护进程方式运行，同时连接终端、Telegram 和 WhatsApp，所有客户端共享同一个对话上下文。
+BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持久记忆、本地多客户端会话共享、定时任务和实验性自我改进功能。它以守护进程方式运行，同时连接终端、Telegram 和 WhatsApp。
 
 和那些关掉窗口就失忆的 Agent 不同，BaoClaw 会随着使用不断积累对你和你项目的了解。用得越多，越好用。
 
 ## 核心特性
 
 ### 🧠 持久记忆
+
 - 项目级记忆 — 每个项目目录独立的 `memory.jsonl`
 - 全局记忆 — 跨项目的个人偏好和决策
 - 自动注入 — 记忆自动加载到系统提示词中
 - 手动管理 — `/memory add`、`/memory list`、`/memory delete`
 
 ### 📱 全局守护进程，多客户端
+
 - 一个守护进程管所有项目 — 单个 daemon 进程管理所有项目目录的会话
 - 项目级会话 — 每个工作目录有独立的会话历史和记忆
-- 跨设备 — 在电脑终端开始任务，用手机 Telegram 继续
+- 多设备访问 — 在配置好的 gateway 可访问 daemon 时，可从其他设备继续任务
 - 实时流式输出 — 所有客户端同步看到工具调用和响应
 - 无冲突 — 两个终端在不同目录工作，使用不同会话，互不干扰
 - 会话持久化 — 对话在守护进程重启后自动恢复，按项目目录绑定
 
-### 🔄 自我进化引擎
+### 🔄 自我进化引擎（实验性）
+
 参考 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的学习循环：
+
 - 轨迹记录 — 每次交互自动记录工具调用、结果和耗时
 - Skill 自动生成 — 复杂的成功任务自动提取为可复用的 skill 候选
 - 自我评估 — 每 15 个任务触发反思，创建或改进 skill
 - 用户评价 — 对交互评分（good/bad），构建偏好数据
-- RLHF 数据导出 — 导出轨迹数据用于小模型的 DPO/RLHF 微调
+- 训练数据导出 — 导出可进一步整理为 DPO/RLHF 数据集的轨迹 JSONL
 - 个人级进化 — skill 和轨迹跨项目积累（`~/.baoclaw/evolution/`）
 - Evolve 工具 — Agent 可自主创建、改进和提升 skill
 
 ### ⏰ 定时任务
+
 - 周期执行 — 在守护进程内自动运行预设的提示词
 - 灵活调度 — `every 30m`、`every 2h`、`daily 09:00`、`weekly mon 09:00`
 - 结果推送 — 定时任务结果推送到所有连接的客户端（终端 + Telegram）
@@ -1081,6 +1167,7 @@ BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持�
 - 完整能力 — 每个任务都拥有完整的 Agent 工具访问权限
 
 ### 📄 文档问答
+
 - 上传文件 — 通过 Telegram 或终端（`@file.pdf`）上传 PDF、DOCX、图片
 - 文本提取 — DOCX 用 mammoth，PDF 用 pdf-parse
 - 原生文档 — PDF 可直接发送给 Claude API
@@ -1088,6 +1175,7 @@ BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持�
 - Tab 补全 — 终端中输入 `@` 后按 Tab 自动补全文件路径
 
 ### 🗂️ 项目级隔离
+
 - `/cd` 命令 — 运行时切换工作目录，相当于切换项目
 - 自动初始化 — 新目录自动创建 `.baoclaw/` 配置骨架
 - 项目绑定会话 — 每个目录对应独立的持久化会话文件
@@ -1095,21 +1183,25 @@ BaoClaw 是一个开源 AI 编程 Agent，基于 Rust 核心引擎，具备持�
 - 项目指令 — `BAOCLAW.md` 按项目加载到系统提示词
 - 记忆隔离 — 每个项目有独立的记忆存储
 
-### 🛠️ 20+ 内置工具
+### 🛠️ 内置工具
+
 Bash、文件读写编辑、Grep、Glob、Web 搜索、Web 抓取、记忆管理、子 Agent、自我进化、Todo、Notebook 编辑、项目笔记、工具搜索等。
 
 ### 🔌 可扩展
+
 - MCP 协议 — 连接外部 MCP 服务器获取更多工具
 - Skills — Markdown 格式的技能文件（个人级 + 项目级）
 - 插件系统 — 目录式插件，包含工具、技能和 MCP 配置
 - 200+ 模型 — Anthropic 原生 + 任意 OpenAI 兼容 API
 
 ### 🔁 模型降级
+
 - 自动重试 — 限流时指数退避重试
 - 降级链 — 配置多个模型，限流时自动切换
 - 透明提示 — 终端实时显示模型切换
 
 ### ⌨️ 快捷键
+
 - `Ctrl+C`（任务中）→ 中止当前任务
 - `Ctrl+C`（空闲时）→ 提示再按一次退出
 - `Ctrl+C × 2` → 断开连接
@@ -1120,68 +1212,80 @@ Bash、文件读写编辑、Grep、Glob、Web 搜索、Web 抓取、记忆管理
 Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
 
 #### 🔍 跨会话搜索（#5）
+
 - **SQLite + FTS5** 全文检索所有历史会话
 - 关键词搜索，返回带上下文片段的排序结果
 - 3 周前看到的解决方案，秒级找到
 
 #### ❄️ 冻结快照缓存（#6）
+
 - 系统提示词和工具列表只在会话开始时构建一次，然后**冻结**
 - 最大化 Anthropic prompt cache 命中率——每 turn 只有动态提醒变化
 - 每次调用都省成本、降延迟
 
 #### 👤 用户画像（#7）
+
 - `~/.baoclaw/USER.md` — 持久化用户画像（姓名、语言、编码风格、工具偏好）
 - 自动注入系统提示词，实现个性化回复
 - 会话统计自动合并（总轮次、费用、常用工具）
 
 #### 🔄 Skill 自改进闭环（#8）
+
 - **5 阶段循环**：采集 → 评估 → 改进 → 验证 → 退役
 - 基于相关率、成功率、用户评分和时效性综合评分
 - 自动退役持续低效的 skill，对平庸 skill 生成改进建议
 - 定期运行，保持 skill 集健康
 
 #### 📐 自适应 Compact（#9）
+
 - `AdaptiveCompactTracker` 根据压缩历史学习最优 `keep_recent` 参数
 - 用户重复问压缩前内容 → 增大 `keep_recent`（保留更多）
 - 压缩率差且无信息丢失 → 减小 `keep_recent`（压缩更激进）
 - 范围 6–30 条消息，每会话自动调整
 
 #### 🏥 工具健康监控（#10）
+
 - 实时追踪每个工具的成功/失败/超时率
 - **三级状态**：健康 → 降级（连续 3 次失败）→ 禁用（连续 6 次）
 - 降级工具在系统提示词中显示警告信息
 - 连续 5 次成功后自动恢复
 
 #### 🎯 意图预测（#11）
+
 - 根据消息关键词预测用户意图（编码、调试、测试、重构、Git、研究…）
 - 转移矩阵学习意图→意图的先后关系（如 编码→测试）
 - 高置信度预测触发工具预加载提示
 
 #### 🧮 上下文窗口智能分配（#12）
+
 - 注意力评分 = 0.5×相关度 + 0.3×时效性 + 0.2×频率
 - 必选块（系统提示词、工具）始终包含
 - 可选块（记忆、skill、搜索结果）按评分贪心填充
 - 预算超限时优先裁剪低分块
 
 #### 🏖️ 沙箱执行（#13）
+
 - 三种后端：**Bubblewrap**（Linux 命名空间）→ **Docker**（容器）→ 无沙箱（直接执行）
 - 启动时自动检测最佳可用后端
 - 可配置：读写挂载、网络隔离、内存/CPU 限制、超时
 - 一行 `wrap_command()` 调用即可沙箱化任意命令
 
 #### 🛡️ Prompt 注入检测（#14）
+
 - **20 种模式**覆盖 6 大类：指令覆写、角色劫持、数据外泄、编码技巧、隐藏载荷、越狱
 - 启发式评分，多匹配递减收益 + 跨类别加成
 - 四级严重度：干净 → 可疑 → 危险 → 致命
 - `sanitize()` 方法用 `[REDACTED]` 替换检测到的模式
 
 #### 🔐 子代理深度策略（#15）
+
 - 最大嵌套深度：3 层
 - **逐层工具收紧**：Depth 0=全部工具，Depth 1=安全工具，Depth 2=只读，Depth 3=最小权限（仅 FileRead+Bash）
 - 每层预算：轮次上限（100→30→15→5）、费用上限（$10→$2→$0.50→$0.10）
 - 预算耗尽 → 自动终止子代理
 
 #### 📡 流式工具执行器（#16）
+
 - 实时分块输出：启动 → 进度 → 标准输出 → 标准错误 → 完成 → 错误 → 心跳
 - `StreamWriter` / `StreamReader` 对，基于 `tokio::sync::mpsc`
 - 可配置超时（默认 5 分钟）、缓冲区大小、最大输出（默认 1MB）
@@ -1190,6 +1294,7 @@ Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
 ### 🚀 v2.1 — 进化引擎（全新）
 
 #### 📋 工作流模板引擎（#17）
+
 - **5 个内置模板**：`code_review`、`bug_fix`、`feature`、`docs`、`refactor`
 - 触发器匹配（`/review` → code_review 模板）
 - 变量替换：`${variable}` 语法 + 步骤输出引用 `${stepN.output}`
@@ -1198,6 +1303,7 @@ Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
 - 支持创建自定义模板，定义专属工作流和变量
 
 #### 🌿 Git 集成（#18）
+
 - **分支管理**：创建、列出、切换、合并，支持名称验证和保护分支检测
 - **提交管理**：暂存文件、使用约定式提交格式（`feat:`、`fix:`、`chore:`）、修改、撤销
 - **冲突解决**：从合并标记检测冲突，以 ours/theirs 方式解决
@@ -1205,6 +1311,7 @@ Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
 - SSH 和 HTTPS 凭证管理，支持按主机查找
 
 #### 🧭 模型路由（#19）
+
 - **智能路由**：按任务类型选择模型（编码/补全/创意/分析）
 - **成本感知**：简单任务优先便宜模型，复杂任务路由到高级模型
 - **预算追踪**：设置消费上限，追踪 token 用量，超阈值告警
@@ -1212,12 +1319,14 @@ Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
 - **降级链**：主模型不可用时自动切换备选模型
 
 #### 📊 遥测与监控（#20）
+
 - **事件采集**：记录工具调用、模型请求、错误、会话事件
 - **趋势分析**：检测时间窗口内上升/下降/稳定模式
 - **多格式导出**：JSON 用于程序化处理，CSV 用于电子表格分析
 - **聚合统计**：每工具使用次数、模型分布、错误率
 
 #### 🔐 权限门禁（#21）
+
 - **工具级访问控制**：按会话对每个工具进行授予/撤销权限
 - **交互式提示**：在执行敏感操作前请求用户审批
 - **权限缓存**：带 TTL 的决策缓存，避免频繁提示
@@ -1232,7 +1341,7 @@ Phase 2–4 新增特性，让 BaoClaw 更聪明、更安全、更快速：
   - 语法高亮代码块
   - 快捷键帮助面板（`Ctrl+H`）
 - **Unix socket IPC**：基于 Unix 域套接字的 JSON-RPC 2.0 + NDJSON 流
-- 自动发现 daemon socket：`/tmp/baoclaw-sockets/baoclaw-<pid>.sock`
+- 自动发现 daemon socket：优先使用固定 socket（Linux 为 `$XDG_RUNTIME_DIR/baoclaw.sock`，macOS 为 `/tmp/baoclaw-sockets/baoclaw.sock`），再回退到 cwd-hash socket
 
 ## 内部机制：引擎工作原理
 
@@ -1246,13 +1355,13 @@ BaoClaw 有两个互补的记忆层：**长期记忆**（跨会话的事实/偏�
 
 #### 长期记忆 (`memory.jsonl`)
 
-| 方面 | 细节 |
-|------|------|
-| **作用域** | 两级：全局（`~/.baoclaw/memory.jsonl`）和项目级（`<项目>/.baoclaw/memory.jsonl`） |
-| **分类** | `fact`（用户告知的事实）、`preference`（用户偏好）、`decision`（决策记录） |
-| **存储** | 追加写入 JSONL，每行一个 JSON 对象 |
-| **注入方式** | 守护进程启动时加载 → `build_prompt_fragment()` → 追加到系统提示词 |
-| **管理命令** | `/memory add`、`/memory list`、`/memory delete`、`/memory clear` |
+| 方面         | 细节                                                                              |
+| ------------ | --------------------------------------------------------------------------------- |
+| **作用域**   | 两级：全局（`~/.baoclaw/memory.jsonl`）和项目级（`<项目>/.baoclaw/memory.jsonl`） |
+| **分类**     | `fact`（用户告知的事实）、`preference`（用户偏好）、`decision`（决策记录）        |
+| **存储**     | 追加写入 JSONL，每行一个 JSON 对象                                                |
+| **注入方式** | 守护进程启动时加载 → `build_prompt_fragment()` → 追加到系统提示词                 |
+| **管理命令** | `/memory add`、`/memory list`、`/memory delete`、`/memory clear`                  |
 
 守护进程启动时，`MemoryStore::load()` 读取两个文件，`build_prompt_fragment()` 生成格式化文本块，成为每次对话都注入的 `append_system_prompt` 的一部分。
 
@@ -1260,15 +1369,16 @@ BaoClaw 有两个互补的记忆层：**长期记忆**（跨会话的事实/偏�
 
 每个会话的滚动摘要，在会话生命周期内持续精炼 —— 就像不断完善的会议纪要。
 
-| 方面 | 细节 |
-|------|------|
-| **存储位置** | `~/.baoclaw/sessions/{session_id}.memory.md` |
-| **首次更新** | **4 条消息**时触发（如果摘要是空的） |
-| **刷新间隔** | 每隔 **10 条消息**更新一次 |
+| 方面         | 细节                                                      |
+| ------------ | --------------------------------------------------------- |
+| **存储位置** | `~/.baoclaw/sessions/{session_id}.memory.md`              |
+| **首次更新** | **4 条消息**时触发（如果摘要是空的）                      |
+| **刷新间隔** | 每隔 **10 条消息**更新一次                                |
 | **线程安全** | `std::sync::Mutex` — 可通过 `Arc<SessionMemory>` 安全共享 |
-| **持久化** | 每次 `update()` 调用都立即写入磁盘 |
+| **持久化**   | 每次 `update()` 调用都立即写入磁盘                        |
 
 **用途：**
+
 1. **免费压缩** — `session_memory_compact()` 用已有摘要替换旧消息，无需 API 调用（保留最近 10 条）
 2. **动态提醒** — 每轮注入到用户消息的 `<system-reminder>` 中，与 git 状态并列
 3. **会话恢复** — 重连时，旧摘要种子到新会话，超过 50 条消息时立即触发压缩
@@ -1277,26 +1387,26 @@ BaoClaw 有两个互补的记忆层：**长期记忆**（跨会话的事实/偏�
 
 ### 2. 📐 上下文机制
 
-BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确的 token 计数。
+BaoClaw 以 200K token 上下文窗口为目标，采用多层压缩策略和校准后的 token 计数。
 
 #### Token 计数 (`token_counter.rs`)
 
-| 方面 | 细节 |
-|------|------|
-| **上下文窗口** | 200,000 tokens（默认） |
-| **自动压缩阈值** | 70% = **140,000 tokens** |
-| **分词器** | `cl100k_base`（GPT-4 分词器，对 Claude 约多算 5-10%） |
-| **计数策略** | 从 API 响应的 `usage.input_tokens` 校准 → 锚定基线 + tiktoken 增量 |
-| **基线持久化** | `~/.baoclaw/sessions/{id}.baseline.json` — 重启后恢复校准值 |
+| 方面             | 细节                                                               |
+| ---------------- | ------------------------------------------------------------------ |
+| **上下文窗口**   | 200,000 tokens（默认）                                             |
+| **自动压缩阈值** | 70% = **140,000 tokens**                                           |
+| **分词器**       | `cl100k_base`（GPT-4 分词器，对 Claude 约多算 5-10%）              |
+| **计数策略**     | 从 API 响应的 `usage.input_tokens` 校准 → 锚定基线 + tiktoken 增量 |
+| **基线持久化**   | `~/.baoclaw/sessions/{id}.baseline.json` — 重启后恢复校准值        |
 
 **预算等级（200K 窗口）：**
 
-| 等级 | 阈值 | 行为 |
-|------|------|------|
-| **Normal** | < 140K | 正常运行 |
-| **Compact** | ≥ 140K (70%) | 触发预防性压缩 |
-| **Warning** | ≥ 147K | 记录警告日志 |
-| **Blocking** | ≥ 164K | 必须在下一次 API 调用前压缩 |
+| 等级         | 阈值         | 行为                        |
+| ------------ | ------------ | --------------------------- |
+| **Normal**   | < 140K       | 正常运行                    |
+| **Compact**  | ≥ 140K (70%) | 触发预防性压缩              |
+| **Warning**  | ≥ 147K       | 记录警告日志                |
+| **Blocking** | ≥ 164K       | 必须在下一次 API 调用前压缩 |
 
 #### 5 级压缩层次
 
@@ -1349,6 +1459,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 ```
 
 **后台摘要生成**确保 Tier 1 始终可用：
+
 - 首次在 6 条消息后更新，之后每 10 条消息更新一次（`tokio::spawn`，非阻塞）
 - Session 关闭时 heuristic 兜底（如果后台更新从未触发）
 - Pre-query compact 安全策略：>500 条消息 → `session_memory_compact`（免费）或 tail-trim（无 API 调用）
@@ -1357,7 +1468,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 
 ### 3. 🔄 进化机制
 
-自我进化引擎从每次交互中学习，创建和改进可复用的技能。
+实验性自我进化引擎记录交互数据，并可创建或改进可复用的技能候选。
 
 #### 文件布局
 
@@ -1374,17 +1485,18 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 
 #### 关键阈值
 
-| 常量 | 值 | 用途 |
-|------|---|------|
-| `SKILL_CREATION_THRESHOLD` | 3 次工具调用 | 自动提取技能候选的最低复杂度 |
-| `SELF_EVAL_INTERVAL` | 15 个任务 | 触发自我评估提醒 |
-| 审查触发条件 | ≥ 2 轮 | 只有 ≥ 2 轮的会话才生成 `pending_review.json` |
-| 候选名称最大长度 | 60 字符 | 从用户提示词 slug 化 |
-| 话题截断 | 200 字符 | 会话摘要中每个话题 |
+| 常量                       | 值           | 用途                                          |
+| -------------------------- | ------------ | --------------------------------------------- |
+| `SKILL_CREATION_THRESHOLD` | 3 次工具调用 | 自动提取技能候选的最低复杂度                  |
+| `SELF_EVAL_INTERVAL`       | 15 个任务    | 触发自我评估提醒                              |
+| 审查触发条件               | ≥ 2 轮       | 只有 ≥ 2 轮的会话才生成 `pending_review.json` |
+| 候选名称最大长度           | 60 字符      | 从用户提示词 slug 化                          |
+| 话题截断                   | 200 字符     | 会话摘要中每个话题                            |
 
 #### 进化生命周期
 
 **交互期间** (`record_trajectory`)：
+
 ```
 每次用户交互
     ├── 追加轨迹到 trajectories.jsonl
@@ -1395,6 +1507,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 ```
 
 **会话关闭** (`on_session_close`) — 纯 Rust，无 LLM 调用：
+
 ```
 最后一个客户端断开
     ├── 从消息历史提取:
@@ -1405,6 +1518,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 ```
 
 **系统提示词注入** (`build_prompt_fragment`)：
+
 ```
 新会话开始
     ├── 检查上次会话的 pending_review.json
@@ -1416,6 +1530,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 ```
 
 **技能提升** (`promote_skill`)：
+
 ```
 候选被批准 → 从 candidates/ 移到 ~/.baoclaw/skills/{name}.md
               删除候选文件
@@ -1423,6 +1538,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 ```
 
 **训练数据导出** (`export_training_data`)：
+
 ```
 读取所有轨迹 → 创建偏好对
     每对: { prompt, response, rating: chosen/rejected/neutral }
@@ -1468,6 +1584,7 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 **为什么这样拆分？** 静态层（1-4）标记了 `cache_control: ephemeral`，API 提供商可以缓存前缀。只有动态的 `<system-reminder>` 每轮变化 —— 它被注入到用户消息而非系统提示词中，因此系统提示词缓存保持有效。
 
 **技能和记忆的加载流程：**
+
 1. 守护进程启动时: `load_skills_for_prompt(cwd)` → 发现所有技能 `.md` 文件
 2. 守护进程启动时: `MemoryStore::load()` → 读取全局 + 项目 `memory.jsonl`
 3. 通过 `build_append_prompt()` 合并 → 成为第 4 层
@@ -1528,27 +1645,28 @@ BaoClaw 管理 200K token 的上下文窗口，采用多层压缩策略和精确
 }
 ```
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `model` | `claude-sonnet-4-20250514` | 主要模型（每次优先尝试） |
-| `fallback_models` | `[]` | 有序的退回模型列表 |
-| `max_retries_per_model` | `2` | 每个模型退回前的重试次数 |
-| 服务器错误最大重试 | `3` | 5xx 错误的内置限制 |
+| 参数                    | 默认值                     | 说明                     |
+| ----------------------- | -------------------------- | ------------------------ |
+| `model`                 | `claude-sonnet-4-20250514` | 主要模型（每次优先尝试） |
+| `fallback_models`       | `[]`                       | 有序的退回模型列表       |
+| `max_retries_per_model` | `2`                        | 每个模型退回前的重试次数 |
+| 服务器错误最大重试      | `3`                        | 5xx 错误的内置限制       |
 
 #### 错误恢复策略
 
-| 错误类型 | 策略 | 参数 |
-|----------|------|------|
-| IPC 断连 | 重启进程 | 完整守护进程重启 |
-| 状态同步失败 | 全量同步 | 从头重新同步 |
-| API 限流 (429) | 退避重试 | 3 次尝试，初始延迟 1s |
-| API 服务器错误 (5xx) | 退避重试 | 3 次尝试，指数退避 (1s→2s→4s) |
-| API 认证错误 | 致命 | 无法自动恢复 |
-| API 请求错误（上下文溢出） | 自动压缩 | 压缩 → 重试 |
-| MCP 断连 | 重试 | 5 次尝试，初始延迟 2s |
-| 工具超时 | 致命 | 报告给用户 |
+| 错误类型                   | 策略     | 参数                          |
+| -------------------------- | -------- | ----------------------------- |
+| IPC 断连                   | 重启进程 | 完整守护进程重启              |
+| 状态同步失败               | 全量同步 | 从头重新同步                  |
+| API 限流 (429)             | 退避重试 | 3 次尝试，初始延迟 1s         |
+| API 服务器错误 (5xx)       | 退避重试 | 3 次尝试，指数退避 (1s→2s→4s) |
+| API 认证错误               | 致命     | 无法自动恢复                  |
+| API 请求错误（上下文溢出） | 自动压缩 | 压缩 → 重试                   |
+| MCP 断连                   | 重试     | 5 次尝试，初始延迟 2s         |
+| 工具超时                   | 致命     | 报告给用户                    |
 
 **关键行为：**
+
 - 退回控制器对每个新查询**重置**到主要模型（跨轮次无状态）
 - **指数退避**防止持续冲击限流端点
 - **熔断器**：连续 3 次压缩失败后，禁用自动压缩以避免浪费 API 调用
@@ -1596,6 +1714,7 @@ QueryEngine.submit_message_with_attachments()
 ## 安装
 
 ### 前置条件
+
 - Rust (1.75+) — [rustup.rs](https://rustup.rs)
 - Node.js (18+) — [nodejs.org](https://nodejs.org)
 - LLM API Key（Anthropic、OpenRouter 或任意 OpenAI 兼容服务）
@@ -1626,6 +1745,7 @@ baoclaw
 ```
 
 OpenAI 兼容模式：
+
 ```bash
 export ANTHROPIC_API_KEY=your-key
 export ANTHROPIC_BASE_URL=https://your-provider.com/v1
@@ -1638,20 +1758,21 @@ baoclaw
 
 简要概览：
 
-| 文件 | 位置 | 说明 |
-|------|------|------|
-| `config.json` | `~/.baoclaw/` | 主配置（模型、API、Telegram token） |
-| `BAOCLAW.md` | `<项目>/.baoclaw/` | 项目指令，注入系统提示词 |
-| `mcp.json` | 两级都有 | MCP 服务器配置 |
-| `mcp.local.json` | `<项目>/.baoclaw/` | 本地 MCP 覆盖（gitignore） |
-| `memory.jsonl` | 两级都有 | 记忆存储 |
-| `cron.json` | `~/.baoclaw/` | 定时任务 |
-| `skills/*.md` | 两级都有 | 技能文件 |
-| `todo.json` | `<项目>/.baoclaw/` | 项目待办 |
-| `evolution/` | `~/.baoclaw/` | 进化数据（轨迹、候选 skill） |
-| `sessions/` | `~/.baoclaw/` | 会话记录（按项目） |
+| 文件             | 位置               | 说明                                |
+| ---------------- | ------------------ | ----------------------------------- |
+| `config.json`    | `~/.baoclaw/`      | 主配置（模型、API、Telegram token） |
+| `BAOCLAW.md`     | `<项目>/.baoclaw/` | 项目指令，注入系统提示词            |
+| `mcp.json`       | 两级都有           | MCP 服务器配置                      |
+| `mcp.local.json` | `<项目>/.baoclaw/` | 本地 MCP 覆盖（gitignore）          |
+| `memory.jsonl`   | 两级都有           | 记忆存储                            |
+| `cron.json`      | `~/.baoclaw/`      | 定时任务                            |
+| `skills/*.md`    | 两级都有           | 技能文件                            |
+| `todo.json`      | `<项目>/.baoclaw/` | 项目待办                            |
+| `evolution/`     | `~/.baoclaw/`      | 进化数据（轨迹、候选 skill）        |
+| `sessions/`      | `~/.baoclaw/`      | 会话记录（按项目）                  |
 
 环境变量：
+
 - `ANTHROPIC_API_KEY` — API 密钥（必需）
 - `ANTHROPIC_MODEL` — 覆盖配置中的模型
 - `ANTHROPIC_BASE_URL` — OpenAI 兼容 API 地址
@@ -1659,31 +1780,31 @@ baoclaw
 
 ## 完整命令列表
 
-| 命令 | 说明 |
-|------|------|
-| `/projects` | 项目管理：list, <id>, new <路径> [描述], desc |
-| `/tools` | 列出已注册的工具 |
-| `/mcp` | 列出 MCP 服务器 |
-| `/skills` | 列出已加载的技能 |
-| `/plugins` | 列出已安装的插件 |
-| `/model [名称]` | 查看或切换模型 |
-| `/think` | 切换扩展思考模式 |
-| `/compact` | 压缩对话上下文 |
-| `/memory` | 长期记忆：list, add, delete, clear |
-| `/cron` | 定时任务：add, list, remove, toggle |
-| `/diff` | 查看 git diff |
-| `/commit <消息>` | 暂存并提交 |
-| `/git` | 查看 git 状态 |
-| `/task` | 后台任务：run, list, status, stop |
-| `/voice` | 语音输入（需要 whisper.cpp） |
-| `/telegram` | 管理 Telegram 网关 |
-| `/telemetry` | 切换遥测 |
-| `@file.pdf` | 附加文件进行问答 |
-| `/abort` | 取消当前请求（或按 Ctrl+C） |
-| `/clear` | 清屏 |
-| `/help` | 显示所有命令 |
-| `/quit` | 断开连接（守护进程保持运行） |
-| `/shutdown` | 停止守护进程 |
+| 命令             | 说明                                          |
+| ---------------- | --------------------------------------------- |
+| `/projects`      | 项目管理：list, <id>, new <路径> [描述], desc |
+| `/tools`         | 列出已注册的工具                              |
+| `/mcp`           | 列出 MCP 服务器                               |
+| `/skills`        | 列出已加载的技能                              |
+| `/plugins`       | 列出已安装的插件                              |
+| `/model [名称]`  | 查看或切换模型                                |
+| `/think`         | 切换扩展思考模式                              |
+| `/compact`       | 压缩对话上下文                                |
+| `/memory`        | 长期记忆：list, add, delete, clear            |
+| `/cron`          | 定时任务：add, list, remove, toggle           |
+| `/diff`          | 查看 git diff                                 |
+| `/commit <消息>` | 暂存并提交                                    |
+| `/git`           | 查看 git 状态                                 |
+| `/task`          | 后台任务：run, list, status, stop             |
+| `/voice`         | 语音输入（需要 whisper.cpp）                  |
+| `/telegram`      | 管理 Telegram 网关                            |
+| `/telemetry`     | 切换遥测                                      |
+| `@file.pdf`      | 附加文件进行问答                              |
+| `/abort`         | 取消当前请求（或按 Ctrl+C）                   |
+| `/clear`         | 清屏                                          |
+| `/help`          | 显示所有命令                                  |
+| `/quit`          | 断开连接（守护进程保持运行）                  |
+| `/shutdown`      | 停止守护进程                                  |
 
 ## 定时任务示例
 

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! bao-team — BaoClaw Multi-Agent Team Runner
 //!
 //! CLI for validating and executing DAG-based multi-agent workflows,
@@ -50,16 +51,14 @@ struct MatchResult {
 
 fn load_registry() -> Result<Vec<DagRegistryEntry>, String> {
     // Try to find dag_registry.json next to the DAG fixtures
-    let candidates = vec![
+    let candidates = [
         "tests/fixtures/dag_registry.json",
         "baoclaw-core/tests/fixtures/dag_registry.json",
     ];
     let content = candidates
         .iter()
         .find_map(|p| std::fs::read_to_string(p).ok())
-        .ok_or_else(|| {
-            "Cannot find dag_registry.json (searched tests/fixtures/).".to_string()
-        })?;
+        .ok_or_else(|| "Cannot find dag_registry.json (searched tests/fixtures/).".to_string())?;
     let entries: Vec<DagRegistryEntry> =
         serde_json::from_str(&content).map_err(|e| format!("Invalid registry: {}", e))?;
     Ok(entries)
@@ -123,7 +122,10 @@ fn resolve_dag_path(dag_file: &str) -> Result<String, String> {
             return Ok(p.clone());
         }
     }
-    Err(format!("Cannot find DAG file '{}' (searched: {:?})", dag_file, candidates))
+    Err(format!(
+        "Cannot find DAG file '{}' (searched: {:?})",
+        dag_file, candidates
+    ))
 }
 
 // ── Commands ───────────────────────────────────────────────────
@@ -166,11 +168,17 @@ fn cmd_match(input: &str) -> Result<(), String> {
     };
 
     println!("╔══════════════════════════════════════════════╗");
-    println!("║  🔍 Intent: {} (confidence: {})", best.entry.intent, confidence_pct);
+    println!(
+        "║  🔍 Intent: {} (confidence: {})",
+        best.entry.intent, confidence_pct
+    );
     println!("╠══════════════════════════════════════════════╣");
     println!("║  {}", best.entry.display_name);
     println!("║  {}", best.entry.description);
-    println!("║  Duration: {} | Cost: {}", best.entry.expected_duration, best.entry.estimated_cost);
+    println!(
+        "║  Duration: {} | Cost: {}",
+        best.entry.expected_duration, best.entry.estimated_cost
+    );
     println!("║  Matched: {}", best.matched_phrases.join(", "));
     println!("╚══════════════════════════════════════════════╝");
     println!();
@@ -189,13 +197,18 @@ fn cmd_match(input: &str) -> Result<(), String> {
     // Validate the DAG
     let dag_path = resolve_dag_path(&best.entry.dag_file)?;
     let team = load_dag(&dag_path)?;
-    let mut scheduler = DagScheduler::from_team(&team)
-        .map_err(|e| format!("Scheduler error: {}", e))?;
-    scheduler.build()
+    let mut scheduler =
+        DagScheduler::from_team(&team).map_err(|e| format!("Scheduler error: {}", e))?;
+    scheduler
+        .build()
         .map_err(|e| format!("Invalid DAG: {}", e))?;
 
     let waves = scheduler.execution_waves().map_err(|e| e.to_string())?;
-    println!("✅ DAG valid: {} agents, {} waves", team.agents.len(), waves.len());
+    println!(
+        "✅ DAG valid: {} agents, {} waves",
+        team.agents.len(),
+        waves.len()
+    );
     for (i, wave) in waves.iter().enumerate() {
         println!("   Wave {}: {}", i, wave.nodes.join(" → "));
     }
@@ -213,7 +226,7 @@ fn cmd_match(input: &str) -> Result<(), String> {
 
 fn cmd_repl() -> Result<(), String> {
     let registry = load_registry()?;
-    
+
     println!("╔══════════════════════════════════════════════╗");
     println!("║  🤖 BaoClaw Multi-Agent Team REPL            ║");
     println!("╠══════════════════════════════════════════════╣");
@@ -297,9 +310,10 @@ fn cmd_validate(dag_path: &str) -> Result<(), String> {
         );
     }
 
-    let mut scheduler = DagScheduler::from_team(&team)
-        .map_err(|e| format!("Scheduler error: {}", e))?;
-    scheduler.build()
+    let mut scheduler =
+        DagScheduler::from_team(&team).map_err(|e| format!("Scheduler error: {}", e))?;
+    scheduler
+        .build()
         .map_err(|e| format!("Invalid DAG: {}", e))?;
 
     println!("✅ DAG structure valid — no cycles, all dependencies satisfied.");
@@ -319,8 +333,17 @@ fn cmd_validate(dag_path: &str) -> Result<(), String> {
     let waves = scheduler.execution_waves().map_err(|e| e.to_string())?;
     println!("\n🌊 Execution waves:");
     for wave in &waves {
-        let label = if wave.parallel { "parallel" } else { "sequential" };
-        println!("  Wave {} ({}): {}", wave.wave, label, wave.nodes.join(", "));
+        let label = if wave.parallel {
+            "parallel"
+        } else {
+            "sequential"
+        };
+        println!(
+            "  Wave {} ({}): {}",
+            wave.wave,
+            label,
+            wave.nodes.join(", ")
+        );
     }
 
     let critical = scheduler.critical_path().map_err(|e| e.to_string())?;
@@ -342,9 +365,10 @@ fn cmd_validate(dag_path: &str) -> Result<(), String> {
 
 fn cmd_dot(dag_path: &str) -> Result<(), String> {
     let team = load_dag(dag_path)?;
-    let mut scheduler = DagScheduler::from_team(&team)
-        .map_err(|e| format!("Scheduler error: {}", e))?;
-    scheduler.build()
+    let mut scheduler =
+        DagScheduler::from_team(&team).map_err(|e| format!("Scheduler error: {}", e))?;
+    scheduler
+        .build()
         .map_err(|e| format!("Invalid DAG: {}", e))?;
     println!("{}", scheduler.to_dot());
     Ok(())
@@ -352,17 +376,22 @@ fn cmd_dot(dag_path: &str) -> Result<(), String> {
 
 fn cmd_run(dag_path: &str) -> Result<(), String> {
     let team = load_dag(dag_path)?;
-    let mut scheduler = DagScheduler::from_team(&team)
-        .map_err(|e| format!("Scheduler error: {}", e))?;
-    scheduler.build()
+    let mut scheduler =
+        DagScheduler::from_team(&team).map_err(|e| format!("Scheduler error: {}", e))?;
+    scheduler
+        .build()
         .map_err(|e| format!("Invalid DAG: {}", e))?;
 
     let waves = scheduler.execution_waves().map_err(|e| e.to_string())?;
     let dag_name = team.name.as_deref().unwrap_or(&team.id);
 
     println!("═══ Executing DAG: {} ═══", dag_name);
-    println!("  Agents: {} | Waves: {} | Budget: {:?}",
-        team.agents.len(), waves.len(), team.budget);
+    println!(
+        "  Agents: {} | Waves: {} | Budget: {:?}",
+        team.agents.len(),
+        waves.len(),
+        team.budget
+    );
 
     println!("\n⚠️  'bao-team run' requires the full BaoClaw daemon.");
     println!("    For production execution, connect to the running daemon via IPC.");
@@ -411,9 +440,7 @@ fn main() {
             }
             cmd_match(&args[2..].join(" "))
         }
-        "repl" => {
-            cmd_repl()
-        }
+        "repl" => cmd_repl(),
         "validate" | "dot" | "run" => {
             if args.len() < 3 {
                 eprintln!("Usage: bao-team {} <dag-file.json>", command);

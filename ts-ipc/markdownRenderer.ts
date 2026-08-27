@@ -3,7 +3,7 @@
  * Renders Markdown text with syntax highlighting, tables, lists, etc.
  */
 
-const ESC = '\x1b[';
+const ESC = "\x1b[";
 const RESET = `${ESC}0m`;
 const BOLD = `${ESC}1m`;
 const DIM = `${ESC}2m`;
@@ -21,20 +21,75 @@ const BG_CODE = `${ESC}48;2;40;40;40m`;
 
 // Common keywords for syntax highlighting
 const KEYWORDS = new Set([
-  'function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'return',
-  'import', 'export', 'from', 'class', 'new', 'this', 'async', 'await',
-  'try', 'catch', 'throw', 'switch', 'case', 'break', 'continue', 'default',
-  'typeof', 'instanceof', 'in', 'of', 'true', 'false', 'null', 'undefined',
-  'fn', 'pub', 'use', 'mod', 'struct', 'enum', 'impl', 'trait', 'match',
-  'self', 'super', 'crate', 'mut', 'ref', 'type', 'where', 'async', 'move',
-  'def', 'print', 'with', 'as', 'is', 'not', 'and', 'or', 'None', 'True', 'False',
+  "function",
+  "const",
+  "let",
+  "var",
+  "if",
+  "else",
+  "for",
+  "while",
+  "return",
+  "import",
+  "export",
+  "from",
+  "class",
+  "new",
+  "this",
+  "async",
+  "await",
+  "try",
+  "catch",
+  "throw",
+  "switch",
+  "case",
+  "break",
+  "continue",
+  "default",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "fn",
+  "pub",
+  "use",
+  "mod",
+  "struct",
+  "enum",
+  "impl",
+  "trait",
+  "match",
+  "self",
+  "super",
+  "crate",
+  "mut",
+  "ref",
+  "type",
+  "where",
+  "async",
+  "move",
+  "def",
+  "print",
+  "with",
+  "as",
+  "is",
+  "not",
+  "and",
+  "or",
+  "None",
+  "True",
+  "False",
 ]);
 
 /**
  * Apply basic syntax highlighting to a code line.
  */
 function highlightCodeLine(line: string): string {
-  let result = '';
+  let result = "";
   let i = 0;
   while (i < line.length) {
     // String literals (double or single quotes)
@@ -42,7 +97,7 @@ function highlightCodeLine(line: string): string {
       const quote = line[i];
       let end = i + 1;
       while (end < line.length && line[end] !== quote) {
-        if (line[end] === '\\') end++; // skip escaped char
+        if (line[end] === "\\") end++; // skip escaped char
         end++;
       }
       if (end < line.length) end++; // include closing quote
@@ -51,11 +106,11 @@ function highlightCodeLine(line: string): string {
       continue;
     }
     // Line comments
-    if (line[i] === '/' && i + 1 < line.length && line[i + 1] === '/') {
+    if (line[i] === "/" && i + 1 < line.length && line[i + 1] === "/") {
       result += `${FG_GRAY}${line.slice(i)}${RESET}${BG_CODE}`;
       break;
     }
-    if (line[i] === '#' && (i === 0 || line[i - 1] === ' ')) {
+    if (line[i] === "#" && (i === 0 || line[i - 1] === " ")) {
       // Python-style comment (only if at start or after space)
       result += `${FG_GRAY}${line.slice(i)}${RESET}${BG_CODE}`;
       break;
@@ -79,7 +134,6 @@ function highlightCodeLine(line: string): string {
   return result;
 }
 
-
 /**
  * Render a code block with syntax highlighting.
  */
@@ -87,67 +141,67 @@ function renderCodeBlock(lines: string[], lang: string): string {
   const cols = process.stdout.columns || 80;
   const width = Math.min(cols - 4, 100);
   const topBar = lang
-    ? `${DIM}${FG_GRAY}╭─ ${lang} ${'─'.repeat(Math.max(0, width - lang.length - 4))}╮${RESET}`
-    : `${DIM}${FG_GRAY}╭${'─'.repeat(width)}╮${RESET}`;
-  const botBar = `${DIM}${FG_GRAY}╰${'─'.repeat(width)}╯${RESET}`;
+    ? `${DIM}${FG_GRAY}╭─ ${lang} ${"─".repeat(Math.max(0, width - lang.length - 4))}╮${RESET}`
+    : `${DIM}${FG_GRAY}╭${"─".repeat(width)}╮${RESET}`;
+  const botBar = `${DIM}${FG_GRAY}╰${"─".repeat(width)}╯${RESET}`;
 
-  const rendered = lines.map(l => {
+  const rendered = lines.map((l) => {
     const highlighted = highlightCodeLine(l);
     return `${DIM}${FG_GRAY}│${RESET} ${BG_CODE}${highlighted}${RESET}`;
   });
 
-  return [topBar, ...rendered, botBar].join('\n');
+  return [topBar, ...rendered, botBar].join("\n");
 }
 
 /**
  * Render a Markdown table with box-drawing characters.
  */
 function renderTable(rows: string[][]): string {
-  if (rows.length === 0) return '';
+  if (rows.length === 0) return "";
 
   // Calculate column widths
-  const colCount = Math.max(...rows.map(r => r.length));
+  const colCount = Math.max(...rows.map((r) => r.length));
   const colWidths: number[] = Array(colCount).fill(0);
   for (const row of rows) {
     for (let c = 0; c < row.length; c++) {
-      colWidths[c] = Math.max(colWidths[c], (row[c] || '').trim().length);
+      colWidths[c] = Math.max(colWidths[c], (row[c] || "").trim().length);
     }
   }
 
   const hLine = (left: string, mid: string, right: string) => {
-    return `${FG_GRAY}${left}${colWidths.map(w => '─'.repeat(w + 2)).join(mid)}${right}${RESET}`;
+    return `${FG_GRAY}${left}${colWidths.map((w) => "─".repeat(w + 2)).join(mid)}${right}${RESET}`;
   };
 
   const formatRow = (row: string[]) => {
     const cells = colWidths.map((w, i) => {
-      const cell = (row[i] || '').trim();
-      return ` ${cell}${' '.repeat(Math.max(0, w - cell.length))} `;
+      const cell = (row[i] || "").trim();
+      return ` ${cell}${" ".repeat(Math.max(0, w - cell.length))} `;
     });
     return `${FG_GRAY}│${RESET}${cells.join(`${FG_GRAY}│${RESET}`)}${FG_GRAY}│${RESET}`;
   };
 
   const output: string[] = [];
-  output.push(hLine('┌', '┬', '┐'));
+  output.push(hLine("┌", "┬", "┐"));
 
   for (let i = 0; i < rows.length; i++) {
     // Skip separator rows (e.g., |---|---|)
-    const isSeparator = rows[i].every(cell => /^[\s\-:]+$/.test(cell || ''));
+    const isSeparator = rows[i].every((cell) => /^[\s\-:]+$/.test(cell || ""));
     if (isSeparator) {
-      output.push(hLine('├', '┼', '┤'));
+      output.push(hLine("├", "┼", "┤"));
       continue;
     }
     output.push(formatRow(rows[i]));
   }
 
-  output.push(hLine('└', '┴', '┘'));
-  return output.join('\n');
+  output.push(hLine("└", "┴", "┘"));
+  return output.join("\n");
 }
 
 /**
  * Render Markdown text to ANSI-formatted terminal output.
  */
 export function renderMarkdown(text: string): string {
-  const lines = text.split('\n');
+  const lines = text.split("\n");
   const output: string[] = [];
   let i = 0;
 
@@ -155,11 +209,11 @@ export function renderMarkdown(text: string): string {
     const line = lines[i];
 
     // Code blocks
-    if (line.trimStart().startsWith('```')) {
+    if (line.trimStart().startsWith("```")) {
       const lang = line.trimStart().slice(3).trim();
       const codeLines: string[] = [];
       i++;
-      while (i < lines.length && !lines[i].trimStart().startsWith('```')) {
+      while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
         codeLines.push(lines[i]);
         i++;
       }
@@ -169,11 +223,11 @@ export function renderMarkdown(text: string): string {
     }
 
     // Tables: detect lines starting with |
-    if (line.trimStart().startsWith('|')) {
+    if (line.trimStart().startsWith("|")) {
       const tableRows: string[][] = [];
-      while (i < lines.length && lines[i].trimStart().startsWith('|')) {
-        const cells = lines[i].split('|').slice(1); // remove leading empty
-        if (cells.length > 0 && cells[cells.length - 1].trim() === '') {
+      while (i < lines.length && lines[i].trimStart().startsWith("|")) {
+        const cells = lines[i].split("|").slice(1); // remove leading empty
+        if (cells.length > 0 && cells[cells.length - 1].trim() === "") {
           cells.pop(); // remove trailing empty
         }
         tableRows.push(cells);
@@ -186,23 +240,23 @@ export function renderMarkdown(text: string): string {
     // Horizontal rule
     if (/^(\s*)(---+|===+|\*\*\*+)\s*$/.test(line)) {
       const cols = process.stdout.columns || 80;
-      output.push(`${FG_GRAY}${'─'.repeat(Math.min(cols - 2, 70))}${RESET}`);
+      output.push(`${FG_GRAY}${"─".repeat(Math.min(cols - 2, 70))}${RESET}`);
       i++;
       continue;
     }
 
     // Headings
-    if (line.startsWith('### ')) {
+    if (line.startsWith("### ")) {
       output.push(`${BOLD}${DIM}${line.slice(4)}${RESET}`);
       i++;
       continue;
     }
-    if (line.startsWith('## ')) {
+    if (line.startsWith("## ")) {
       output.push(`${BOLD}${FG_WHITE}${line.slice(3)}${RESET}`);
       i++;
       continue;
     }
-    if (line.startsWith('# ')) {
+    if (line.startsWith("# ")) {
       output.push(`${BOLD}${FG_ORANGE}${line.slice(2)}${RESET}`);
       i++;
       continue;
@@ -212,7 +266,7 @@ export function renderMarkdown(text: string): string {
     if (/^\s*[-*]\s/.test(line)) {
       const match = line.match(/^(\s*)[-*]\s(.*)$/);
       if (match) {
-        const indent = match[1] || '';
+        const indent = match[1] || "";
         const content = renderInline(match[2]);
         output.push(`${indent}  • ${content}`);
         i++;
@@ -224,7 +278,7 @@ export function renderMarkdown(text: string): string {
     if (/^\s*\d+\.\s/.test(line)) {
       const match = line.match(/^(\s*)(\d+)\.\s(.*)$/);
       if (match) {
-        const indent = match[1] || '';
+        const indent = match[1] || "";
         const num = match[2];
         const content = renderInline(match[3]);
         output.push(`${indent}  ${num}. ${content}`);
@@ -238,7 +292,7 @@ export function renderMarkdown(text: string): string {
     i++;
   }
 
-  return output.join('\n');
+  return output.join("\n");
 }
 
 /**
@@ -250,6 +304,9 @@ function renderInline(text: string): string {
   // Inline code: `code`
   text = text.replace(/`([^`]+)`/g, `${DIM}${BG_CODE} $1 ${RESET}`);
   // Links: [text](url)
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `${UNDERLINE}${FG_BLUE}$1${RESET}`);
+  text = text.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    `${UNDERLINE}${FG_BLUE}$1${RESET}`,
+  );
   return text;
 }

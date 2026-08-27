@@ -4,7 +4,8 @@
 
 **Goal:** Enable image send/receive/generate/edit across Terminal TUI, Telegram, and Web clients.
 
-**Architecture:** 
+**Architecture:**
+
 - New Rust core builtin tools (`image_generate`, `image_edit`) calling CogView-4 API (GLM OpenAI-compatible endpoint)
 - Client-side changes: TUI handles paste/drag→base64→attachments, Telegram receives photos→base64→attachments + sendPhoto for output, Web adds upload button→base64→attachments + `<img>` display
 - All clients reuse the existing `SubmitMessage { prompt, attachments }` IPC pipeline — no core protocol changes needed
@@ -16,26 +17,29 @@
 ## File Structure
 
 ### New Files
-| File | Responsibility |
-|------|---------------|
-| `baoclaw-core/src/tools/builtins/image_gen_tool.rs` | CogView-4 image generation tool |
+
+| File                                                 | Responsibility                           |
+| ---------------------------------------------------- | ---------------------------------------- |
+| `baoclaw-core/src/tools/builtins/image_gen_tool.rs`  | CogView-4 image generation tool          |
 | `baoclaw-core/src/tools/builtins/image_edit_tool.rs` | Image editing tool (vision + regenerate) |
 
 ### Modified Files
-| File | Change |
-|------|--------|
-| `baoclaw-core/src/tools/builtins/mod.rs` | Register new tool modules |
-| `baoclaw-core/src/main.rs` | Instantiate and register new tools |
-| `baoclaw-telegram/src/gateway.ts` | Photo receive→attachments, tool result→sendPhoto |
-| `baoclaw-web/src/server.ts` | Handle image upload action |
-| `baoclaw-web/public/app.js` | Upload button, preview, image display |
-| `baoclaw-web/public/index.html` | Upload button HTML, image preview area |
+
+| File                                     | Change                                           |
+| ---------------------------------------- | ------------------------------------------------ |
+| `baoclaw-core/src/tools/builtins/mod.rs` | Register new tool modules                        |
+| `baoclaw-core/src/main.rs`               | Instantiate and register new tools               |
+| `baoclaw-telegram/src/gateway.ts`        | Photo receive→attachments, tool result→sendPhoto |
+| `baoclaw-web/src/server.ts`              | Handle image upload action                       |
+| `baoclaw-web/public/app.js`              | Upload button, preview, image display            |
+| `baoclaw-web/public/index.html`          | Upload button HTML, image preview area           |
 
 ---
 
 ## Task 1: Rust Core — Image Generate Tool
 
 **Files:**
+
 - Create: `baoclaw-core/src/tools/builtins/image_gen_tool.rs`
 - Modify: `baoclaw-core/src/tools/builtins/mod.rs`
 - Modify: `baoclaw-core/src/main.rs`
@@ -231,6 +235,7 @@ fn base64_encode(bytes: &bytes::Bytes) -> String {
 - [ ] **Step 2: Register in `builtins/mod.rs`**
 
 Add at the end of the file:
+
 ```rust
 pub mod image_gen_tool;
 pub use image_gen_tool::ImageGenTool;
@@ -239,6 +244,7 @@ pub use image_gen_tool::ImageGenTool;
 - [ ] **Step 3: Register in `main.rs` tool instantiation**
 
 Find where tools are created (search for `WebSearchTool::new()` or similar). Add:
+
 ```rust
 ImageGenTool::new(),
 ```
@@ -260,6 +266,7 @@ git commit -m "feat: add ImageGenTool — CogView-4 image generation via GLM API
 ## Task 2: Rust Core — Image Edit Tool
 
 **Files:**
+
 - Create: `baoclaw-core/src/tools/builtins/image_edit_tool.rs`
 - Modify: `baoclaw-core/src/tools/builtins/mod.rs`
 - Modify: `baoclaw-core/src/main.rs`
@@ -454,6 +461,7 @@ impl Tool for ImageEditTool {
 - [ ] **Step 2: Register in `builtins/mod.rs`**
 
 Add:
+
 ```rust
 pub mod image_edit_tool;
 pub use image_edit_tool::ImageEditTool;
@@ -462,6 +470,7 @@ pub use image_edit_tool::ImageEditTool;
 - [ ] **Step 3: Register in `main.rs` tool instantiation**
 
 Add alongside ImageGenTool:
+
 ```rust
 ImageEditTool::new(),
 ```
@@ -482,9 +491,11 @@ git commit -m "feat: add ImageEditTool — edit images via vision + CogView-4 re
 ## Task 3: Telegram — Image Receive & Send Enhancement
 
 **Files:**
+
 - Modify: `baoclaw-telegram/src/gateway.ts`
 
 The Telegram gateway already has partial image support. We need to ensure:
+
 1. Received photos → `attachments` array in `submitMessage`
 2. `ImageGenerator` / `ImageEditor` tool results → `sendPhoto` to Telegram
 
@@ -493,6 +504,7 @@ The Telegram gateway already has partial image support. We need to ensure:
 Search for `bot.on('photo')` and `buildImageBlock` and `extractAndSendImages` to understand current state.
 
 Key areas to check:
+
 - Line ~400-450: `bot.on('photo')` handler — does it pass `attachments` to `submitMessage`?
 - Line ~300-350: `extractAndSendImages` function — does it handle tool_result image blocks?
 - The `submitMessage` call — does it include `attachments`?
@@ -506,9 +518,9 @@ In the `bot.on('photo')` handler, ensure the downloaded photo is passed as `atta
 const imageBlock = buildImageBlock(base64Data, mimeType);
 
 // In the IPC submitMessage call:
-ipc.request('submitMessage', {
-    prompt: caption || '请分析这张图片',
-    attachments: [imageBlock],
+ipc.request("submitMessage", {
+  prompt: caption || "请分析这张图片",
+  attachments: [imageBlock],
 });
 ```
 
@@ -520,19 +532,22 @@ Ensure `extractAndSendImages` also handles images from `ImageGenerator`/`ImageEd
 // In the stream event handler for tool_result:
 // Check if the tool result contains an image block
 if (toolResult.content) {
-    for (const block of Array.isArray(toolResult.content) ? toolResult.content : [toolResult.content]) {
-        if (block.type === 'image' && block.source?.data) {
-            // Send as photo to Telegram
-            const buffer = Buffer.from(block.source.data, 'base64');
-            bot.sendPhoto(chatId, buffer, { caption: '🎨 Generated image' });
-        }
+  for (const block of Array.isArray(toolResult.content)
+    ? toolResult.content
+    : [toolResult.content]) {
+    if (block.type === "image" && block.source?.data) {
+      // Send as photo to Telegram
+      const buffer = Buffer.from(block.source.data, "base64");
+      bot.sendPhoto(chatId, buffer, { caption: "🎨 Generated image" });
     }
+  }
 }
 ```
 
 - [ ] **Step 4: Test with a real Telegram message**
 
 Send a photo to the bot with caption "描述这张图片", verify:
+
 - Bot receives the photo
 - Photo is passed as attachment to daemon
 - AI responds with description
@@ -549,6 +564,7 @@ git commit -m "feat(telegram): enhance photo receive/send — attach to submitMe
 ## Task 4: Web — Image Upload & Display
 
 **Files:**
+
 - Modify: `baoclaw-web/public/index.html`
 - Modify: `baoclaw-web/public/app.js`
 - Modify: `baoclaw-web/src/server.ts`
@@ -560,7 +576,7 @@ In the input area (before or next to the send button), add:
 ```html
 <!-- Inside the input area, after the textarea -->
 <button id="uploadBtn" title="上传图片" style="...">📎</button>
-<input type="file" id="imageInput" accept="image/*" multiple hidden>
+<input type="file" id="imageInput" accept="image/*" multiple hidden />
 <div id="imagePreview" class="image-preview"></div>
 ```
 
@@ -568,41 +584,45 @@ In the input area (before or next to the send button), add:
 
 ```javascript
 // Image upload handling
-const uploadBtn = document.getElementById('uploadBtn');
-const imageInput = document.getElementById('imageInput');
-const imagePreview = document.getElementById('imagePreview');
+const uploadBtn = document.getElementById("uploadBtn");
+const imageInput = document.getElementById("imageInput");
+const imagePreview = document.getElementById("imagePreview");
 let pendingImages = []; // { name, base64, mediaType }
 
-uploadBtn.addEventListener('click', () => imageInput.click());
+uploadBtn.addEventListener("click", () => imageInput.click());
 
-imageInput.addEventListener('change', (e) => {
-    const files = Array.from(e.target.files);
-    files.forEach(file => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            const base64 = ev.target.result.split(',')[1]; // strip data:image/...;base64,
-            const mediaType = file.type || 'image/png';
-            pendingImages.push({ name: file.name, base64, mediaType });
-            renderImagePreview();
-        };
-        reader.readAsDataURL(file);
-    });
-    imageInput.value = ''; // reset for re-upload
+imageInput.addEventListener("change", (e) => {
+  const files = Array.from(e.target.files);
+  files.forEach((file) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target.result.split(",")[1]; // strip data:image/...;base64,
+      const mediaType = file.type || "image/png";
+      pendingImages.push({ name: file.name, base64, mediaType });
+      renderImagePreview();
+    };
+    reader.readAsDataURL(file);
+  });
+  imageInput.value = ""; // reset for re-upload
 });
 
 function renderImagePreview() {
-    imagePreview.innerHTML = pendingImages.map((img, i) => `
+  imagePreview.innerHTML = pendingImages
+    .map(
+      (img, i) => `
         <div class="preview-thumb">
             <img src="data:${img.mediaType};base64,${img.base64}" />
             <button onclick="removeImage(${i})" class="remove-btn">×</button>
             <span>${img.name}</span>
         </div>
-    `).join('');
+    `,
+    )
+    .join("");
 }
 
 function removeImage(index) {
-    pendingImages.splice(index, 1);
-    renderImagePreview();
+  pendingImages.splice(index, 1);
+  renderImagePreview();
 }
 ```
 
@@ -612,44 +632,47 @@ Find the `submit` action handler. Add image attachments:
 
 ```javascript
 function submitMessage() {
-    const text = inputEl.value.trim();
-    if (!text && pendingImages.length === 0) return;
+  const text = inputEl.value.trim();
+  if (!text && pendingImages.length === 0) return;
 
-    const msg = { action: 'submit' };
+  const msg = { action: "submit" };
 
-    if (pendingImages.length > 0) {
-        // Build attachments array
-        const attachments = pendingImages.map(img => ({
-            type: 'image',
-            source: {
-                type: 'base64',
-                media_type: img.mediaType,
-                data: img.base64,
-            }
-        }));
-        msg.prompt = text || '请分析这些图片';
-        msg.attachments = attachments;
+  if (pendingImages.length > 0) {
+    // Build attachments array
+    const attachments = pendingImages.map((img) => ({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: img.mediaType,
+        data: img.base64,
+      },
+    }));
+    msg.prompt = text || "请分析这些图片";
+    msg.attachments = attachments;
 
-        // Show uploaded images in chat as user message
-        appendUserImages(pendingImages);
-        pendingImages = [];
-        imagePreview.innerHTML = '';
-    } else {
-        msg.prompt = text;
-    }
+    // Show uploaded images in chat as user message
+    appendUserImages(pendingImages);
+    pendingImages = [];
+    imagePreview.innerHTML = "";
+  } else {
+    msg.prompt = text;
+  }
 
-    ws.send(JSON.stringify(msg));
-    inputEl.value = '';
+  ws.send(JSON.stringify(msg));
+  inputEl.value = "";
 }
 
 function appendUserImages(images) {
-    const el = document.createElement('div');
-    el.className = 'message user-message';
-    el.innerHTML = images.map(img =>
-        `<img src="data:${img.mediaType};base64,${img.base64}" class="user-upload-image" onclick="showImageModal(this.src)" />`
-    ).join('');
-    // append to current tab's message container
-    getActiveMsgEl().appendChild(el);
+  const el = document.createElement("div");
+  el.className = "message user-message";
+  el.innerHTML = images
+    .map(
+      (img) =>
+        `<img src="data:${img.mediaType};base64,${img.base64}" class="user-upload-image" onclick="showImageModal(this.src)" />`,
+    )
+    .join("");
+  // append to current tab's message container
+  getActiveMsgEl().appendChild(el);
 }
 ```
 
@@ -674,43 +697,43 @@ case 'submit': {
 
 ```css
 .image-preview {
-    display: flex;
-    gap: 8px;
-    padding: 8px 0;
-    flex-wrap: wrap;
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  flex-wrap: wrap;
 }
 .preview-thumb {
-    position: relative;
-    display: inline-block;
+  position: relative;
+  display: inline-block;
 }
 .preview-thumb img {
-    width: 80px;
-    height: 80px;
-    object-fit: cover;
-    border-radius: 6px;
-    border: 2px solid var(--border-color, #333);
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 2px solid var(--border-color, #333);
 }
 .preview-thumb .remove-btn {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    background: #e74c3c;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
-    cursor: pointer;
-    font-size: 12px;
-    line-height: 20px;
-    text-align: center;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
 }
 .user-upload-image {
-    max-width: 300px;
-    max-height: 200px;
-    border-radius: 8px;
-    cursor: pointer;
-    margin: 4px;
+  max-width: 300px;
+  max-height: 200px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 4px;
 }
 ```
 
@@ -730,6 +753,7 @@ git commit -m "feat(web): add image upload with preview and AI image display"
 ## Task 5: Terminal TUI — Image Paste & Display
 
 **Files:**
+
 - Modify: `ts-ipc/cli.ts` or the TUI input handler (wherever paste/key input is handled)
 
 This is the most complex task due to terminal image display protocol variations. We use a pragmatic approach: save to file + display path.
@@ -740,47 +764,55 @@ When the user drags a file into the terminal, most terminal emulators paste the 
 
 ```typescript
 // In the input handler, detect image file paths:
-function detectImagePaste(input: string): { path: string; remaining: string } | null {
-    // Terminal paste of dragged file: usually '/path/to/file.png' or "path with spaces.png"
-    const match = input.match(/^["']?(\/[^\s"']+\.(png|jpg|jpeg|gif|webp|bmp))["']?\s*(.*)/i);
-    if (match) {
-        return { path: match[1], remaining: match[3] || '' };
-    }
-    return null;
+function detectImagePaste(
+  input: string,
+): { path: string; remaining: string } | null {
+  // Terminal paste of dragged file: usually '/path/to/file.png' or "path with spaces.png"
+  const match = input.match(
+    /^["']?(\/[^\s"']+\.(png|jpg|jpeg|gif|webp|bmp))["']?\s*(.*)/i,
+  );
+  if (match) {
+    return { path: match[1], remaining: match[3] || "" };
+  }
+  return null;
 }
 ```
 
 - [ ] **Step 2: Convert image file to attachment**
 
 ```typescript
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
-function imageFileToAttachment(filePath: string): { attachment: any; error?: string } {
-    try {
-        const ext = path.extname(filePath).toLowerCase();
-        const mimeMap: Record<string, string> = {
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.gif': 'image/gif',
-            '.webp': 'image/webp',
-            '.bmp': 'image/bmp',
-        };
-        const mediaType = mimeMap[ext];
-        if (!mediaType) return { attachment: null, error: `Unsupported image format: ${ext}` };
+function imageFileToAttachment(filePath: string): {
+  attachment: any;
+  error?: string;
+} {
+  try {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".bmp": "image/bmp",
+    };
+    const mediaType = mimeMap[ext];
+    if (!mediaType)
+      return { attachment: null, error: `Unsupported image format: ${ext}` };
 
-        const data = fs.readFileSync(filePath);
-        const base64 = data.toString('base64');
-        return {
-            attachment: {
-                type: 'image',
-                source: { type: 'base64', media_type: mediaType, data: base64 },
-            }
-        };
-    } catch (e) {
-        return { attachment: null, error: `Failed to read image: ${e.message}` };
-    }
+    const data = fs.readFileSync(filePath);
+    const base64 = data.toString("base64");
+    return {
+      attachment: {
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: base64 },
+      },
+    };
+  } catch (e) {
+    return { attachment: null, error: `Failed to read image: ${e.message}` };
+  }
 }
 ```
 
@@ -792,15 +824,15 @@ When the TUI submits a message, if image attachments are detected:
 // In the submit handler:
 const imagePaste = detectImagePaste(userInput);
 if (imagePaste && fs.existsSync(imagePaste.path)) {
-    const { attachment, error } = imageFileToAttachment(imagePaste.path);
-    if (attachment) {
-        await client.request('submitMessage', {
-            prompt: imagePaste.remaining || '请分析这张图片',
-            attachments: [attachment],
-        });
-    }
+  const { attachment, error } = imageFileToAttachment(imagePaste.path);
+  if (attachment) {
+    await client.request("submitMessage", {
+      prompt: imagePaste.remaining || "请分析这张图片",
+      attachments: [attachment],
+    });
+  }
 } else {
-    await client.request('submitMessage', { prompt: userInput });
+  await client.request("submitMessage", { prompt: userInput });
 }
 ```
 
@@ -811,25 +843,25 @@ When receiving tool results containing images from `ImageGenerator`/`ImageEditor
 ```typescript
 // In the stream handler for tool_result containing image data:
 function handleImageResult(imageData: string, mediaType: string) {
-    const dir = path.join(os.tmpdir(), 'baoclaw-images');
-    fs.mkdirSync(dir, { recursive: true });
-    const filename = `image-${Date.now()}.${mediaType.split('/')[1] || 'png'}`;
-    const filepath = path.join(dir, filename);
-    fs.writeFileSync(filepath, Buffer.from(imageData, 'base64'));
+  const dir = path.join(os.tmpdir(), "baoclaw-images");
+  fs.mkdirSync(dir, { recursive: true });
+  const filename = `image-${Date.now()}.${mediaType.split("/")[1] || "png"}`;
+  const filepath = path.join(dir, filename);
+  fs.writeFileSync(filepath, Buffer.from(imageData, "base64"));
 
-    // Try terminal image protocols (iTerm2 / Kitty / Sixel)
-    const term = process.env.TERM_PROGRAM || '';
-    if (term === 'iTerm.app') {
-        // iTerm2 inline image protocol
-        const esc = `\x1B]1337;File=inline=1;width=auto;height=auto:${Buffer.from(filepath).toString('base64')}\x07`;
-        process.stdout.write(esc + '\n');
-    } else if (term === 'kitty') {
-        // Kitty image protocol (simplified)
-        // Fall back to path display
-        console.log(`\n📷 图片已保存: ${filepath}\n`);
-    } else {
-        console.log(`\n📷 图片已保存: ${filepath}\n`);
-    }
+  // Try terminal image protocols (iTerm2 / Kitty / Sixel)
+  const term = process.env.TERM_PROGRAM || "";
+  if (term === "iTerm.app") {
+    // iTerm2 inline image protocol
+    const esc = `\x1B]1337;File=inline=1;width=auto;height=auto:${Buffer.from(filepath).toString("base64")}\x07`;
+    process.stdout.write(esc + "\n");
+  } else if (term === "kitty") {
+    // Kitty image protocol (simplified)
+    // Fall back to path display
+    console.log(`\n📷 图片已保存: ${filepath}\n`);
+  } else {
+    console.log(`\n📷 图片已保存: ${filepath}\n`);
+  }
 }
 ```
 
@@ -886,11 +918,11 @@ git tag v2.2.0
 
 ## Environment Variables Reference
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `OPENAI_API_KEY` | GLM API key (shared with LLM client) | — |
-| `OPENAI_BASE_URL` | GLM API base URL | `https://open.bigmodel.cn/api/paas/v4` |
-| `IMAGE_GEN_MODEL` | CogView model name | `cogview-4-250304` |
+| Variable          | Purpose                              | Default                                |
+| ----------------- | ------------------------------------ | -------------------------------------- |
+| `OPENAI_API_KEY`  | GLM API key (shared with LLM client) | —                                      |
+| `OPENAI_BASE_URL` | GLM API base URL                     | `https://open.bigmodel.cn/api/paas/v4` |
+| `IMAGE_GEN_MODEL` | CogView model name                   | `cogview-4-250304`                     |
 
 ## Key Design Decisions
 

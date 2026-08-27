@@ -86,11 +86,15 @@ Guidelines for skill creation:
 1. Only create skills for patterns you've seen at least 2-3 times
 2. Skills should be specific enough to be useful, general enough to be reusable
 3. Include the user's preferences and style in the skill
-4. Update skills when you learn something new about the user's workflow"#.to_string()
+4. Update skills when you learn something new about the user's workflow"#
+            .to_string()
     }
 
     fn is_read_only(&self, input: &Value) -> bool {
-        let op = input.get("operation").and_then(|v| v.as_str()).unwrap_or("");
+        let op = input
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         matches!(op, "list_candidates" | "export_training")
     }
 
@@ -100,30 +104,39 @@ Guidelines for skill creation:
         context: &ToolContext,
         _progress: &dyn ProgressSender,
     ) -> Result<ToolResult, ToolError> {
-        let operation = input.get("operation")
+        let operation = input
+            .get("operation")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'operation'".to_string()))?;
 
         match operation {
             "create_skill" => {
-                let name = input.get("skill_name")
+                let name = input
+                    .get("skill_name")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| ToolError::ExecutionFailed("Missing 'skill_name'".to_string()))?;
-                let content = input.get("content")
+                    .ok_or_else(|| {
+                        ToolError::ExecutionFailed("Missing 'skill_name'".to_string())
+                    })?;
+                let content = input
+                    .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| ToolError::ExecutionFailed("Missing 'content'".to_string()))?;
-                let reason = input.get("reason")
+                let reason = input
+                    .get("reason")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Auto-created by evolution engine");
 
-                let scope = input.get("scope")
+                let scope = input
+                    .get("scope")
                     .and_then(|v| v.as_str())
                     .unwrap_or("personal");
                 let skills_dir = if scope == "project" {
                     context.cwd.join(".baoclaw").join("skills")
                 } else {
                     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-                    std::path::PathBuf::from(home).join(".baoclaw").join("skills")
+                    std::path::PathBuf::from(home)
+                        .join(".baoclaw")
+                        .join("skills")
                 };
                 let _ = std::fs::create_dir_all(&skills_dir);
                 let skill_path = skills_dir.join(format!("{}.md", name));
@@ -136,8 +149,9 @@ Guidelines for skill creation:
                     content
                 );
 
-                std::fs::write(&skill_path, &full_content)
-                    .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write skill: {}", e)))?;
+                std::fs::write(&skill_path, &full_content).map_err(|e| {
+                    ToolError::ExecutionFailed(format!("Failed to write skill: {}", e))
+                })?;
 
                 Ok(ToolResult {
                     data: json!({
@@ -150,34 +164,44 @@ Guidelines for skill creation:
             }
 
             "improve_skill" => {
-                let name = input.get("skill_name")
+                let name = input
+                    .get("skill_name")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| ToolError::ExecutionFailed("Missing 'skill_name'".to_string()))?;
-                let content = input.get("content")
+                    .ok_or_else(|| {
+                        ToolError::ExecutionFailed("Missing 'skill_name'".to_string())
+                    })?;
+                let content = input
+                    .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| ToolError::ExecutionFailed("Missing 'content'".to_string()))?;
-                let reason = input.get("reason")
+                let reason = input
+                    .get("reason")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Improved based on usage");
 
-                let scope = input.get("scope")
+                let scope = input
+                    .get("scope")
                     .and_then(|v| v.as_str())
                     .unwrap_or("personal");
                 let skills_dir = if scope == "project" {
                     context.cwd.join(".baoclaw").join("skills")
                 } else {
                     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-                    std::path::PathBuf::from(home).join(".baoclaw").join("skills")
+                    std::path::PathBuf::from(home)
+                        .join(".baoclaw")
+                        .join("skills")
                 };
                 let skill_path = skills_dir.join(format!("{}.md", name));
 
                 // Read existing to get version
                 let version = if let Ok(existing) = std::fs::read_to_string(&skill_path) {
-                    existing.lines()
+                    existing
+                        .lines()
                         .find(|l| l.starts_with("version:"))
                         .and_then(|l| l.split(':').nth(1))
                         .and_then(|v| v.trim().parse::<u32>().ok())
-                        .unwrap_or(0) + 1
+                        .unwrap_or(0)
+                        + 1
                 } else {
                     1
                 };
@@ -190,8 +214,9 @@ Guidelines for skill creation:
                     content
                 );
 
-                std::fs::write(&skill_path, &full_content)
-                    .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write skill: {}", e)))?;
+                std::fs::write(&skill_path, &full_content).map_err(|e| {
+                    ToolError::ExecutionFailed(format!("Failed to write skill: {}", e))
+                })?;
 
                 Ok(ToolResult {
                     data: json!({
@@ -215,14 +240,22 @@ Guidelines for skill creation:
             }
 
             "promote" => {
-                let name = input.get("skill_name")
+                let name = input
+                    .get("skill_name")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| ToolError::ExecutionFailed("Missing 'skill_name'".to_string()))?;
-                let content = input.get("content")
+                    .ok_or_else(|| {
+                        ToolError::ExecutionFailed("Missing 'skill_name'".to_string())
+                    })?;
+                let content = input
+                    .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| ToolError::ExecutionFailed("Missing 'content'".to_string()))?;
 
-                match self.evolution.promote_skill(&context.cwd, name, content).await {
+                match self
+                    .evolution
+                    .promote_skill(&context.cwd, name, content)
+                    .await
+                {
                     Ok(path) => Ok(ToolResult {
                         data: json!({"promoted": true, "path": path}),
                         is_error: false,
@@ -262,7 +295,10 @@ Guidelines for skill creation:
                 })
             }
 
-            other => Err(ToolError::ExecutionFailed(format!("Unknown operation: {}", other))),
+            other => Err(ToolError::ExecutionFailed(format!(
+                "Unknown operation: {}",
+                other
+            ))),
         }
     }
 }

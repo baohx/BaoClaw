@@ -1,20 +1,27 @@
 // TUI State Management
-import { TuiState, Action, Message, ContentBlock, Session, ToolProgress } from './types.js';
+import {
+  TuiState,
+  Action,
+  Message,
+  ContentBlock,
+  Session,
+  ToolProgress,
+} from "./types.js";
 
 export const INITIAL_STATE: TuiState = {
   messages: [],
   isStreaming: false,
-  streamingContent: '',
-  thinkingContent: '',
+  streamingContent: "",
+  thinkingContent: "",
   currentTools: [],
   session: null,
-  input: '',
+  input: "",
   error: null,
 };
 
 export function reducer(state: TuiState, action: Action): TuiState {
   switch (action.type) {
-    case 'ADD_MESSAGE': {
+    case "ADD_MESSAGE": {
       const msg = action.payload as Message;
       return {
         ...state,
@@ -22,15 +29,15 @@ export function reducer(state: TuiState, action: Action): TuiState {
       };
     }
 
-    case 'SET_STREAMING': {
+    case "SET_STREAMING": {
       return {
         ...state,
         isStreaming: action.payload as boolean,
-        streamingContent: '',
+        streamingContent: "",
       };
     }
 
-    case 'APPEND_STREAM': {
+    case "APPEND_STREAM": {
       const content = action.payload as string;
       return {
         ...state,
@@ -38,14 +45,14 @@ export function reducer(state: TuiState, action: Action): TuiState {
       };
     }
 
-    case 'SET_THINKING': {
+    case "SET_THINKING": {
       return {
         ...state,
         thinkingContent: action.payload as string,
       };
     }
 
-    case 'APPEND_THINKING': {
+    case "APPEND_THINKING": {
       const content = action.payload as string;
       return {
         ...state,
@@ -53,36 +60,41 @@ export function reducer(state: TuiState, action: Action): TuiState {
       };
     }
 
-    case 'SET_TOOLS': {
+    case "SET_TOOLS": {
       return {
         ...state,
         currentTools: action.payload as ToolProgress[],
       };
     }
 
-    case 'UPDATE_TOOL': {
-      const { id, update } = action.payload as { id: string; update: Partial<ToolProgress> };
+    case "UPDATE_TOOL": {
+      const { id, update } = action.payload as {
+        id: string;
+        update: Partial<ToolProgress>;
+      };
       return {
         ...state,
-        currentTools: state.currentTools.map(tool =>
-          tool.name === id ? { ...tool, ...update } : tool
+        currentTools: state.currentTools.map((tool) =>
+          tool.name === id ? { ...tool, ...update } : tool,
         ),
       };
     }
 
-    case 'SET_SESSION': {
+    case "SET_SESSION": {
       return {
         ...state,
         session: action.payload as Session,
       };
     }
 
-    case 'ADD_TOOL_USE': {
+    case "ADD_TOOL_USE": {
       const { toolName, toolId, input } = action.payload as {
-        toolName: string; toolId: string; input: unknown;
+        toolName: string;
+        toolId: string;
+        input: unknown;
       };
       const block: ContentBlock = {
-        type: 'tool_use',
+        type: "tool_use",
         content: JSON.stringify(input, null, 2),
         toolName,
         toolId,
@@ -90,7 +102,10 @@ export function reducer(state: TuiState, action: Action): TuiState {
       };
       // Append to last assistant message's content
       const messages = [...state.messages];
-      if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+      if (
+        messages.length > 0 &&
+        messages[messages.length - 1].role === "assistant"
+      ) {
         const last = messages[messages.length - 1];
         messages[messages.length - 1] = {
           ...last,
@@ -100,7 +115,7 @@ export function reducer(state: TuiState, action: Action): TuiState {
         // No ongoing assistant message, create one
         messages.push({
           id: generateId(),
-          role: 'assistant',
+          role: "assistant",
           content: [block],
           timestamp: new Date(),
         });
@@ -108,19 +123,24 @@ export function reducer(state: TuiState, action: Action): TuiState {
       return { ...state, messages };
     }
 
-    case 'ADD_TOOL_RESULT': {
+    case "ADD_TOOL_RESULT": {
       const { toolId, output, isError } = action.payload as {
-        toolId: string; output: string; isError: boolean;
+        toolId: string;
+        output: string;
+        isError: boolean;
       };
       const block: ContentBlock = {
-        type: 'tool_result',
+        type: "tool_result",
         content: output,
         toolId,
         isError,
       };
       const messages = [...state.messages];
       // Append to last assistant message
-      if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+      if (
+        messages.length > 0 &&
+        messages[messages.length - 1].role === "assistant"
+      ) {
         const last = messages[messages.length - 1];
         messages[messages.length - 1] = {
           ...last,
@@ -130,28 +150,28 @@ export function reducer(state: TuiState, action: Action): TuiState {
       return { ...state, messages };
     }
 
-    case 'SET_INPUT': {
+    case "SET_INPUT": {
       return {
         ...state,
         input: action.payload as string,
       };
     }
 
-    case 'SET_ERROR': {
+    case "SET_ERROR": {
       return {
         ...state,
         error: action.payload as string,
       };
     }
 
-    case 'CLEAR_ERROR': {
+    case "CLEAR_ERROR": {
       return {
         ...state,
         error: null,
       };
     }
 
-    case 'RESET': {
+    case "RESET": {
       return INITIAL_STATE;
     }
 
@@ -169,8 +189,8 @@ export function generateId(): string {
 export function createUserMessage(content: string): Message {
   return {
     id: generateId(),
-    role: 'user',
-    content: [{ type: 'text', content }],
+    role: "user",
+    content: [{ type: "text", content }],
     timestamp: new Date(),
   };
 }
@@ -179,7 +199,7 @@ export function createUserMessage(content: string): Message {
 export function createAssistantMessage(content: ContentBlock[]): Message {
   return {
     id: generateId(),
-    role: 'assistant',
+    role: "assistant",
     content,
     timestamp: new Date(),
   };

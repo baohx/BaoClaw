@@ -9,6 +9,8 @@ ts-ipc/node_modules/
 ts-ipc/dist/
 baoclaw-telegram/node_modules/
 baoclaw-whatsapp/node_modules/
+baoclaw-web/node_modules/
+baoclaw-web/dist/
 
 # OS
 .DS_Store

@@ -1,33 +1,49 @@
-import * as net from 'net';
+import * as net from "net";
 
 interface JsonRpcRequest {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   method: string;
   params?: unknown;
   id: number | string;
 }
 
 interface JsonRpcNotification {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   method: string;
   params?: unknown;
 }
 
 type NotificationHandler = (params: unknown) => void;
+type DisconnectHandler = (error: Error) => void;
+
+export interface IpcClientOptions {
+  /**
+   * Default request timeout in milliseconds. `0` disables timeouts.
+   * Can be overridden per-request via `request(method, params, timeoutMs)`.
+   */
+  requestTimeoutMs?: number;
+}
 
 export class IpcClient {
   private socket: net.Socket | null = null;
-  private buffer = '';
+  private disconnectHandled = true;
+  private buffer = "";
   private nextId = 1;
+  private readonly defaultTimeoutMs: number;
   private pendingRequests = new Map<
     number | string,
     {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      timer: ReturnType<typeof setTimeout> | undefined;
     }
   >();
   private notificationHandlers = new Map<string, NotificationHandler[]>();
+  private disconnectHandlers: DisconnectHandler[] = [];
+
+  constructor(options: IpcClientOptions = {}) {
+    this.defaultTimeoutMs = options.requestTimeoutMs ?? 30000;
+  }
 
   /**
    * Connect to a Unix Domain Socket at the given path.
@@ -39,9 +55,9 @@ export class IpcClient {
         resolve();
       });
 
-      socket.on('data', (data: Buffer) => this.handleData(data));
+      socket.on("data", (data: Buffer) => this.handleData(data));
 
-      socket.on('error', (err: Error) => {
+      socket.on("error", (err: Error) => {
         if (!this.socket) {
           // Connection failed during initial connect
           reject(err);
@@ -49,9 +65,11 @@ export class IpcClient {
         // For established connections, errors will trigger 'close'
       });
 
-      socket.on('close', () => {
-        this.handleDisconnect(new Error('Connection closed'));
+      socket.on("close", () => {
+        this.socket = null;
+        this.handleDisconnect(new Error("Connection closed"));
       });
+      this.disconnectHandled = false;
     });
   }
 
@@ -59,28 +77,40 @@ export class IpcClient {
    * Send a JSON-RPC 2.0 request and wait for the matching response.
    * @param method - The RPC method name
    * @param params - Optional parameters
-   * @param timeoutMs - Request timeout in milliseconds (default 30s)
+   * @param timeoutMs - Request timeout in milliseconds; `0` disables.
+   *   Defaults to the client's `requestTimeoutMs` option (30s unless configured).
    * @returns The result field from the JSON-RPC response
    * @throws Error if the response contains an error, the request times out, or the connection is lost
    */
-  async request<T = unknown>(method: string, params?: unknown, timeoutMs = 30000): Promise<T> {
+  async request<T = unknown>(
+    method: string,
+    params?: unknown,
+    timeoutMs: number = this.defaultTimeoutMs,
+  ): Promise<T> {
     if (!this.socket) {
-      throw new Error('Not connected');
+      throw new Error("Not connected");
     }
 
     const id = this.nextId++;
     const request: JsonRpcRequest = {
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       method,
       ...(params !== undefined && { params }),
       id,
     };
 
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        reject(new Error(`Request ${method} (id=${id}) timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+      const timer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              this.pendingRequests.delete(id);
+              reject(
+                new Error(
+                  `Request ${method} (id=${id}) timed out after ${timeoutMs}ms`,
+                ),
+              );
+            }, timeoutMs)
+          : undefined;
 
       this.pendingRequests.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -88,7 +118,7 @@ export class IpcClient {
         timer,
       });
 
-      const line = JSON.stringify(request) + '\n';
+      const line = JSON.stringify(request) + "\n";
       this.socket!.write(line);
     });
   }
@@ -98,16 +128,16 @@ export class IpcClient {
    */
   notify(method: string, params?: unknown): void {
     if (!this.socket) {
-      throw new Error('Not connected');
+      throw new Error("Not connected");
     }
 
     const notification: JsonRpcNotification = {
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       method,
       ...(params !== undefined && { params }),
     };
 
-    const line = JSON.stringify(notification) + '\n';
+    const line = JSON.stringify(notification) + "\n";
     this.socket.write(line);
   }
 
@@ -135,12 +165,25 @@ export class IpcClient {
   }
 
   /**
+   * Register a handler invoked when the connection closes (remote close or
+   * error). Fires on every disconnect, including after `disconnect()`.
+   */
+  onDisconnect(handler: DisconnectHandler): void {
+    this.disconnectHandlers.push(handler);
+  }
+
+  /** Whether the socket is currently connected. */
+  get connected(): boolean {
+    return this.socket !== null;
+  }
+
+  /**
    * Gracefully disconnect from the socket.
    * Rejects all pending requests and cleans up resources.
    */
   async disconnect(): Promise<void> {
     return new Promise<void>((resolve) => {
-      this.handleDisconnect(new Error('Client disconnected'));
+      this.handleDisconnect(new Error("Client disconnected"));
 
       if (this.socket) {
         const socket = this.socket;
@@ -158,10 +201,10 @@ export class IpcClient {
    * process complete lines, keep partial lines in buffer.
    */
   private handleData(data: Buffer): void {
-    this.buffer += data.toString('utf-8');
+    this.buffer += data.toString("utf-8");
 
     let newlineIdx: number;
-    while ((newlineIdx = this.buffer.indexOf('\n')) !== -1) {
+    while ((newlineIdx = this.buffer.indexOf("\n")) !== -1) {
       const line = this.buffer.slice(0, newlineIdx).trim();
       this.buffer = this.buffer.slice(newlineIdx + 1);
 
@@ -186,15 +229,19 @@ export class IpcClient {
     }
 
     // Check if this is a response (has 'id' and either 'result' or 'error')
-    if ('id' in parsed && parsed.id != null) {
+    if ("id" in parsed && parsed.id != null) {
       const id = parsed.id as number | string;
       const pending = this.pendingRequests.get(id);
       if (pending) {
         this.pendingRequests.delete(id);
-        clearTimeout(pending.timer);
+        if (pending.timer) clearTimeout(pending.timer);
 
-        if ('error' in parsed && parsed.error) {
-          const err = parsed.error as { code: number; message: string; data?: unknown };
+        if ("error" in parsed && parsed.error) {
+          const err = parsed.error as {
+            code: number;
+            message: string;
+            data?: unknown;
+          };
           const error = new Error(err.message);
           (error as Error & { code: number; data?: unknown }).code = err.code;
           (error as Error & { code: number; data?: unknown }).data = err.data;
@@ -207,7 +254,7 @@ export class IpcClient {
     }
 
     // Otherwise it's a notification (has 'method', no 'id')
-    if ('method' in parsed && typeof parsed.method === 'string') {
+    if ("method" in parsed && typeof parsed.method === "string") {
       const handlers = this.notificationHandlers.get(parsed.method);
       if (handlers) {
         for (const handler of handlers) {
@@ -222,13 +269,23 @@ export class IpcClient {
   }
 
   /**
-   * Clean up all pending requests on disconnect.
+   * Clean up all pending requests on disconnect and notify handlers.
    */
   private handleDisconnect(error: Error): void {
+    if (this.disconnectHandled) return;
+    this.disconnectHandled = true;
     for (const [, pending] of this.pendingRequests) {
-      clearTimeout(pending.timer);
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pendingRequests.clear();
+
+    for (const handler of this.disconnectHandlers) {
+      try {
+        handler(error);
+      } catch {
+        // Disconnect handlers should not throw, but don't let one break others
+      }
+    }
   }
 }

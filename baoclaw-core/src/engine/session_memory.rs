@@ -58,7 +58,10 @@ impl SessionMemory {
 
     /// Return the current summary text.
     pub fn get(&self) -> String {
-        self.content.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.content
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Whether a non-trivial summary is available.
@@ -77,7 +80,10 @@ impl SessionMemory {
             drop(guard);
             message_count >= FIRST_UPDATE_THRESHOLD
         } else {
-            let last = *self.last_update_count.lock().unwrap_or_else(|e| e.into_inner());
+            let last = *self
+                .last_update_count
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             drop(guard);
             message_count >= last + UPDATE_INTERVAL
         }
@@ -92,9 +98,11 @@ impl SessionMemory {
         }
 
         let truncated = if summary.len() > MAX_SUMMARY_CHARS {
-            format!("{}...\n\n[Summary truncated at {} chars]",
-                &summary.chars().take(MAX_SUMMARY_CHARS).collect::<String>(),
-                summary.len())
+            format!(
+                "{}...\n\n[Summary truncated at {} chars]",
+                summary.chars().take(MAX_SUMMARY_CHARS).collect::<String>(),
+                summary.len()
+            )
         } else {
             summary
         };
@@ -105,7 +113,10 @@ impl SessionMemory {
 
     /// Record the current message count so `should_update` can track deltas.
     pub fn set_message_count(&self, count: usize) {
-        let mut guard = self.last_update_count.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .last_update_count
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *guard = count;
     }
 
@@ -157,7 +168,10 @@ mod tests {
     #[test]
     fn test_set_message_count() {
         let sm = SessionMemory::load("__test_unit_4__");
-        sm.update("# Memory\nThis is a real summary with enough content to pass the threshold.".to_string());
+        sm.update(
+            "# Memory\nThis is a real summary with enough content to pass the threshold."
+                .to_string(),
+        );
         sm.set_message_count(10);
         assert!(!sm.should_update(19));
         assert!(sm.should_update(20));

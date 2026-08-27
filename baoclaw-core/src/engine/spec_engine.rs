@@ -1,6 +1,6 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use regex::Regex;
 
 /// Spec 工作流类型
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -94,7 +94,10 @@ pub enum SpecError {
     AlreadyExists(String),
 
     #[error("Invalid phase transition: {current:?} → {target:?}")]
-    InvalidPhaseTransition { current: SpecPhase, target: SpecPhase },
+    InvalidPhaseTransition {
+        current: SpecPhase,
+        target: SpecPhase,
+    },
 
     #[error("Task not found: {0}")]
     TaskNotFound(String),
@@ -195,7 +198,19 @@ impl TaskTracker {
                         task_stack.push((indent, vec![tasks.len() - 1]));
                     }
                 }
-            } else if in_tasks && line.trim().is_empty() && !lines.iter().skip(lines.iter().position(|l| std::ptr::eq(*l, *line)).unwrap_or(0) + 1).any(|l| checkbox_re.is_match(l)) {
+            } else if in_tasks
+                && line.trim().is_empty()
+                && !lines
+                    .iter()
+                    .skip(
+                        lines
+                            .iter()
+                            .position(|l| std::ptr::eq(*l, *line))
+                            .unwrap_or(0)
+                            + 1,
+                    )
+                    .any(|l| checkbox_re.is_match(l))
+            {
                 // No more checkboxes after this blank line — start postamble
                 post_tasks = true;
                 postamble.push_str(line);
@@ -211,7 +226,11 @@ impl TaskTracker {
             }
         }
 
-        Ok(TaskDocument { preamble, tasks, postamble })
+        Ok(TaskDocument {
+            preamble,
+            tasks,
+            postamble,
+        })
     }
 
     /// Serialize a TaskDocument back to Markdown.
@@ -227,7 +246,11 @@ impl TaskTracker {
     }
 
     /// Update the status of a task by ID.
-    pub fn update_status(doc: &mut TaskDocument, task_id: &str, status: TaskStatus) -> Result<(), SpecError> {
+    pub fn update_status(
+        doc: &mut TaskDocument,
+        task_id: &str,
+        status: TaskStatus,
+    ) -> Result<(), SpecError> {
         if Self::update_status_recursive(&mut doc.tasks, task_id, &status) {
             Ok(())
         } else {
@@ -251,7 +274,11 @@ impl TaskTracker {
         let mut completed = 0usize;
         let mut in_progress = 0usize;
         Self::count_leaves(&doc.tasks, &mut total, &mut completed, &mut in_progress);
-        TaskProgress { total, completed, in_progress }
+        TaskProgress {
+            total,
+            completed,
+            in_progress,
+        }
     }
 
     // ── Private helpers ──
@@ -297,13 +324,16 @@ impl TaskTracker {
         } else {
             format!("{} ", task.id)
         };
-        output.push_str(&format!("{}- [{}] {}{}\n", indent_str, status_char, id_prefix, task.description));
+        output.push_str(&format!(
+            "{}- [{}] {}{}\n",
+            indent_str, status_char, id_prefix, task.description
+        ));
         for child in &task.children {
             Self::serialize_task(output, child, indent + 2);
         }
     }
 
-    fn update_status_recursive(tasks: &mut Vec<TaskItem>, task_id: &str, status: &TaskStatus) -> bool {
+    fn update_status_recursive(tasks: &mut [TaskItem], task_id: &str, status: &TaskStatus) -> bool {
         for task in tasks.iter_mut() {
             if task.id == task_id {
                 task.status = status.clone();
@@ -316,11 +346,14 @@ impl TaskTracker {
         false
     }
 
-    fn auto_complete_recursive(tasks: &mut Vec<TaskItem>) {
+    fn auto_complete_recursive(tasks: &mut [TaskItem]) {
         for task in tasks.iter_mut() {
             if !task.children.is_empty() {
                 Self::auto_complete_recursive(&mut task.children);
-                let all_complete = task.children.iter().all(|c| c.status == TaskStatus::Completed);
+                let all_complete = task
+                    .children
+                    .iter()
+                    .all(|c| c.status == TaskStatus::Completed);
                 if all_complete {
                     task.status = TaskStatus::Completed;
                 }
@@ -343,7 +376,12 @@ impl TaskTracker {
         None
     }
 
-    fn count_leaves(tasks: &[TaskItem], total: &mut usize, completed: &mut usize, in_progress: &mut usize) {
+    fn count_leaves(
+        tasks: &[TaskItem],
+        total: &mut usize,
+        completed: &mut usize,
+        in_progress: &mut usize,
+    ) {
         for task in tasks {
             if task.children.is_empty() {
                 *total += 1;
@@ -388,7 +426,10 @@ impl SpecStore {
 
     /// Check if a spec exists.
     pub fn spec_exists(&self, feature_name: &str) -> bool {
-        self.base_dir.join(feature_name).join(".config.json").exists()
+        self.base_dir
+            .join(feature_name)
+            .join(".config.json")
+            .exists()
     }
 
     /// Read the spec config.
@@ -416,13 +457,21 @@ impl SpecStore {
     pub fn read_doc(&self, feature_name: &str, filename: &str) -> Result<String, SpecError> {
         let path = self.base_dir.join(feature_name).join(filename);
         if !path.exists() {
-            return Err(SpecError::NotFound(format!("{}/{}", feature_name, filename)));
+            return Err(SpecError::NotFound(format!(
+                "{}/{}",
+                feature_name, filename
+            )));
         }
         Ok(std::fs::read_to_string(&path)?)
     }
 
     /// Write a document file.
-    pub fn write_doc(&self, feature_name: &str, filename: &str, content: &str) -> Result<(), SpecError> {
+    pub fn write_doc(
+        &self,
+        feature_name: &str,
+        filename: &str,
+        content: &str,
+    ) -> Result<(), SpecError> {
         let dir = self.base_dir.join(feature_name);
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(filename);
@@ -534,7 +583,11 @@ impl SpecEngine {
                 let doc = TaskTracker::parse(&content)?;
                 Ok(TaskTracker::progress(&doc))
             }
-            Err(_) => Ok(TaskProgress { total: 0, completed: 0, in_progress: 0 }),
+            Err(_) => Ok(TaskProgress {
+                total: 0,
+                completed: 0,
+                in_progress: 0,
+            }),
         }
     }
 
@@ -544,24 +597,33 @@ impl SpecEngine {
             "requirements" => "requirements.md",
             "design" => "design.md",
             "tasks" => "tasks.md",
-            other => return Err(SpecError::PhaseNotAvailable {
-                phase: other.to_string(),
-                current: self.store.read_config(feature_name)?.phase,
-            }),
+            other => {
+                return Err(SpecError::PhaseNotAvailable {
+                    phase: other.to_string(),
+                    current: self.store.read_config(feature_name)?.phase,
+                })
+            }
         };
         self.store.read_doc(feature_name, filename)
     }
 
     /// Write a phase document.
-    pub fn write_phase_doc(&self, feature_name: &str, phase: &str, content: &str) -> Result<(), SpecError> {
+    pub fn write_phase_doc(
+        &self,
+        feature_name: &str,
+        phase: &str,
+        content: &str,
+    ) -> Result<(), SpecError> {
         let filename = match phase {
             "requirements" => "requirements.md",
             "design" => "design.md",
             "tasks" => "tasks.md",
-            other => return Err(SpecError::PhaseNotAvailable {
-                phase: other.to_string(),
-                current: self.store.read_config(feature_name)?.phase,
-            }),
+            other => {
+                return Err(SpecError::PhaseNotAvailable {
+                    phase: other.to_string(),
+                    current: self.store.read_config(feature_name)?.phase,
+                })
+            }
         };
         self.store.write_doc(feature_name, filename, content)?;
         // Update timestamp
@@ -605,12 +667,17 @@ impl SpecEngine {
         TaskTracker::update_status(&mut doc, task_id, status)?;
         TaskTracker::auto_complete_parents(&mut doc);
         let serialized = TaskTracker::serialize(&doc);
-        self.store.write_doc(feature_name, "tasks.md", &serialized)?;
+        self.store
+            .write_doc(feature_name, "tasks.md", &serialized)?;
         Ok(())
     }
 
     /// Build context for task execution (injects relevant requirements + design snippets).
-    pub fn build_task_context(&self, feature_name: &str, task_id: &str) -> Result<String, SpecError> {
+    pub fn build_task_context(
+        &self,
+        feature_name: &str,
+        task_id: &str,
+    ) -> Result<String, SpecError> {
         let tasks_content = self.store.read_doc(feature_name, "tasks.md")?;
         let doc = TaskTracker::parse(&tasks_content)?;
 
@@ -619,7 +686,10 @@ impl SpecEngine {
             .ok_or_else(|| SpecError::TaskNotFound(task_id.to_string()))?;
 
         let mut context = String::new();
-        context.push_str(&format!("# Current Task: {} {}\n\n", task.id, task.description));
+        context.push_str(&format!(
+            "# Current Task: {} {}\n\n",
+            task.id, task.description
+        ));
 
         // Inject requirement references if available
         if let Some(ref req_ref) = task.requirement_ref {
@@ -627,10 +697,14 @@ impl SpecEngine {
                 context.push_str("## Relevant Requirements\n\n");
                 // Extract sections matching the requirement references
                 for req_id in req_ref.split(',').map(|s| s.trim()) {
-                    let pattern = format!("### 需求 {}:", req_id.split('.').next().unwrap_or(req_id));
+                    let pattern =
+                        format!("### 需求 {}:", req_id.split('.').next().unwrap_or(req_id));
                     if let Some(start) = requirements.find(&pattern) {
                         let section = &requirements[start..];
-                        let end = section[1..].find("\n### ").map(|i| i + 1).unwrap_or(section.len().min(2000));
+                        let end = section[1..]
+                            .find("\n### ")
+                            .map(|i| i + 1)
+                            .unwrap_or(section.len().min(2000));
                         context.push_str(&section[..end]);
                         context.push_str("\n\n");
                     }
@@ -659,10 +733,10 @@ impl SpecEngine {
         matches!(
             (current, target),
             (SpecPhase::Requirements, SpecPhase::RequirementsComplete)
-            | (SpecPhase::RequirementsComplete, SpecPhase::Design)
-            | (SpecPhase::Design, SpecPhase::DesignComplete)
-            | (SpecPhase::DesignComplete, SpecPhase::Tasks)
-            | (SpecPhase::Tasks, SpecPhase::TasksComplete)
+                | (SpecPhase::RequirementsComplete, SpecPhase::Design)
+                | (SpecPhase::Design, SpecPhase::DesignComplete)
+                | (SpecPhase::DesignComplete, SpecPhase::Tasks)
+                | (SpecPhase::Tasks, SpecPhase::TasksComplete)
         )
     }
 

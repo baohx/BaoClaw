@@ -1,14 +1,18 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::engine::spec_engine::{
-    SpecEngine, SpecType, SpecWorkflow, TaskStatus,
-};
+use crate::engine::spec_engine::{SpecEngine, SpecType, SpecWorkflow, TaskStatus};
 use crate::tools::trait_def::{
     JsonSchema, ProgressSender, Tool, ToolContext, ToolError, ToolResult,
 };
 
 pub struct SpecTool;
+
+impl Default for SpecTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SpecTool {
     pub fn new() -> Self {
@@ -27,7 +31,10 @@ impl SpecTool {
     }
 
     fn ok_result(data: Value) -> ToolResult {
-        ToolResult { data, is_error: false }
+        ToolResult {
+            data,
+            is_error: false,
+        }
     }
 }
 
@@ -102,7 +109,10 @@ impl Tool for SpecTool {
 
         let result = match action {
             "new" => {
-                let feature_name = input.get("feature_name").and_then(|v| v.as_str()).unwrap_or("");
+                let feature_name = input
+                    .get("feature_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if feature_name.is_empty() {
                     return Ok(Self::error_result("feature_name is required"));
                 }
@@ -130,21 +140,34 @@ impl Tool for SpecTool {
                 Err(e) => Self::error_result(&e.to_string()),
             },
             "show" => {
-                let feature_name = input.get("feature_name").and_then(|v| v.as_str()).unwrap_or("");
+                let feature_name = input
+                    .get("feature_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 match engine.get_spec(feature_name) {
-                    Ok(summary) => Self::ok_result(serde_json::to_value(&summary).unwrap_or_default()),
+                    Ok(summary) => {
+                        Self::ok_result(serde_json::to_value(&summary).unwrap_or_default())
+                    }
                     Err(e) => Self::error_result(&e.to_string()),
                 }
             }
             "status" => {
-                let feature_name = input.get("feature_name").and_then(|v| v.as_str()).unwrap_or("");
+                let feature_name = input
+                    .get("feature_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 match engine.get_status(feature_name) {
-                    Ok(progress) => Self::ok_result(serde_json::to_value(&progress).unwrap_or_default()),
+                    Ok(progress) => {
+                        Self::ok_result(serde_json::to_value(&progress).unwrap_or_default())
+                    }
                     Err(e) => Self::error_result(&e.to_string()),
                 }
             }
             "update_task" => {
-                let feature_name = input.get("feature_name").and_then(|v| v.as_str()).unwrap_or("");
+                let feature_name = input
+                    .get("feature_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let task_id = input.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
                 let status = match input.get("status").and_then(|v| v.as_str()) {
                     Some("in_progress") => TaskStatus::InProgress,
@@ -157,7 +180,10 @@ impl Tool for SpecTool {
                 }
             }
             "read_doc" => {
-                let feature_name = input.get("feature_name").and_then(|v| v.as_str()).unwrap_or("");
+                let feature_name = input
+                    .get("feature_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let phase = input.get("phase").and_then(|v| v.as_str()).unwrap_or("");
                 match engine.read_phase_doc(feature_name, phase) {
                     Ok(content) => Self::ok_result(serde_json::json!({"content": content})),
@@ -165,7 +191,10 @@ impl Tool for SpecTool {
                 }
             }
             "write_doc" => {
-                let feature_name = input.get("feature_name").and_then(|v| v.as_str()).unwrap_or("");
+                let feature_name = input
+                    .get("feature_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let phase = input.get("phase").and_then(|v| v.as_str()).unwrap_or("");
                 let content = input.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 match engine.write_phase_doc(feature_name, phase, content) {
@@ -182,6 +211,7 @@ impl Tool for SpecTool {
     fn prompt(&self) -> String {
         "Spec — Manage spec-driven development documents. Create, list, show, and update specs \
          (requirements → design → tasks workflow). Use to track feature development progress \
-         and update task statuses.".to_string()
+         and update task statuses."
+            .to_string()
     }
 }

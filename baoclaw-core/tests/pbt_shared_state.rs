@@ -8,9 +8,7 @@
 //! **Validates: Requirements FR-2.3 Agent 间通信**
 
 use baoclaw_core::engine::team::shared_state::{
-    AgentResultForMerge,
-    MergeStrategy,
-    SharedStateManager,
+    AgentResultForMerge, MergeStrategy, SharedStateManager,
 };
 use proptest::prelude::*;
 use std::collections::HashMap;
@@ -60,15 +58,10 @@ fn json_value_strategy() -> impl Strategy<Value = serde_json::Value> {
         // Objects
         proptest::collection::hash_map(
             "[a-z]{1,3}",
-            prop_oneof![
-                Just(serde_json::json!(1)),
-                Just(serde_json::json!("v")),
-            ],
+            prop_oneof![Just(serde_json::json!(1)), Just(serde_json::json!("v")),],
             0..3
         )
-        .prop_map(|m| {
-            serde_json::Value::Object(m.into_iter().map(|(k, v)| (k, v)).collect())
-        }),
+        .prop_map(|m| { serde_json::Value::Object(m.into_iter().map(|(k, v)| (k, v)).collect()) }),
     ]
 }
 
@@ -93,16 +86,16 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             // Set all keys
             for key in &set_keys {
                 manager.set(key, serde_json::json!("value")).await;
             }
-            
+
             // Check contains
             let expected = set_keys.contains(&test_key);
             let actual = manager.contains(&test_key).await;
-            
+
             prop_assert_eq!(actual, expected);
             Ok(())
         })?;
@@ -114,10 +107,10 @@ proptest! {
         run_async(async {
             let manager = SharedStateManager::new();
             manager.set(&key, value.clone()).await;
-            
+
             let removed = manager.remove(&key).await;
             prop_assert_eq!(removed, Some(value));
-            
+
             // Key should no longer exist
             let exists = manager.contains(&key).await;
             prop_assert!(!exists);
@@ -132,13 +125,13 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             let keys: Vec<&str> = pairs.keys().map(|s| s.as_str()).collect();
-            
+
             manager.set_many(pairs.clone()).await;
-            
+
             let retrieved = manager.get_many(&keys).await;
-            
+
             prop_assert_eq!(retrieved.len(), pairs.len());
             for (key, value) in &pairs {
                 prop_assert_eq!(retrieved.get(key), Some(value));
@@ -155,12 +148,12 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             // Filter out NaN and infinity
             let amounts: Vec<f64> = amounts.into_iter()
                 .filter(|v| v.is_finite())
                 .collect();
-            
+
             let mut expected = 0.0;
             for amount in &amounts {
                 let result = manager.increment(&key, *amount).await;
@@ -189,13 +182,13 @@ proptest! {
         run_async(async {
             let manager = SharedStateManager::new();
             let mut rx = manager.subscribe_progress();
-            
+
             let mut received_count = 0;
             for (agent_id, message, progress) in &events {
                 manager.broadcast_progress(agent_id, message, *progress).await;
                 received_count += 1;
             }
-            
+
             // Check that we received all events
             for _ in 0..received_count {
                 match rx.try_recv() {
@@ -227,11 +220,11 @@ proptest! {
         run_async(async {
             let manager = SharedStateManager::new();
             let mut rx = manager.subscribe_progress();
-            
+
             // Handle NaN/Infinity by skipping if invalid
             if progress.is_finite() {
                 manager.broadcast_progress(&agent_id, &message, progress).await;
-                
+
                 if let Ok(event) = rx.try_recv() {
                     prop_assert!(event.progress >= 0.0);
                     prop_assert!(event.progress <= 1.0);
@@ -277,11 +270,11 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             for result in &results {
                 manager.store_result(result.clone()).await;
             }
-            
+
             let retrieved = manager.get_results().await;
             prop_assert_eq!(retrieved.len(), results.len());
             Ok(())
@@ -295,13 +288,13 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             for result in results {
                 manager.store_result(result).await;
             }
-            
+
             let merged = manager.merge_results(MergeStrategy::Concat).await;
-            
+
             // Verify the merged result is valid
             prop_assert!(merged.count >= 1);
             Ok(())
@@ -315,15 +308,15 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             let first_text = results.first().map(|r| r.text.clone());
-            
+
             for result in results {
                 manager.store_result(result).await;
             }
-            
+
             let merged = manager.merge_results(MergeStrategy::FirstOnly).await;
-            
+
             prop_assert_eq!(merged.text, first_text.unwrap_or_default());
             Ok(())
         })?;
@@ -336,15 +329,15 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             let last_text = results.last().map(|r| r.text.clone());
-            
+
             for result in results {
                 manager.store_result(result).await;
             }
-            
+
             let merged = manager.merge_results(MergeStrategy::LastOnly).await;
-            
+
             prop_assert_eq!(merged.text, last_text.unwrap_or_default());
             Ok(())
         })?;
@@ -357,19 +350,19 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             let expected_tokens: u64 = results.iter().map(|r| r.tokens).sum();
             let expected_cost: f64 = results.iter().map(|r| r.cost_usd).sum();
             let expected_duration: u64 = results.iter().map(|r| r.duration_ms).sum();
             let expected_success = results.iter().filter(|r| r.success).count();
             let expected_failure = results.iter().filter(|r| !r.success).count();
-            
+
             for result in results {
                 manager.store_result(result).await;
             }
-            
+
             let merged = manager.merge_results(MergeStrategy::Concat).await;
-            
+
             prop_assert_eq!(merged.total_tokens, expected_tokens);
             prop_assert!((merged.total_cost_usd - expected_cost).abs() < 1e-10);
             prop_assert_eq!(merged.total_duration_ms, expected_duration);
@@ -386,26 +379,26 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             // Calculate success count before storing
             let success_count = results.iter().filter(|r| r.success).count();
             let successful_ids: Vec<_> = results.iter()
                 .filter(|r| r.success)
                 .map(|r| r.agent_id.clone())
                 .collect();
-            
+
             // Store all results
             for result in results {
                 manager.store_result(result).await;
             }
-            
+
             let merged = manager.merge_results(MergeStrategy::SuccessOnly).await;
-            
+
             // Check that merged text contains successful agent IDs
             for id in &successful_ids {
                 prop_assert!(merged.text.contains(id));
             }
-            
+
             // The success_count should reflect successful results
             prop_assert_eq!(merged.success_count, success_count);
             Ok(())
@@ -419,18 +412,18 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             let count = results.len();
             for result in results {
                 manager.store_result(result).await;
             }
-            
+
             let merged = manager.merge_results(MergeStrategy::JsonArray).await;
-            
+
             // Should be valid JSON
             let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&merged.text);
             prop_assert!(parsed.is_ok());
-            
+
             if let Ok(arr) = parsed {
                 prop_assert_eq!(arr.len(), count);
             }
@@ -452,18 +445,18 @@ proptest! {
         run_async(async {
             let manager = Arc::new(SharedStateManager::new());
             let mut handles = vec![];
-            
+
             for (key, value) in keys_values.clone() {
                 let m = Arc::clone(&manager);
                 handles.push(tokio::spawn(async move {
                     m.set(&key, value).await;
                 }));
             }
-            
+
             for handle in handles {
                 handle.await.expect("Task should complete");
             }
-            
+
             // All keys should exist
             for (key, _) in &keys_values {
                 prop_assert!(manager.contains(key).await);
@@ -485,16 +478,16 @@ proptest! {
     ) {
         run_async(async {
             let manager1 = SharedStateManager::new();
-            
+
             for (key, value) in &kv_pairs {
                 manager1.set(key, value.clone()).await;
             }
-            
+
             let exported = manager1.export().await;
-            
+
             let manager2 = SharedStateManager::new();
             manager2.import(exported).await.expect("Import should succeed");
-            
+
             for (key, value) in &kv_pairs {
                 let retrieved = manager2.get(key).await;
                 prop_assert_eq!(retrieved.as_ref(), Some(value));
@@ -523,7 +516,7 @@ proptest! {
     ) {
         run_async(async {
             let manager = SharedStateManager::new();
-            
+
             for op in &operations {
                 match *op {
                     "set" => {
@@ -538,7 +531,7 @@ proptest! {
                     _ => {}
                 }
             }
-            
+
             let metrics = manager.get_metrics().await;
             // Every operation should be counted
             prop_assert_eq!(metrics.kv_operations, operations.len() as u64);

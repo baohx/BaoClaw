@@ -221,7 +221,10 @@ impl DecisionType {
     pub fn is_allowed(&self) -> bool {
         matches!(
             self,
-            DecisionType::Allow | DecisionType::AllowOnce | DecisionType::AllowSession | DecisionType::AllowPermanent
+            DecisionType::Allow
+                | DecisionType::AllowOnce
+                | DecisionType::AllowSession
+                | DecisionType::AllowPermanent
         )
     }
 
@@ -363,13 +366,12 @@ mod tests {
         assert_eq!(decision.decision, DecisionType::Allow);
         assert_eq!(decision.rule_applied, Some("r-allow".to_string()));
 
-        let deny_rule = PermissionRule::new("r-deny", "Deny rule", "Bash", "rm")
-            .with_auto_deny();
+        let deny_rule = PermissionRule::new("r-deny", "Deny rule", "Bash", "rm").with_auto_deny();
         let decision = EnginePermissionDecision::from_rule("req-2", &deny_rule);
         assert_eq!(decision.decision, DecisionType::Deny);
 
-        let ask_rule = PermissionRule::new("r-ask", "Ask rule", "FileWrite", "*.rs")
-            .with_confirmation();
+        let ask_rule =
+            PermissionRule::new("r-ask", "Ask rule", "FileWrite", "*.rs").with_confirmation();
         let decision = EnginePermissionDecision::from_rule("req-3", &ask_rule);
         assert_eq!(decision.decision, DecisionType::AskUser);
     }

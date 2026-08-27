@@ -25,6 +25,7 @@
 ### Task 1: Add tiktoken dependency and baseline counter struct
 
 **Files:**
+
 - Modify: `baoclaw-core/Cargo.toml`
 - Create: `baoclaw-core/src/engine/token_counter.rs`
 - Test: inline `#[cfg(test)]` in `token_counter.rs`
@@ -101,6 +102,7 @@ git commit -m "feat(tokens): scaffold TokenCounter struct"
 ### Task 2: Implement tiktoken-based estimator for a message
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/token_counter.rs`
 
 - [ ] **Step 1: Write failing test for message-to-text extraction**
@@ -203,6 +205,7 @@ git commit -m "feat(tokens): implement tiktoken-based message counting"
 ### Task 3: Implement hybrid estimate() method (baseline + delta)
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/token_counter.rs`
 
 - [ ] **Step 1: Write failing test for estimate with no baseline**
@@ -338,6 +341,7 @@ git commit -am "feat(tokens): implement hybrid estimate with API calibration"
 ### Task 4: Wire TokenCounter into config and query_engine
 
 **Files:**
+
 - Modify: `baoclaw-core/src/config.rs`
 - Modify: `baoclaw-core/src/engine/mod.rs`
 - Modify: `baoclaw-core/src/engine/query_engine.rs`
@@ -408,6 +412,7 @@ git commit -am "feat(tokens): wire TokenCounter into QueryLoopConfig"
 ### Task 5: Replace estimate_tokens() usage in query_engine.rs
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs`
 
 - [ ] **Step 1: Find all `estimate_tokens` call sites**
@@ -463,6 +468,7 @@ git commit -am "feat(tokens): replace chars/4 estimator with TokenCounter"
 ### Task 6: Calibrate counter from API responses
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs`
 
 - [ ] **Step 1: Find where Usage is captured from stream**
@@ -571,6 +577,7 @@ git tag -a tokens-v1 -m "Accurate token counting shipped"
 ## Self-Review Notes
 
 **Spec coverage check:**
+
 - ✅ Accurate counting → tiktoken + hybrid baseline
 - ✅ Configurable threshold → `auto_compact_threshold_ratio`
 - ✅ Calibrates from API → `calibrate()` called after each turn

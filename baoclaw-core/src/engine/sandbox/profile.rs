@@ -37,7 +37,9 @@ impl NetworkRule {
     pub fn is_host_allowed(&self, host: &str, port: Option<u16>) -> bool {
         match self {
             NetworkRule::Enabled(true) => true,
-            NetworkRule::Disabled(false) | NetworkRule::Enabled(false) | NetworkRule::Disabled(true) => false,
+            NetworkRule::Disabled(false)
+            | NetworkRule::Enabled(false)
+            | NetworkRule::Disabled(true) => false,
             NetworkRule::Whitelist(rules) => {
                 for rule in rules {
                     if Self::matches_rule(rule, host, port) {
@@ -86,9 +88,10 @@ impl NetworkRule {
 }
 
 /// Predefined sandbox profiles.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum ProfilePreset {
     #[serde(rename = "read_only")]
+    #[default]
     ReadOnly,
     #[serde(rename = "web_dev")]
     WebDev,
@@ -98,44 +101,38 @@ pub enum ProfilePreset {
     Custom,
 }
 
-impl Default for ProfilePreset {
-    fn default() -> Self {
-        Self::ReadOnly
-    }
-}
-
 /// Sandbox profile defining security boundaries.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SandboxProfile {
     /// Profile name/identifier.
     #[serde(default)]
     pub name: String,
-    
+
     /// Paths that can be written to inside the sandbox.
     #[serde(default)]
     pub writable_paths: Vec<String>,
-    
+
     /// Paths that can be read inside the sandbox.
     /// ["*"] means all paths readable.
     #[serde(default = "default_readable_paths")]
     pub readable_paths: Vec<String>,
-    
+
     /// Network access rule.
     #[serde(default)]
     pub network: NetworkRule,
-    
+
     /// Environment variables allowed to pass through.
     #[serde(default = "default_env_whitelist")]
     pub env_whitelist: Vec<String>,
-    
+
     /// Memory limit in MB (0 = unlimited).
     #[serde(default)]
     pub max_memory_mb: u32,
-    
+
     /// Execution timeout in seconds (0 = unlimited).
     #[serde(default)]
     pub timeout_secs: u32,
-    
+
     /// CPU time limit in seconds (0 = unlimited).
     #[serde(default)]
     pub cpu_time_limit_secs: u32,
@@ -278,14 +275,46 @@ impl SandboxProfile {
     /// Merge this profile with another (other takes precedence).
     pub fn merge(&self, other: &SandboxProfile) -> SandboxProfile {
         SandboxProfile {
-            name: if other.name.is_empty() { self.name.clone() } else { other.name.clone() },
-            writable_paths: if other.writable_paths.is_empty() { self.writable_paths.clone() } else { other.writable_paths.clone() },
-            readable_paths: if other.readable_paths.is_empty() { self.readable_paths.clone() } else { other.readable_paths.clone() },
-            network: if other.network == NetworkRule::default() { self.network.clone() } else { other.network.clone() },
-            env_whitelist: if other.env_whitelist.is_empty() { self.env_whitelist.clone() } else { other.env_whitelist.clone() },
-            max_memory_mb: if other.max_memory_mb == 0 { self.max_memory_mb } else { other.max_memory_mb },
-            timeout_secs: if other.timeout_secs == 0 { self.timeout_secs } else { other.timeout_secs },
-            cpu_time_limit_secs: if other.cpu_time_limit_secs == 0 { self.cpu_time_limit_secs } else { other.cpu_time_limit_secs },
+            name: if other.name.is_empty() {
+                self.name.clone()
+            } else {
+                other.name.clone()
+            },
+            writable_paths: if other.writable_paths.is_empty() {
+                self.writable_paths.clone()
+            } else {
+                other.writable_paths.clone()
+            },
+            readable_paths: if other.readable_paths.is_empty() {
+                self.readable_paths.clone()
+            } else {
+                other.readable_paths.clone()
+            },
+            network: if other.network == NetworkRule::default() {
+                self.network.clone()
+            } else {
+                other.network.clone()
+            },
+            env_whitelist: if other.env_whitelist.is_empty() {
+                self.env_whitelist.clone()
+            } else {
+                other.env_whitelist.clone()
+            },
+            max_memory_mb: if other.max_memory_mb == 0 {
+                self.max_memory_mb
+            } else {
+                other.max_memory_mb
+            },
+            timeout_secs: if other.timeout_secs == 0 {
+                self.timeout_secs
+            } else {
+                other.timeout_secs
+            },
+            cpu_time_limit_secs: if other.cpu_time_limit_secs == 0 {
+                self.cpu_time_limit_secs
+            } else {
+                other.cpu_time_limit_secs
+            },
         }
     }
 }
@@ -317,19 +346,19 @@ mod tests {
             "github.com:443".to_string(),
         ]);
         assert!(rule.is_allowed());
-        
+
         // localhost any port
         assert!(rule.is_host_allowed("localhost", Some(3000)));
         assert!(rule.is_host_allowed("localhost", Some(8080)));
-        
+
         // npmjs subdomain
         assert!(rule.is_host_allowed("registry.npmjs.org", Some(443)));
         assert!(rule.is_host_allowed("api.npmjs.org", Some(443)));
-        
+
         // github specific port
         assert!(rule.is_host_allowed("github.com", Some(443)));
         assert!(!rule.is_host_allowed("github.com", Some(80)));
-        
+
         // not whitelisted
         assert!(!rule.is_host_allowed("google.com", Some(443)));
     }
@@ -349,7 +378,9 @@ mod tests {
         assert!(profile.is_writable("src/main.rs"));
         assert!(profile.is_writable("dist/bundle.js"));
         assert!(!profile.is_writable("/etc/passwd"));
-        assert!(profile.network.is_host_allowed("registry.npmjs.org", Some(443)));
+        assert!(profile
+            .network
+            .is_host_allowed("registry.npmjs.org", Some(443)));
         assert_eq!(profile.max_memory_mb, 1024);
         assert_eq!(profile.timeout_secs, 300);
     }

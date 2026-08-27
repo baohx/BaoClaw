@@ -33,8 +33,27 @@ impl IpcServer {
     /// Bind to a Unix Domain Socket at the given path.
     /// Sets file permissions to 0600 (owner-only access).
     pub async fn bind(socket_path: &Path) -> std::io::Result<Self> {
-        // Remove existing socket file if present
-        let _ = std::fs::remove_file(socket_path);
+        if socket_path.exists() {
+            match tokio::net::UnixStream::connect(socket_path).await {
+                Ok(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AddrInUse,
+                        format!("IPC socket is already in use: {}", socket_path.display()),
+                    ));
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionRefused
+                            | std::io::ErrorKind::NotFound
+                            | std::io::ErrorKind::ConnectionAborted
+                    ) =>
+                {
+                    std::fs::remove_file(socket_path)?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
 
         let listener = UnixListener::bind(socket_path)?;
 
@@ -99,11 +118,7 @@ impl IpcConnection {
     }
 
     /// Send a JSON-RPC notification as NDJSON.
-    pub async fn send_notification(
-        &mut self,
-        method: &str,
-        params: Value,
-    ) -> std::io::Result<()> {
+    pub async fn send_notification(&mut self, method: &str, params: Value) -> std::io::Result<()> {
         let notification = JsonRpcNotification::new(method, params);
         let bytes = encode_ndjson(&notification)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -199,9 +214,12 @@ mod tests {
         }
 
         // 5. Server sends a notification, client receives it
-        conn.send_notification("stream/event", json!({"type": "assistant_chunk", "content": "Hello"}))
-            .await
-            .unwrap();
+        conn.send_notification(
+            "stream/event",
+            json!({"type": "assistant_chunk", "content": "Hello"}),
+        )
+        .await
+        .unwrap();
 
         let mut notif_line = String::new();
         client_reader.read_line(&mut notif_line).await.unwrap();
@@ -244,9 +262,13 @@ mod tests {
         let (client_read, _client_write) = client_stream.into_split();
         let mut client_reader = BufReader::new(client_read);
 
-        conn.send_error(Some(RequestId::Number(5)), -32601, "Method not found".into())
-            .await
-            .unwrap();
+        conn.send_error(
+            Some(RequestId::Number(5)),
+            -32601,
+            "Method not found".into(),
+        )
+        .await
+        .unwrap();
 
         let mut line = String::new();
         client_reader.read_line(&mut line).await.unwrap();
@@ -281,5 +303,21 @@ mod tests {
         }
         // After drop, socket file should be removed
         assert!(!socket_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_ipc_server_does_not_delete_live_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket_path = dir.path().join("live.sock");
+        let server = IpcServer::bind(&socket_path).await.unwrap();
+
+        let result = IpcServer::bind(&socket_path).await;
+        assert!(matches!(
+            result,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse
+        ));
+        assert!(socket_path.exists());
+
+        drop(server);
     }
 }

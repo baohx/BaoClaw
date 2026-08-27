@@ -7,9 +7,7 @@ use tokio::sync::{broadcast, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use chrono::Utc;
 
 use super::query_engine::{EngineEvent, QueryEngine};
-use super::session_persistence::{
-    self, PersistedSession,
-};
+use super::session_persistence::{self, PersistedSession};
 
 /// Unique identifier for a client connection within a shared session.
 pub type ClientId = u64;
@@ -229,12 +227,11 @@ impl SessionRegistry {
             memory_summary,
         };
 
-        session_persistence::persist_session_state(&self.persistence_dir, &state)
-            .map_err(|e| {
-                let msg = format!("failed to persist session {}: {}", session_id, e);
-                eprintln!("[session-registry] WARNING: {}", msg);
-                msg
-            })
+        session_persistence::persist_session_state(&self.persistence_dir, &state).map_err(|e| {
+            let msg = format!("failed to persist session {}: {}", session_id, e);
+            eprintln!("[session-registry] WARNING: {}", msg);
+            msg
+        })
     }
 
     /// Load persisted session data for a given session ID from disk.
@@ -297,10 +294,7 @@ impl SessionRegistry {
                 archived
             }
             Err(e) => {
-                eprintln!(
-                    "[session-registry] WARNING: archive_stale failed: {}",
-                    e
-                );
+                eprintln!("[session-registry] WARNING: archive_stale failed: {}", e);
                 Vec::new()
             }
         }
@@ -351,5 +345,11 @@ impl SessionRegistry {
             "[session-registry] Persisted {} sessions to disk",
             session_ids.len()
         );
+    }
+}
+
+impl Default for SessionRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }

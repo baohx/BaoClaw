@@ -7,7 +7,6 @@
 ///
 /// Only metadata (path, content hash, mtime, line count) is stored — no file
 /// contents — to keep memory usage minimal.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
@@ -161,6 +160,11 @@ impl FileCache {
         self.entries.len()
     }
 
+    /// Whether the cache has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Find the least-recently-accessed key for LRU eviction.
     fn lru_key(&self) -> Option<PathBuf> {
         self.entries
@@ -241,8 +245,8 @@ mod tests {
 
         assert_eq!(cache.len(), 2);
         assert_eq!(cache.check(&f1), CacheStatus::Miss); // evicted
-        assert_eq!(cache.check(&f2), CacheStatus::Hit);  // still present
-        assert_eq!(cache.check(&f3), CacheStatus::Hit);  // just added
+        assert_eq!(cache.check(&f2), CacheStatus::Hit); // still present
+        assert_eq!(cache.check(&f3), CacheStatus::Hit); // just added
     }
 
     #[test]

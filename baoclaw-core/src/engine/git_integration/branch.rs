@@ -3,8 +3,8 @@
 //! Provides create, switch, sync, cleanup, and list operations
 //! for git branches using the `git` command-line tool.
 
-use super::types::BranchInfo;
 use super::pr::GitIntegrationError;
+use super::types::BranchInfo;
 use crate::utils::command::run_command_async;
 
 /// Manages git branch operations.
@@ -115,7 +115,12 @@ impl BranchManager {
         let mut branches: Vec<String> = output
             .stdout
             .lines()
-            .map(|l| l.trim_start_matches(" *").trim_start_matches(' ').trim().to_string())
+            .map(|l| {
+                l.trim_start_matches(" *")
+                    .trim_start_matches(' ')
+                    .trim()
+                    .to_string()
+            })
             .filter(|name| {
                 !name.is_empty()
                     && name != current
@@ -139,11 +144,7 @@ impl BranchManager {
             }
             let trimmed = line.trim();
             let is_current = trimmed.starts_with("* ");
-            let rest = if is_current {
-                &trimmed[2..]
-            } else {
-                trimmed
-            };
+            let rest = if is_current { &trimmed[2..] } else { trimmed };
 
             // Split: name then optional tracking info
             let parts: Vec<&str> = rest.splitn(2, ' ').collect();
@@ -169,7 +170,7 @@ impl BranchManager {
                     let bracket_end = rest_str[bracket_start..].find(']').unwrap_or(0);
                     let bracket_content = &rest_str[bracket_start + 1..bracket_start + bracket_end];
                     // Support both "," and ":" as separators (e.g. "[origin/main: ahead 3]")
-                    for part in bracket_content.split(|c: char| c == ',' || c == ':') {
+                    for part in bracket_content.split([',', ':']) {
                         let part = part.trim();
                         if let Some(num_str) = part.strip_prefix("ahead ") {
                             ahead = num_str.parse().unwrap_or(0);
@@ -274,6 +275,10 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_git_repo_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
+        let _cwd_guard = match super::super::CWD_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // a sibling test panicked; recover and still restore cwd
+        };
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 

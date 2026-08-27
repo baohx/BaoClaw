@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import React from 'react';
-import { render } from 'ink';
-import { App } from './components/App.js';
-import { createIpcConnection } from './ipc.js';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import React from "react";
+import { render } from "ink";
+import { App } from "./components/App.js";
+import { createIpcConnection } from "./ipc.js";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 /**
  * Resolve the daemon socket path.
@@ -21,19 +21,20 @@ function resolveDaemonSocket(): string {
   //    macOS: /tmp/baoclaw.sock
   const xdgRuntime = process.env.XDG_RUNTIME_DIR;
   if (xdgRuntime) {
-    const fixed = path.join(xdgRuntime, 'baoclaw.sock');
+    const fixed = path.join(xdgRuntime, "baoclaw.sock");
     if (fs.existsSync(fixed)) return fixed;
   }
 
   // 3. macOS default
-  const macDefault = '/tmp/baoclaw.sock';
+  const macDefault = "/tmp/baoclaw.sock";
   if (fs.existsSync(macDefault)) return macDefault;
 
   // 4. Legacy fallback (old cwd-hash or PID-based sockets)
   const tmpDir = os.tmpdir();
-  const candidates = fs.readdirSync(tmpDir)
-    .filter(f => f.startsWith('baoclaw') && f.endsWith('.sock'))
-    .map(f => ({ f, mtime: fs.statSync(path.join(tmpDir, f)).mtimeMs }))
+  const candidates = fs
+    .readdirSync(tmpDir)
+    .filter((f) => f.startsWith("baoclaw") && f.endsWith(".sock"))
+    .map((f) => ({ f, mtime: fs.statSync(path.join(tmpDir, f)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
 
   if (candidates.length > 0) {
@@ -41,7 +42,7 @@ function resolveDaemonSocket(): string {
   }
 
   // 5. Final fallback: XDG or /tmp
-  return xdgRuntime ? path.join(xdgRuntime, 'baoclaw.sock') : macDefault;
+  return xdgRuntime ? path.join(xdgRuntime, "baoclaw.sock") : macDefault;
 }
 
 async function main() {
@@ -49,11 +50,11 @@ async function main() {
   const socketPath = resolveDaemonSocket();
 
   // Get model from config (prefer model_profiles over legacy model field)
-  let model = 'unknown';
+  let model = "unknown";
   try {
-    const configPath = path.join(os.homedir(), '.baoclaw', 'config.json');
+    const configPath = path.join(os.homedir(), ".baoclaw", "config.json");
     if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       // New format: model_profiles + primary_profile
       if (config.primary_profile && config.model_profiles) {
         const primary = config.model_profiles[config.primary_profile];
@@ -62,8 +63,8 @@ async function main() {
         }
       }
       // Legacy fallback
-      if (model === 'unknown') {
-        model = config.model || config.defaultModel || 'unknown';
+      if (model === "unknown") {
+        model = config.model || config.defaultModel || "unknown";
       }
     }
   } catch (err) {
@@ -75,16 +76,20 @@ async function main() {
 
   try {
     const client = await createIpcConnection({ socketPath });
-    console.log('Connected!');
+    console.log("Connected!");
 
     // Render TUI
     render(React.createElement(App, { client, model }));
   } catch (err) {
-    console.error('Failed to connect:', err);
-    console.error('\nMake sure BaoClaw is running and the socket path is correct.');
-    console.error('Usage: baoclaw-tui [socket-path]');
-    console.error('\nTo start the daemon:');
-    console.error('  systemctl --user start baoclaw   # or: baoclaw --daemon &');
+    console.error("Failed to connect:", err);
+    console.error(
+      "\nMake sure BaoClaw is running and the socket path is correct.",
+    );
+    console.error("Usage: baoclaw-tui [socket-path]");
+    console.error("\nTo start the daemon:");
+    console.error(
+      "  systemctl --user start baoclaw   # or: baoclaw --daemon &",
+    );
     process.exit(1);
   }
 }

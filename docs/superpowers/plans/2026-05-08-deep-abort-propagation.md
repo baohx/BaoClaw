@@ -26,6 +26,7 @@
 ### Task 1: Create shared abort helpers module
 
 **Files:**
+
 - Create: `baoclaw-core/src/engine/abort_helpers.rs`
 - Modify: `baoclaw-core/src/engine/mod.rs`
 
@@ -105,6 +106,7 @@ git commit -m "feat(abort): add shared wait_for_abort helper"
 ### Task 2: Implement cleanup_orphan_tool_uses
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/abort_helpers.rs`
 
 - [ ] **Step 1: Write failing test for orphan cleanup**
@@ -216,6 +218,7 @@ git commit -am "feat(abort): add cleanup_orphan_tool_uses helper"
 ### Task 3: Tighten the main stream loop's abort check
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs:868-900`
 
 - [ ] **Step 1: Locate current stream loop**
@@ -268,6 +271,7 @@ git commit -am "feat(abort): replace 500ms abort poll with event-driven wait"
 ### Task 4: Add abort race to the three other stream consumers
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs` (lines 443, 1178, 1432)
 
 - [ ] **Step 1: Find each consumer**
@@ -327,6 +331,7 @@ git commit -am "feat(abort): race all 4 stream consumers against abort"
 ### Task 5: Make WebFetch tool abort-aware
 
 **Files:**
+
 - Modify: `baoclaw-core/src/tools/builtins/web_fetch_tool.rs`
 
 - [ ] **Step 1: Find the fetch call**
@@ -376,6 +381,7 @@ git commit -am "feat(abort): WebFetch tool honors abort signal"
 ### Task 6: Apply the same pattern to WebSearch
 
 **Files:**
+
 - Modify: `baoclaw-core/src/tools/builtins/web_search_tool.rs`
 
 - [ ] **Step 1: Locate the fetch call**
@@ -400,6 +406,7 @@ git commit -am "feat(abort): WebSearch tool honors abort signal"
 ### Task 7: Early-exit in executor if already aborted
 
 **Files:**
+
 - Modify: `baoclaw-core/src/tools/executor.rs`
 
 - [ ] **Step 1: Find tool dispatch entry**
@@ -440,6 +447,7 @@ git commit -am "feat(abort): tool executor early-exits when aborted"
 ### Task 8: Make compact_messages interruptible
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs` (around line 1432)
 
 - [ ] **Step 1: Find compact's stream loop**
@@ -505,6 +513,7 @@ git commit -am "feat(abort): compact_messages is now interruptible"
 ### Task 9: Call cleanup_orphan_tool_uses after abort
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs`
 
 - [ ] **Step 1: Locate all abort exit points in run_query_loop**
@@ -543,6 +552,7 @@ git commit -am "feat(abort): cleanup orphan tool_use after user abort"
 ### Task 10: End-to-end abort latency test
 
 **Files:**
+
 - Create: `baoclaw-core/tests/abort_latency_test.rs`
 
 - [ ] **Step 1: Write integration test**
@@ -593,6 +603,7 @@ git tag -a abort-v1 -m "Deep abort propagation shipped"
 ## Self-Review Notes
 
 **Spec coverage:**
+
 - ✅ Stream abort — Tasks 3, 4
 - ✅ Tool abort (WebFetch/WebSearch) — Tasks 5, 6
 - ✅ Executor early-exit — Task 7

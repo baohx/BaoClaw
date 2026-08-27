@@ -5,8 +5,8 @@
 
 use std::path::Path;
 
-use super::types::ConflictInfo;
 use super::pr::GitIntegrationError;
+use super::types::ConflictInfo;
 use crate::utils::command::run_command_async;
 
 /// Manages merge/rebase conflict detection and resolution.
@@ -45,8 +45,12 @@ impl ConflictResolver {
 
         let mut conflicts = Vec::new();
         for file in &files {
-            let ours = Self::get_conflict_content(file, "ours").await.unwrap_or_default();
-            let theirs = Self::get_conflict_content(file, "theirs").await.unwrap_or_default();
+            let ours = Self::get_conflict_content(file, "ours")
+                .await
+                .unwrap_or_default();
+            let theirs = Self::get_conflict_content(file, "theirs")
+                .await
+                .unwrap_or_default();
             conflicts.push(ConflictInfo {
                 file: file.to_string(),
                 ours,
@@ -216,11 +220,8 @@ line5
 ";
         std::fs::write(&file_path, content).unwrap();
 
-        let ours = ConflictResolver::parse_conflict_markers(
-            file_path.to_str().unwrap(),
-            "ours",
-        )
-        .unwrap();
+        let ours =
+            ConflictResolver::parse_conflict_markers(file_path.to_str().unwrap(), "ours").unwrap();
         assert_eq!(ours.trim(), "our change");
     }
 
@@ -239,11 +240,9 @@ line5
 ";
         std::fs::write(&file_path, content).unwrap();
 
-        let theirs = ConflictResolver::parse_conflict_markers(
-            file_path.to_str().unwrap(),
-            "theirs",
-        )
-        .unwrap();
+        let theirs =
+            ConflictResolver::parse_conflict_markers(file_path.to_str().unwrap(), "theirs")
+                .unwrap();
         assert_eq!(theirs.trim(), "their change");
     }
 
@@ -263,6 +262,10 @@ line5
     #[tokio::test]
     async fn test_detect_conflicts_no_repo() {
         let tmp = tempfile::tempdir().unwrap();
+        let _cwd_guard = match super::super::CWD_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // a sibling test panicked; recover and still restore cwd
+        };
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 

@@ -53,8 +53,8 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
     prev[0] = true;
 
     // Handle leading *s
-    for i in 0..p_len {
-        if pattern_bytes[i] == b'*' {
+    for &b in pattern_bytes.iter().take(p_len) {
+        if b == b'*' {
             prev[0] = true;
         } else {
             break;
@@ -80,9 +80,7 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
             if pattern_bytes[i - 1] == b'*' {
                 // * matches zero chars (dp[i-1][j]) or one more char (dp[i][j-1])
                 dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
-            } else if pattern_bytes[i - 1].to_ascii_lowercase()
-                == text_bytes[j - 1].to_ascii_lowercase()
-            {
+            } else if pattern_bytes[i - 1].eq_ignore_ascii_case(&text_bytes[j - 1]) {
                 dp[i][j] = dp[i - 1][j - 1];
             }
         }
@@ -92,11 +90,7 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
 }
 
 /// Check if a permission rule matches the given tool name and input description.
-fn matches_rule(
-    rule: &PermissionRule,
-    tool_name: &str,
-    input_description: Option<&str>,
-) -> bool {
+fn matches_rule(rule: &PermissionRule, tool_name: &str, input_description: Option<&str>) -> bool {
     // Tool name must match (case-insensitive)
     if !rule.tool_name.eq_ignore_ascii_case(tool_name) {
         return false;
@@ -112,9 +106,7 @@ fn matches_rule(
 
 fn is_read_only_tool(tool_name: &str) -> bool {
     let read_only_patterns = ["Read", "Grep", "Glob", "Search"];
-    read_only_patterns
-        .iter()
-        .any(|p| tool_name.contains(p))
+    read_only_patterns.iter().any(|p| tool_name.contains(p))
 }
 
 fn find_matching_rule_in_map(
@@ -184,10 +176,7 @@ impl PermissionManager {
                 return PermissionResult::Allow;
             }
             return PermissionResult::Ask {
-                message: format!(
-                    "Tool '{}' requires permission in Plan mode",
-                    tool_name
-                ),
+                message: format!("Tool '{}' requires permission in Plan mode", tool_name),
             };
         }
 
@@ -225,7 +214,6 @@ impl PermissionManager {
             });
     }
 }
-
 
 #[cfg(test)]
 mod tests {

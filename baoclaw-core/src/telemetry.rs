@@ -10,24 +10,12 @@
 //! referencing `crate::telemetry::*` continues to work.
 
 // Re-export everything from the canonical engine::telemetry module.
-pub use crate::engine::telemetry::{
-    TelemetryCollector, TelemetryExporter, TrendAnalyzer,
-    DailyStats, SessionSnapshot, ToolUsageStat, Trend, TrendDirection, UsageStats,
-};
 
 // Also re-export the sub-modules for deep-import compatibility.
-pub mod collector {
-    pub use crate::engine::telemetry::collector::*;
-}
-pub mod export {
-    pub use crate::engine::telemetry::export::*;
-}
-pub mod trends {
-    pub use crate::engine::telemetry::trends::*;
-}
-pub mod types {
-    pub use crate::engine::telemetry::types::*;
-}
+pub mod collector {}
+pub mod export {}
+pub mod trends {}
+pub mod types {}
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

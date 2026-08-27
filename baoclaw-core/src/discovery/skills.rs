@@ -51,7 +51,9 @@ async fn scan_plugin_skills(plugins_dir: &Path) -> Result<Vec<SkillInfo>, std::i
     let mut skills = Vec::new();
     let mut entries = fs::read_dir(plugins_dir).await?;
     while let Some(entry) = entries.next_entry().await? {
-        if !entry.file_type().await?.is_dir() { continue; }
+        if !entry.file_type().await?.is_dir() {
+            continue;
+        }
         let plugin_name = entry.file_name().to_string_lossy().to_string();
         let skills_subdir = entry.path().join("skills");
         let source = format!("plugin:{}", plugin_name);
@@ -137,7 +139,6 @@ async fn read_skill_description(path: &Path) -> Option<String> {
 fn dirs_path() -> Option<PathBuf> {
     std::env::var("HOME").ok().map(PathBuf::from)
 }
-
 
 /// Load skill list (names + descriptions only) into system prompt.
 /// Full skill content is loaded on demand via the Skill tool.

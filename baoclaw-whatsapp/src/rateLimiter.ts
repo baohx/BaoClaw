@@ -40,7 +40,7 @@ export class RateLimiter {
     const cutoff = now - this.windowMs;
     const timestamps = this.windows.get(sender);
     if (!timestamps) return this.maxMessages;
-    const active = timestamps.filter(t => t > cutoff);
+    const active = timestamps.filter((t) => t > cutoff);
     return Math.max(0, this.maxMessages - active.length);
   }
 }

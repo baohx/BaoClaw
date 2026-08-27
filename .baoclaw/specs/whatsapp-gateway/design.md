@@ -29,18 +29,18 @@ baoclaw-whatsapp/src/
 ```typescript
 // commands.ts
 interface Command {
-  name: string;           // 命令名，如 "tools"
-  description: string;    // 帮助描述
-  usage?: string;         // 用法示例
+  name: string; // 命令名，如 "tools"
+  description: string; // 帮助描述
+  usage?: string; // 用法示例
   handler: (ctx: CommandContext) => Promise<string | void>;
 }
 
 interface CommandContext {
   ipcClient: IpcClient;
-  args: string;           // 命令参数
-  sender: string;         // 发送者电话号码
-  jid: string;            // WhatsApp JID
-  sock: any;              // Baileys socket
+  args: string; // 命令参数
+  sender: string; // 发送者电话号码
+  jid: string; // WhatsApp JID
+  sock: any; // Baileys socket
 }
 
 const COMMAND_REGISTRY: Map<string, Command> = new Map();
@@ -58,7 +58,7 @@ const COMMAND_REGISTRY: Map<string, Command> = new Map();
 
 ### D-1.3: 命令格式化原则
 
-- WhatsApp 格式限制：支持 *bold*、_italic_、```code```、~strikethrough~
+- WhatsApp 格式限制：支持 _bold_、_italic_、`code`、~~strikethrough~~
 - 表格用等宽文本模拟（代码块包裹）
 - 列表用 WhatsApp 有序/无序列表
 - 截断超长输出（单条消息上限 65536 字符，实际控制在 4000 字符以内便于手机阅读）
@@ -78,15 +78,15 @@ const COMMAND_REGISTRY: Map<string, Command> = new Map();
 ```typescript
 // senderTracker.ts
 interface SenderState {
-  jid: string;                          // 回复目标 JID
-  isGroup: boolean;                     // 是否群聊
-  responseAccumulator: string;          // 响应文本累加
-  pendingPermission: PermissionRequest | null;  // 待处理权限请求
-  messageCount: number;                 // 已处理消息计数
+  jid: string; // 回复目标 JID
+  isGroup: boolean; // 是否群聊
+  responseAccumulator: string; // 响应文本累加
+  pendingPermission: PermissionRequest | null; // 待处理权限请求
+  messageCount: number; // 已处理消息计数
 }
 
 class SenderTracker {
-  private senders = new Map<string, SenderState>();  // phone → state
+  private senders = new Map<string, SenderState>(); // phone → state
 
   // 注册/更新 sender 的 JID
   registerSender(phone: string, jid: string, isGroup: boolean): void;
@@ -105,12 +105,14 @@ class SenderTracker {
 ### D-2.2: 流程改造
 
 **Inbound**（收消息时）：
+
 ```typescript
 // 注册 sender → jid 映射
 senderTracker.registerSender(senderPhone, jid, isGroup);
 ```
 
 **Outbound**（发消息时）：
+
 ```typescript
 // 从 tracker 获取正确的 jid，不再硬编码
 const state = senderTracker.getState(sender);
@@ -146,6 +148,7 @@ const jid = state?.jid ?? fallbackJid;
 ### D-3.2: 消息格式
 
 权限请求消息：
+
 ```
 🔐 *权限请求*
 工具: read_file
@@ -174,17 +177,21 @@ class MediaHandler {
   async downloadMedia(sock: any, msg: any): Promise<MediaFile | null>;
 
   // 处理文档消息（PDF/DOCX）
-  async handleDocument(sock: any, msg: any, ipcClient: IpcClient): Promise<string | null>;
+  async handleDocument(
+    sock: any,
+    msg: any,
+    ipcClient: IpcClient,
+  ): Promise<string | null>;
 
   // 处理图片消息
   async handleImage(sock: any, msg: any): Promise<string | null>;
 }
 
 interface MediaFile {
-  path: string;          // 本地文件路径
-  mimeType: string;      // MIME 类型
-  fileName: string;      // 原始文件名
-  size: number;          // 文件大小（字节）
+  path: string; // 本地文件路径
+  mimeType: string; // MIME 类型
+  fileName: string; // 原始文件名
+  size: number; // 文件大小（字节）
 }
 ```
 
@@ -209,6 +216,7 @@ interface MediaFile {
 ### D-4.3: 媒体发送
 
 当 daemon 响应中包含文件路径时（通过 `tool_result` 或 `result` 中的特殊标记）：
+
 - 图片文件（.png/.jpg/.webp）→ WhatsApp 图片消息
 - 其他文件 → WhatsApp 文档消息
 
@@ -287,17 +295,18 @@ async connect(info: DaemonInfo): Promise<IpcClient> {
 
 当前 `formatter.ts` 只处理 bold/italic/code。增强后处理：
 
-| Markdown | WhatsApp |
-|----------|----------|
-| `\| table \|` | ```代码块包裹的等宽文本``` |
-| `## heading` | *bold heading* |
-| `- [x] task` | ✅ task / ☐ task |
-| `> quote` | > quote（WhatsApp 原生支持） |
+| Markdown      | WhatsApp                       |
+| ------------- | ------------------------------ |
+| `\| table \|` | `代码块包裹的等宽文本`         |
+| `## heading`  | _bold heading_                 |
+| `- [x] task`  | ✅ task / ☐ task               |
+| `> quote`     | > quote（WhatsApp 原生支持）   |
 | `[link](url)` | url（WhatsApp 不支持内联链接） |
 
 ### D-7.2: 长消息分片
 
 当前 `splitMessage` 按 4096 分片。改为：
+
 - 首选在 `\n\n`（段落边界）处分割
 - 次选在 `\n`（行边界）处分割
 - 最后按 4000 字符硬切（预留安全余量）
@@ -361,14 +370,14 @@ private async reconnectDaemon(sock: any, attempt: number = 1): Promise<void> {
 
 ### D-9.2: 新增字段默认值
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `maxQueueSize` | 100 | 每人消息队列上限 |
-| `permissionTimeoutMs` | 60000 | 权限请求超时 |
-| `reconnectMaxMs` | 300000 | 最大重连等待 |
-| `sharedSessionId` | "whatsapp" | 共享会话 ID |
-| `mediaEnabled` | true | 是否启用媒体处理 |
-| `mediaMaxSizeMb` | 50 | 最大媒体文件大小 |
+| 字段                  | 默认值     | 说明             |
+| --------------------- | ---------- | ---------------- |
+| `maxQueueSize`        | 100        | 每人消息队列上限 |
+| `permissionTimeoutMs` | 60000      | 权限请求超时     |
+| `reconnectMaxMs`      | 300000     | 最大重连等待     |
+| `sharedSessionId`     | "whatsapp" | 共享会话 ID      |
+| `mediaEnabled`        | true       | 是否启用媒体处理 |
+| `mediaMaxSizeMb`      | 50         | 最大媒体文件大小 |
 
 ---
 

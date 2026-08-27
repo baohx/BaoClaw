@@ -45,7 +45,12 @@ fn default_enabled() -> bool {
 
 impl Hook {
     /// Create a new hook with the given ID, trigger, and action.
-    pub fn new(id: impl Into<String>, name: impl Into<String>, trigger: TriggerType, action: Action) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        trigger: TriggerType,
+        action: Action,
+    ) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
@@ -148,23 +153,20 @@ impl HookManagerConfig {
     /// Load configuration from a file.
     pub fn load(path: &PathBuf) -> Self {
         match std::fs::read_to_string(path) {
-            Ok(content) => {
-                match serde_json::from_str(&content) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        eprintln!("Failed to parse hooks config: {}", e);
-                        Self::default()
-                    }
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(config) => config,
+                Err(e) => {
+                    eprintln!("Failed to parse hooks config: {}", e);
+                    Self::default()
                 }
-            }
+            },
             Err(_) => Self::default(),
         }
     }
 
     /// Save configuration to a file.
     pub fn save(&self, path: &PathBuf) -> Result<(), std::io::Error> {
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let content = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(path, content)
     }
 }
@@ -236,7 +238,11 @@ impl HookManager {
 
         let config = HookManagerConfig::load(&config_path);
         if !config.hooks.is_empty() {
-            eprintln!("Loaded {} hooks from {}", config.hooks.len(), config_path.display());
+            eprintln!(
+                "Loaded {} hooks from {}",
+                config.hooks.len(),
+                config_path.display()
+            );
         }
 
         Self {
@@ -273,7 +279,13 @@ impl HookManager {
 
     /// Get a hook by ID.
     pub async fn get_hook(&self, id: &str) -> Option<Hook> {
-        self.config.read().await.hooks.iter().find(|h| h.id == id).cloned()
+        self.config
+            .read()
+            .await
+            .hooks
+            .iter()
+            .find(|h| h.id == id)
+            .cloned()
     }
 
     /// Add a hook.
@@ -376,7 +388,11 @@ impl HookManager {
 
     /// Process hooks for a given trigger type and context.
     /// Returns the result of processing.
-    pub async fn process(&self, trigger_type: TriggerType, ctx: TriggerContext) -> HookProcessingResult {
+    pub async fn process(
+        &self,
+        trigger_type: TriggerType,
+        ctx: TriggerContext,
+    ) -> HookProcessingResult {
         let config = self.config.read().await;
         let executor = self.executor.read().await;
 
@@ -386,7 +402,7 @@ impl HookManager {
             .iter()
             .filter(|h| h.matches(&trigger_type, &ctx))
             .collect();
-        matching_hooks.sort_by(|a, b| b.priority.cmp(&a.priority));
+        matching_hooks.sort_by_key(|a| std::cmp::Reverse(a.priority));
 
         let mut result = HookProcessingResult::default();
 
@@ -482,8 +498,8 @@ impl Default for HookManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::actions::ActionType;
+    use super::*;
 
     #[test]
     fn test_hook_new() {
@@ -591,7 +607,10 @@ mod tests {
 
         // Verify action
         assert_eq!(hook.action.action_type, ActionType::RunCommand);
-        assert_eq!(hook.action.command, Some("npm run lint --fix {file}".to_string()));
+        assert_eq!(
+            hook.action.command,
+            Some("npm run lint --fix {file}".to_string())
+        );
         assert_eq!(hook.action.timeout_secs, 30);
     }
 
@@ -643,7 +662,8 @@ mod tests {
             ]
         }"#;
 
-        let config: HookManagerConfig = serde_json::from_str(json).expect("Failed to deserialize config");
+        let config: HookManagerConfig =
+            serde_json::from_str(json).expect("Failed to deserialize config");
         assert_eq!(config.hooks.len(), 3);
 
         // Verify first hook
@@ -683,9 +703,17 @@ mod tests {
         ];
 
         for (json_str, expected) in trigger_types {
-            let json = format!(r#"{{"id":"test","name":"Test","trigger":"{}","action":{{"type":"run_command","command":"echo"}}}}"#, json_str);
-            let hook: Hook = serde_json::from_str(&json).expect(&format!("Failed to parse trigger: {}", json_str));
-            assert_eq!(hook.trigger, expected, "Trigger type mismatch for: {}", json_str);
+            let json = format!(
+                r#"{{"id":"test","name":"Test","trigger":"{}","action":{{"type":"run_command","command":"echo"}}}}"#,
+                json_str
+            );
+            let hook: Hook = serde_json::from_str(&json)
+                .expect(&format!("Failed to parse trigger: {}", json_str));
+            assert_eq!(
+                hook.trigger, expected,
+                "Trigger type mismatch for: {}",
+                json_str
+            );
         }
     }
 
@@ -717,17 +745,28 @@ mod tests {
         // Create a test config
         let config = HookManagerConfig {
             hooks: vec![
-                Hook::new("hook1", "Hook 1", TriggerType::FileEdited, Action::run_command("cmd1"))
-                    .with_filter(Filter::file_pattern("*.ts"))
-                    .with_priority(100),
-                Hook::new("hook2", "Hook 2", TriggerType::ToolResult, Action::ask_agent("prompt")),
+                Hook::new(
+                    "hook1",
+                    "Hook 1",
+                    TriggerType::FileEdited,
+                    Action::run_command("cmd1"),
+                )
+                .with_filter(Filter::file_pattern("*.ts"))
+                .with_priority(100),
+                Hook::new(
+                    "hook2",
+                    "Hook 2",
+                    TriggerType::ToolResult,
+                    Action::ask_agent("prompt"),
+                ),
             ],
             max_concurrent: 3,
             continue_on_error: true,
         };
 
         // Save to temp file
-        let temp_path = std::env::temp_dir().join(format!("test-hooks-config-{}.json", uuid::Uuid::new_v4()));
+        let temp_path =
+            std::env::temp_dir().join(format!("test-hooks-config-{}.json", uuid::Uuid::new_v4()));
         config.save(&temp_path).expect("Failed to save config");
 
         // Load from file
@@ -773,7 +812,10 @@ mod tests {
 
         // Try to remove non-existent hook
         let removed = manager.remove_hook("non-existent").await;
-        assert!(!removed, "remove_hook should return false when hook doesn't exist");
+        assert!(
+            !removed,
+            "remove_hook should return false when hook doesn't exist"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&test_path);
@@ -790,11 +832,15 @@ mod tests {
             "Disabled Hook",
             TriggerType::FileEdited,
             Action::run_command("echo test"),
-        ).with_enabled(false);
+        )
+        .with_enabled(false);
         manager.add_hook(hook).await.expect("Failed to add hook");
 
         // Verify it's disabled
-        let hook = manager.get_hook("disabled-hook").await.expect("Hook should exist");
+        let hook = manager
+            .get_hook("disabled-hook")
+            .await
+            .expect("Hook should exist");
         assert!(!hook.enabled, "Hook should be disabled");
 
         // Enable the hook
@@ -802,12 +848,18 @@ mod tests {
         assert!(enabled, "enable_hook should return true when hook exists");
 
         // Verify it's enabled
-        let hook = manager.get_hook("disabled-hook").await.expect("Hook should exist");
+        let hook = manager
+            .get_hook("disabled-hook")
+            .await
+            .expect("Hook should exist");
         assert!(hook.enabled, "Hook should now be enabled");
 
         // Try to enable non-existent hook
         let enabled = manager.enable_hook("non-existent").await;
-        assert!(!enabled, "enable_hook should return false when hook doesn't exist");
+        assert!(
+            !enabled,
+            "enable_hook should return false when hook doesn't exist"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&test_path);
@@ -828,7 +880,10 @@ mod tests {
         manager.add_hook(hook).await.expect("Failed to add hook");
 
         // Verify it's enabled
-        let hook = manager.get_hook("enabled-hook").await.expect("Hook should exist");
+        let hook = manager
+            .get_hook("enabled-hook")
+            .await
+            .expect("Hook should exist");
         assert!(hook.enabled, "Hook should be enabled");
 
         // Disable the hook
@@ -836,12 +891,18 @@ mod tests {
         assert!(disabled, "disable_hook should return true when hook exists");
 
         // Verify it's disabled
-        let hook = manager.get_hook("enabled-hook").await.expect("Hook should exist");
+        let hook = manager
+            .get_hook("enabled-hook")
+            .await
+            .expect("Hook should exist");
         assert!(!hook.enabled, "Hook should now be disabled");
 
         // Try to disable non-existent hook
         let disabled = manager.disable_hook("non-existent").await;
-        assert!(!disabled, "disable_hook should return false when hook doesn't exist");
+        assert!(
+            !disabled,
+            "disable_hook should return false when hook doesn't exist"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&test_path);
@@ -862,24 +923,44 @@ mod tests {
         manager.add_hook(hook).await.expect("Failed to add hook");
 
         // Verify it's enabled
-        let hook = manager.get_hook("toggle-hook").await.expect("Hook should exist");
+        let hook = manager
+            .get_hook("toggle-hook")
+            .await
+            .expect("Hook should exist");
         assert!(hook.enabled, "Hook should start enabled");
 
         // Toggle to disabled
         let new_state = manager.toggle_hook("toggle-hook").await;
-        assert_eq!(new_state, Some(false), "toggle_hook should return new state (false)");
-        let hook = manager.get_hook("toggle-hook").await.expect("Hook should exist");
+        assert_eq!(
+            new_state,
+            Some(false),
+            "toggle_hook should return new state (false)"
+        );
+        let hook = manager
+            .get_hook("toggle-hook")
+            .await
+            .expect("Hook should exist");
         assert!(!hook.enabled, "Hook should be disabled after toggle");
 
         // Toggle back to enabled
         let new_state = manager.toggle_hook("toggle-hook").await;
-        assert_eq!(new_state, Some(true), "toggle_hook should return new state (true)");
-        let hook = manager.get_hook("toggle-hook").await.expect("Hook should exist");
+        assert_eq!(
+            new_state,
+            Some(true),
+            "toggle_hook should return new state (true)"
+        );
+        let hook = manager
+            .get_hook("toggle-hook")
+            .await
+            .expect("Hook should exist");
         assert!(hook.enabled, "Hook should be enabled after second toggle");
 
         // Try to toggle non-existent hook
         let new_state = manager.toggle_hook("non-existent").await;
-        assert_eq!(new_state, None, "toggle_hook should return None when hook doesn't exist");
+        assert_eq!(
+            new_state, None,
+            "toggle_hook should return None when hook doesn't exist"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&test_path);
@@ -895,8 +976,18 @@ mod tests {
         assert!(hooks.is_empty(), "Should start with no hooks");
 
         // Add multiple hooks
-        let hook1 = Hook::new("hook1", "Hook 1", TriggerType::FileEdited, Action::run_command("cmd1"));
-        let hook2 = Hook::new("hook2", "Hook 2", TriggerType::FileCreated, Action::run_command("cmd2"));
+        let hook1 = Hook::new(
+            "hook1",
+            "Hook 1",
+            TriggerType::FileEdited,
+            Action::run_command("cmd1"),
+        );
+        let hook2 = Hook::new(
+            "hook2",
+            "Hook 2",
+            TriggerType::FileCreated,
+            Action::run_command("cmd2"),
+        );
         manager.add_hook(hook1).await.expect("Failed to add hook1");
         manager.add_hook(hook2).await.expect("Failed to add hook2");
 
@@ -919,7 +1010,8 @@ mod tests {
             "Specific Hook",
             TriggerType::FileEdited,
             Action::run_command("echo test"),
-        ).with_priority(50);
+        )
+        .with_priority(50);
         manager.add_hook(hook).await.expect("Failed to add hook");
 
         // Get the hook by ID
@@ -949,13 +1041,15 @@ mod tests {
             "File Edited Hook",
             TriggerType::FileEdited,
             Action::ask_agent("File was edited: {file}"),
-        ).with_filter(Filter::file_pattern("*.ts"));
+        )
+        .with_filter(Filter::file_pattern("*.ts"));
         let hook2 = Hook::new(
             "tool-result-hook",
             "Tool Result Hook",
             TriggerType::ToolResult,
             Action::ask_agent("Tool was called"),
-        ).with_filter(Filter::tool_name("Bash"));
+        )
+        .with_filter(Filter::tool_name("Bash"));
 
         manager.add_hook(hook1).await.expect("Failed to add hook1");
         manager.add_hook(hook2).await.expect("Failed to add hook2");
@@ -964,7 +1058,11 @@ mod tests {
         let ctx = TriggerContext::file_edited("src/main.ts", "/project");
         let result = manager.process(TriggerType::FileEdited, ctx).await;
         assert_eq!(result.triggered_count, 1, "Should trigger 1 hook");
-        assert_eq!(result.pending_actions.len(), 1, "Should have 1 pending action");
+        assert_eq!(
+            result.pending_actions.len(),
+            1,
+            "Should have 1 pending action"
+        );
         assert!(result.pending_actions[0].prompt.contains("src/main.ts"));
 
         // Trigger with file_edited for non-matching file - should not trigger
@@ -997,13 +1095,17 @@ mod tests {
             "Disabled Hook",
             TriggerType::FileEdited,
             Action::ask_agent("This should not trigger"),
-        ).with_enabled(false);
+        )
+        .with_enabled(false);
         manager.add_hook(hook).await.expect("Failed to add hook");
 
         // Trigger - should not match because hook is disabled
         let ctx = TriggerContext::file_edited("src/main.ts", "/project");
         let result = manager.process(TriggerType::FileEdited, ctx).await;
-        assert_eq!(result.triggered_count, 0, "Disabled hook should not trigger");
+        assert_eq!(
+            result.triggered_count, 0,
+            "Disabled hook should not trigger"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&test_path);
@@ -1020,19 +1122,22 @@ mod tests {
             "Low Priority",
             TriggerType::FileEdited,
             Action::ask_agent("Low"),
-        ).with_priority(10);
+        )
+        .with_priority(10);
         let hook2 = Hook::new(
             "high-priority",
             "High Priority",
             TriggerType::FileEdited,
             Action::ask_agent("High"),
-        ).with_priority(100);
+        )
+        .with_priority(100);
         let hook3 = Hook::new(
             "medium-priority",
             "Medium Priority",
             TriggerType::FileEdited,
             Action::ask_agent("Medium"),
-        ).with_priority(50);
+        )
+        .with_priority(50);
 
         manager.add_hook(hook1).await.expect("Failed to add hook1");
         manager.add_hook(hook2).await.expect("Failed to add hook2");
@@ -1060,7 +1165,8 @@ mod tests {
             "Regex Hook",
             TriggerType::ToolResult,
             Action::run_command("echo matched"),
-        ).with_filter(Filter::tool_name("Bash").with_regex("git commit"));
+        )
+        .with_filter(Filter::tool_name("Bash").with_regex("git commit"));
 
         // Should match - tool is Bash and input contains "git commit"
         let ctx = TriggerContext::tool_result("Bash", "git commit -m 'test'", "output");
@@ -1095,20 +1201,32 @@ mod tests {
             "Updated Name",
             TriggerType::FileCreated,
             Action::run_command("updated"),
-        ).with_priority(200);
+        )
+        .with_priority(200);
         let result = manager.update_hook(updated_hook).await;
         assert!(result.is_ok(), "update_hook should succeed");
 
         // Verify the update
-        let hook = manager.get_hook("update-hook").await.expect("Hook should exist");
+        let hook = manager
+            .get_hook("update-hook")
+            .await
+            .expect("Hook should exist");
         assert_eq!(hook.name, "Updated Name");
         assert_eq!(hook.trigger, TriggerType::FileCreated);
         assert_eq!(hook.priority, 200);
 
         // Try to update non-existent hook
-        let non_existent = Hook::new("non-existent", "Name", TriggerType::FileEdited, Action::run_command("cmd"));
+        let non_existent = Hook::new(
+            "non-existent",
+            "Name",
+            TriggerType::FileEdited,
+            Action::run_command("cmd"),
+        );
         let result = manager.update_hook(non_existent).await;
-        assert!(result.is_err(), "update_hook should fail for non-existent hook");
+        assert!(
+            result.is_err(),
+            "update_hook should fail for non-existent hook"
+        );
 
         // Cleanup
         let _ = std::fs::remove_file(&test_path);

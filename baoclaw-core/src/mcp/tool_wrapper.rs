@@ -37,8 +37,11 @@ impl Tool for McpToolWrapper {
             schema_type: schema["type"].as_str().unwrap_or("object").to_string(),
             properties: schema.get("properties").cloned(),
             required: schema.get("required").and_then(|v| {
-                v.as_array()
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                v.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
             }),
             description: Some(self.tool_def.description.clone()),
         }
@@ -118,34 +121,22 @@ mod tests {
 
     #[test]
     fn test_wrapper_name() {
-        let wrapper = McpToolWrapper::new(
-            test_client(),
-            test_tool_def(),
-            "test-server".to_string(),
-        );
+        let wrapper =
+            McpToolWrapper::new(test_client(), test_tool_def(), "test-server".to_string());
         assert_eq!(wrapper.name(), "read_file");
     }
 
     #[test]
     fn test_wrapper_prompt() {
-        let wrapper = McpToolWrapper::new(
-            test_client(),
-            test_tool_def(),
-            "test-server".to_string(),
-        );
-        assert_eq!(
-            wrapper.prompt(),
-            "[MCP:test-server] Read a file from disk"
-        );
+        let wrapper =
+            McpToolWrapper::new(test_client(), test_tool_def(), "test-server".to_string());
+        assert_eq!(wrapper.prompt(), "[MCP:test-server] Read a file from disk");
     }
 
     #[test]
     fn test_wrapper_input_schema_conversion() {
-        let wrapper = McpToolWrapper::new(
-            test_client(),
-            test_tool_def(),
-            "test-server".to_string(),
-        );
+        let wrapper =
+            McpToolWrapper::new(test_client(), test_tool_def(), "test-server".to_string());
         let schema = wrapper.input_schema();
         assert_eq!(schema.schema_type, "object");
         assert!(schema.properties.is_some());
@@ -170,11 +161,7 @@ mod tests {
                 }
             }),
         };
-        let wrapper = McpToolWrapper::new(
-            test_client(),
-            tool_def,
-            "srv".to_string(),
-        );
+        let wrapper = McpToolWrapper::new(test_client(), tool_def, "srv".to_string());
         let schema = wrapper.input_schema();
         assert_eq!(schema.required, None);
     }
@@ -186,11 +173,7 @@ mod tests {
             description: "Ping server".to_string(),
             input_schema: serde_json::json!({}),
         };
-        let wrapper = McpToolWrapper::new(
-            test_client(),
-            tool_def,
-            "srv".to_string(),
-        );
+        let wrapper = McpToolWrapper::new(test_client(), tool_def, "srv".to_string());
         let schema = wrapper.input_schema();
         assert_eq!(schema.schema_type, "object");
         assert_eq!(schema.properties, None);
@@ -199,21 +182,15 @@ mod tests {
 
     #[test]
     fn test_wrapper_is_not_read_only() {
-        let wrapper = McpToolWrapper::new(
-            test_client(),
-            test_tool_def(),
-            "test-server".to_string(),
-        );
+        let wrapper =
+            McpToolWrapper::new(test_client(), test_tool_def(), "test-server".to_string());
         assert!(!wrapper.is_read_only(&Value::Null));
     }
 
     #[test]
     fn test_wrapper_is_not_concurrency_safe() {
-        let wrapper = McpToolWrapper::new(
-            test_client(),
-            test_tool_def(),
-            "test-server".to_string(),
-        );
+        let wrapper =
+            McpToolWrapper::new(test_client(), test_tool_def(), "test-server".to_string());
         assert!(!wrapper.is_concurrency_safe(&Value::Null));
     }
 }

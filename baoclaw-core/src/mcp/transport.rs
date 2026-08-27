@@ -165,11 +165,7 @@ impl StdioTransport {
     }
 
     /// Send a JSON-RPC notification (no id, no response expected).
-    pub async fn notify(
-        &mut self,
-        method: &str,
-        params: Option<Value>,
-    ) -> Result<(), McpError> {
+    pub async fn notify(&mut self, method: &str, params: Option<Value>) -> Result<(), McpError> {
         let notification = serde_json::json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -253,7 +249,8 @@ mod tests {
 
     #[test]
     fn test_json_rpc_response_deserialization_error() {
-        let json = r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#;
+        let json =
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#;
         let resp: McpJsonRpcResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.id, Some(2));
         assert!(resp.result.is_none());

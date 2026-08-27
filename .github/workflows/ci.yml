@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [master]
+    tags: ["v*.*.*"]
   pull_request:
     branches: [master]
 
@@ -18,6 +19,7 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
         with:
           components: clippy, rustfmt
 
@@ -62,3 +64,145 @@ jobs:
 
       - name: Cargo test
         run: cargo test --manifest-path baoclaw-core/Cargo.toml -- --test-threads=2
+
+  platform-smoke:
+    name: "Platform smoke (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Record platform context
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          {
+            echo "runner_os=${{ runner.os }}"
+            echo "runner_arch=${{ runner.arch }}"
+            rustc --version
+            cargo --version
+          } > artifacts/platform-context.txt
+
+      - name: Cargo check
+        run: cargo check --manifest-path baoclaw-core/Cargo.toml
+
+      - name: Platform-safe tests
+        run: cargo test --manifest-path baoclaw-core/Cargo.toml --lib -- --test-threads=2
+
+      - name: Upload platform context
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-context-${{ matrix.os }}
+          path: artifacts/platform-context.txt
+
+  release-build:
+    name: "Release build"
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Verify release version
+        shell: bash
+        run: |
+          cargo_version=$(cargo metadata --manifest-path baoclaw-core/Cargo.toml --no-deps --format-version 1 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).packages[0].version))')
+          package_version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')
+          tag_version="${GITHUB_REF_NAME#v}"
+          test "$cargo_version" = "$package_version"
+          test "$cargo_version" = "$tag_version"
+
+      - name: Build release binary
+        run: cargo build --manifest-path baoclaw-core/Cargo.toml --release --locked
+
+      - name: Write artifact metadata
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          {
+            echo "version=${GITHUB_REF_NAME#v}"
+            echo "commit=${GITHUB_SHA}"
+            echo "platform=$(uname -s)-$(uname -m)"
+            rustc --version
+            cargo --version
+          } > artifacts/release-metadata.txt
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: baoclaw-core-${{ github.ref_name }}-${{ github.sha }}
+          path: |
+            baoclaw-core/target/release/baoclaw-core
+            artifacts/release-metadata.txt
+
+  ts-check:
+    name: "TypeScript Typecheck + Lint + Test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install package dependencies
+        run: |
+          npm ci --prefix ts-ipc
+          npm ci --prefix baoclaw-feishu
+          npm ci --prefix baoclaw-whatsapp
+          npm ci --prefix baoclaw-telegram
+
+      - name: Typecheck ts-ipc
+        run: npm exec --prefix ts-ipc -- tsc --noEmit -p ts-ipc/tsconfig.json
+
+      - name: Typecheck Feishu gateway
+        run: npm exec --prefix baoclaw-feishu -- tsc --noEmit -p baoclaw-feishu/tsconfig.json
+
+      - name: Typecheck WhatsApp gateway
+        run: npm exec --prefix baoclaw-whatsapp -- tsc --noEmit -p baoclaw-whatsapp/tsconfig.json
+
+      - name: Typecheck Telegram gateway
+        run: npm exec --prefix baoclaw-telegram -- tsc --noEmit -p baoclaw-telegram/tsconfig.json
+
+      - name: ESLint
+        run: npx eslint . --ext .ts,.tsx
+
+      - name: WhatsApp tests
+        run: npm exec --prefix baoclaw-whatsapp -- tsx --test 'baoclaw-whatsapp/src/**/*.test.ts'
+
+      - name: ts-ipc tests
+        run: npm exec --prefix ts-ipc -- tsx --test 'ts-ipc/src/**/*.test.ts' 'ts-ipc/*.test.ts'
+
+      - name: Feishu tests
+        run: npm exec --prefix baoclaw-feishu -- tsx --test 'baoclaw-feishu/src/**/*.test.ts'
+
+      - name: Telegram tests
+        run: npm exec --prefix baoclaw-telegram -- tsx --test 'baoclaw-telegram/src/**/*.test.ts'
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

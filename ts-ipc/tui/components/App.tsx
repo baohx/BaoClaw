@@ -1,16 +1,27 @@
-import React, { useReducer, useEffect, useState, useCallback, useRef } from 'react';
-import { Box, useApp, useInput, Text } from 'ink';
-import { IpcClient } from '../../client.js';
-import StatusBar from './StatusBar.js';
-import MessageList from './MessageList.js';
-import StreamOutput from './StreamOutput.js';
-import InputArea from './InputArea.js';
-import HelpOverlay from './HelpOverlay.js';
-import ToolsPanel from './ToolsPanel.js';
-import { reducer, INITIAL_STATE, createUserMessage, createAssistantMessage } from '../state.js';
-import { subscribeToEvents, sendMessage } from '../ipc.js';
-import { colors } from '../theme.js';
-import { ContentBlock } from '../types.js';
+import React, {
+  useReducer,
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
+import { Box, useApp, useInput, Text } from "ink";
+import { IpcClient } from "../../client.js";
+import StatusBar from "./StatusBar.js";
+import MessageList from "./MessageList.js";
+import StreamOutput from "./StreamOutput.js";
+import InputArea from "./InputArea.js";
+import HelpOverlay from "./HelpOverlay.js";
+import ToolsPanel from "./ToolsPanel.js";
+import {
+  reducer,
+  INITIAL_STATE,
+  createUserMessage,
+  createAssistantMessage,
+} from "../state.js";
+import { subscribeToEvents, sendMessage } from "../ipc.js";
+import { colors } from "../theme.js";
+import { ContentBlock } from "../types.js";
 
 interface AppProps {
   client: IpcClient;
@@ -21,18 +32,18 @@ export const App: React.FC<AppProps> = ({ client, model }) => {
   const [state, dispatch] = useReducer(reducer, {
     ...INITIAL_STATE,
     session: {
-      id: 'init',
+      id: "init",
       model,
-      status: 'idle' as const,
+      status: "idle" as const,
     },
   });
   const [showHelp, setShowHelp] = useState(false);
   const { exit } = useApp();
-  
+
   // Use ref to track streaming content for the result handler
-  const streamingContentRef = useRef('');
-  const thinkingContentRef = useRef('');
-  
+  const streamingContentRef = useRef("");
+  const thinkingContentRef = useRef("");
+
   // Update refs when state changes
   useEffect(() => {
     streamingContentRef.current = state.streamingContent;
@@ -50,29 +61,27 @@ export const App: React.FC<AppProps> = ({ client, model }) => {
   useEffect(() => {
     const handler = (params: unknown) => {
       const p = params as { type?: string; status?: string };
-      
+
       // Only add message if we have streaming content
       const content = streamingContentRef.current.trim();
       const thinking = thinkingContentRef.current.trim();
-      
+
       if (content) {
-        const blocks: ContentBlock[] = [
-          { type: 'text', content }
-        ];
+        const blocks: ContentBlock[] = [{ type: "text", content }];
         if (thinking) {
-          blocks.unshift({ type: 'thinking', content: thinking });
+          blocks.unshift({ type: "thinking", content: thinking });
         }
         const msg = createAssistantMessage(blocks);
-        dispatch({ type: 'ADD_MESSAGE', payload: msg });
+        dispatch({ type: "ADD_MESSAGE", payload: msg });
       }
-      
+
       // Reset streaming state
-      dispatch({ type: 'SET_STREAMING', payload: false });
+      dispatch({ type: "SET_STREAMING", payload: false });
     };
 
-    const unsub = client.onNotification('stream/event', (params) => {
+    const unsub = client.onNotification("stream/event", (params) => {
       const p = params as { type?: string };
-      if (p.type === 'result') {
+      if (p.type === "result") {
         handler(params);
       }
     });
@@ -81,45 +90,40 @@ export const App: React.FC<AppProps> = ({ client, model }) => {
 
   // Handle help toggle
   useInput((input, key) => {
-    if (key.ctrl && input === 'h') {
-      setShowHelp(h => !h);
+    if (key.ctrl && input === "h") {
+      setShowHelp((h) => !h);
     }
   });
 
-  const handleSubmit = useCallback(async (text: string) => {
-    // Add user message
-    const userMsg = createUserMessage(text);
-    dispatch({ type: 'ADD_MESSAGE', payload: userMsg });
-    dispatch({ type: 'SET_STREAMING', payload: true });
+  const handleSubmit = useCallback(
+    async (text: string) => {
+      // Add user message
+      const userMsg = createUserMessage(text);
+      dispatch({ type: "ADD_MESSAGE", payload: userMsg });
+      dispatch({ type: "SET_STREAMING", payload: true });
 
-    try {
-      await sendMessage(client, text);
-    } catch (err) {
-      const error = err as Error;
-      dispatch({ type: 'SET_ERROR', payload: error.message });
-    }
-  }, [client]);
+      try {
+        await sendMessage(client, text);
+      } catch (err) {
+        const error = err as Error;
+        dispatch({ type: "SET_ERROR", payload: error.message });
+      }
+    },
+    [client],
+  );
 
   const handleInputChange = useCallback((text: string) => {
-    dispatch({ type: 'SET_INPUT', payload: text });
+    dispatch({ type: "SET_INPUT", payload: text });
   }, []);
 
   return (
-    <Box 
-      flexDirection="column" 
-      width="100%"
-      height="100%"
-      padding={1}
-    >
+    <Box flexDirection="column" width="100%" height="100%" padding={1}>
       {/* Status bar */}
-      <StatusBar 
-        session={state.session}
-        isStreaming={state.isStreaming}
-      />
+      <StatusBar session={state.session} isStreaming={state.isStreaming} />
 
       {/* Messages area */}
-      <Box 
-        flexGrow={1} 
+      <Box
+        flexGrow={1}
         flexDirection="column"
         borderStyle="round"
         borderColor={colors.border}
@@ -143,10 +147,12 @@ export const App: React.FC<AppProps> = ({ client, model }) => {
 
         {/* Error display */}
         {state.error && (
-          <Box borderStyle="round" borderColor={colors.status.error} padding={1}>
-            <Text color={colors.status.error}>
-              Error: {state.error}
-            </Text>
+          <Box
+            borderStyle="round"
+            borderColor={colors.status.error}
+            padding={1}
+          >
+            <Text color={colors.status.error}>Error: {state.error}</Text>
           </Box>
         )}
       </Box>
@@ -160,10 +166,7 @@ export const App: React.FC<AppProps> = ({ client, model }) => {
       />
 
       {/* Help overlay */}
-      <HelpOverlay 
-        visible={showHelp} 
-        onClose={() => setShowHelp(false)} 
-      />
+      <HelpOverlay visible={showHelp} onClose={() => setShowHelp(false)} />
     </Box>
   );
 };

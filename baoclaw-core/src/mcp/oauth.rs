@@ -17,6 +17,12 @@ pub struct OAuthToken {
     pub server_name: String,
 }
 
+impl Default for McpOAuthManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl McpOAuthManager {
     /// Create a new manager with default token store at ~/.baoclaw/mcp-auth/
     pub fn new() -> Self {
@@ -26,12 +32,16 @@ impl McpOAuthManager {
             .unwrap_or_default()
             .join(".baoclaw")
             .join("mcp-auth");
-        Self { token_store_dir: dir }
+        Self {
+            token_store_dir: dir,
+        }
     }
 
     /// Create with a custom token store directory (for testing).
     pub fn with_dir(dir: PathBuf) -> Self {
-        Self { token_store_dir: dir }
+        Self {
+            token_store_dir: dir,
+        }
     }
 
     /// Get a stored token for the given server.
@@ -48,8 +58,7 @@ impl McpOAuthManager {
         let path = self
             .token_store_dir
             .join(format!("{}.json", token.server_name));
-        let json = serde_json::to_string_pretty(token)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let json = serde_json::to_string_pretty(token).map_err(std::io::Error::other)?;
 
         // Write file with restricted permissions on Unix
         #[cfg(unix)]
@@ -60,7 +69,7 @@ impl McpOAuthManager {
             use std::io::Write;
             let mut file = opts.open(&path)?;
             file.write_all(json.as_bytes())?;
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(not(unix))]
@@ -122,7 +131,10 @@ mod tests {
 
         let loaded = manager.get_token("my-server").unwrap();
         assert_eq!(loaded.access_token, "test-access-token-123");
-        assert_eq!(loaded.refresh_token, Some("test-refresh-token-456".to_string()));
+        assert_eq!(
+            loaded.refresh_token,
+            Some("test-refresh-token-456".to_string())
+        );
         assert_eq!(loaded.server_name, "my-server");
     }
 

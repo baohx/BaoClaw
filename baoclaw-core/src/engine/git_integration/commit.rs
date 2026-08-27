@@ -170,6 +170,10 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_git_repo_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
+        let _cwd_guard = match super::super::CWD_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // a sibling test panicked; recover and still restore cwd
+        };
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
@@ -193,6 +197,10 @@ mod tests {
     #[tokio::test]
     async fn test_history_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
+        let _cwd_guard = match super::super::CWD_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // a sibling test panicked; recover and still restore cwd
+        };
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
@@ -205,6 +213,10 @@ mod tests {
     #[tokio::test]
     async fn test_blame_in_non_repo() {
         let tmp = tempfile::tempdir().unwrap();
+        let _cwd_guard = match super::super::CWD_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // a sibling test panicked; recover and still restore cwd
+        };
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
@@ -271,6 +283,10 @@ mod tests {
             .current_dir(tmp.path())
             .output();
 
+        let _cwd_guard = match super::super::CWD_LOCK.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(), // a sibling test panicked; recover and still restore cwd
+        };
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
 
@@ -288,7 +304,11 @@ mod tests {
                     .unwrap();
                 let log_stdout = String::from_utf8(log.stdout).unwrap();
                 let count = log_stdout.lines().count();
-                assert_eq!(count, 1, "Expected 1 commit after squash, got: {}", log_stdout);
+                assert_eq!(
+                    count, 1,
+                    "Expected 1 commit after squash, got: {}",
+                    log_stdout
+                );
             }
             Err(_) => {
                 // In some git versions, soft reset with HEAD~N when N >= total commits

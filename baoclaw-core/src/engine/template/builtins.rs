@@ -12,13 +12,7 @@ use super::types::{Template, Variable, WorkflowAction, WorkflowStep};
 /// All built-in templates (lazy-initialized via functions because
 /// Rust const evaluation cannot allocate Vec/HashMap).
 pub fn builtin_templates() -> Vec<Template> {
-    vec![
-        code_review(),
-        bug_fix(),
-        feature(),
-        docs(),
-        refactor(),
-    ]
+    vec![code_review(), bug_fix(), feature(), docs(), refactor()]
 }
 
 fn code_review() -> Template {

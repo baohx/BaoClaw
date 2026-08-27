@@ -62,13 +62,13 @@ BaoClaw 权限系统由以下组件组成（分层设计）：
 
 ### 文件清单
 
-| 文件 | 职责 |
-|------|------|
-| `baoclaw-core/src/permissions/manager.rs` | `PermissionManager` + `PermissionMode` + `PermissionRule` + glob 匹配 |
-| `baoclaw-core/src/permissions/gate.rs` | `PermissionGate` (pending 请求队列 + oneshot channel) + `PermissionDecision` |
-| `baoclaw-core/src/tools/executor.rs` | `ToolExecutor` — 工具执行流水线，调用 PermissionManager + PermissionGate |
-| `baoclaw-core/src/engine/permission_gate/gate.rs` | `RuleBasedPermissionGate` — 引擎级规则策略 + 缓存 |
-| `baoclaw-core/src/engine/security.rs` | 危险命令阻断、SSRF 防护、内容验证 |
+| 文件                                              | 职责                                                                         |
+| ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `baoclaw-core/src/permissions/manager.rs`         | `PermissionManager` + `PermissionMode` + `PermissionRule` + glob 匹配        |
+| `baoclaw-core/src/permissions/gate.rs`            | `PermissionGate` (pending 请求队列 + oneshot channel) + `PermissionDecision` |
+| `baoclaw-core/src/tools/executor.rs`              | `ToolExecutor` — 工具执行流水线，调用 PermissionManager + PermissionGate     |
+| `baoclaw-core/src/engine/permission_gate/gate.rs` | `RuleBasedPermissionGate` — 引擎级规则策略 + 缓存                            |
+| `baoclaw-core/src/engine/security.rs`             | 危险命令阻断、SSRF 防护、内容验证                                            |
 
 ---
 
@@ -85,12 +85,12 @@ pub enum PermissionMode {
 }
 ```
 
-| 模式 | 读操作 | 写操作 | deny 规则 |
-|------|--------|--------|-----------|
-| Default | Ask (除非 allow 规则匹配) | Ask | ✅ 强制阻断 |
-| Plan | Allow (Read/Grep/Glob/Search) | Ask | ✅ 强制阻断 |
-| BypassPermissions | Allow | Allow | ✅ 强制阻断 |
-| Auto | (预留) | (预留) | ✅ 强制阻断 |
+| 模式              | 读操作                        | 写操作 | deny 规则   |
+| ----------------- | ----------------------------- | ------ | ----------- |
+| Default           | Ask (除非 allow 规则匹配)     | Ask    | ✅ 强制阻断 |
+| Plan              | Allow (Read/Grep/Glob/Search) | Ask    | ✅ 强制阻断 |
+| BypassPermissions | Allow                         | Allow  | ✅ 强制阻断 |
+| Auto              | (预留)                        | (预留) | ✅ 强制阻断 |
 
 ### PermissionRule
 
@@ -175,7 +175,7 @@ Step 6: 默认 → Ask
 fn matches_rule(rule: &PermissionRule, tool_name: &str, input_description: Option<&str>) -> bool {
     // 1. 工具名大小写不敏感匹配
     if !rule.tool_name.eq_ignore_ascii_case(tool_name) { return false; }
-    
+
     // 2. 如果规则有 content 模式，输入描述必须匹配 glob
     match (&rule.rule_content, input_description) {
         (Some(pattern), Some(desc)) => glob_matches(pattern, desc),
@@ -187,13 +187,13 @@ fn matches_rule(rule: &PermissionRule, tool_name: &str, input_description: Optio
 
 ### API 方法
 
-| 方法 | 说明 |
-|------|------|
-| `new(context: ToolPermissionContext)` | 创建 manager |
-| `check_permission(tool_name, input_desc) -> PermissionResult` | 核心检查方法 |
-| `update_context(FnOnce(&mut ctx))` | 用闭包更新上下文 |
-| `get_context() -> ToolPermissionContext` | 获取上下文快照 |
-| `add_allow_always_rule(source, tool_name, rule_content)` | 添加 allow 规则 |
+| 方法                                                          | 说明             |
+| ------------------------------------------------------------- | ---------------- |
+| `new(context: ToolPermissionContext)`                         | 创建 manager     |
+| `check_permission(tool_name, input_desc) -> PermissionResult` | 核心检查方法     |
+| `update_context(FnOnce(&mut ctx))`                            | 用闭包更新上下文 |
+| `get_context() -> ToolPermissionContext`                      | 获取上下文快照   |
+| `add_allow_always_rule(source, tool_name, rule_content)`      | 添加 allow 规则  |
 
 ---
 
@@ -248,12 +248,12 @@ let decision = match tokio::time::timeout(Duration::from_secs(300), rx).await {
 
 ### API 方法
 
-| 方法 | 说明 |
-|------|------|
-| `new()` | 创建空 gate |
+| 方法                                                   | 说明                                |
+| ------------------------------------------------------ | ----------------------------------- |
+| `new()`                                                | 创建空 gate                         |
 | `request(tool_use_id) -> Receiver<PermissionDecision>` | 注册 pending 请求，返回等待 channel |
-| `respond(tool_use_id, decision) -> bool` | 提交用户决策，返回是否成功投递 |
-| `pending_count() -> usize` | 当前 pending 请求数 |
+| `respond(tool_use_id, decision) -> bool`               | 提交用户决策，返回是否成功投递      |
+| `pending_count() -> usize`                             | 当前 pending 请求数                 |
 
 ---
 
@@ -293,10 +293,10 @@ let decision = match tokio::time::timeout(Duration::from_secs(300), rx).await {
 
 ### 两条执行路径
 
-| 函数 | 用途 | 权限检查方式 |
-|------|------|-------------|
-| `execute_tool()` | 简单路径（批量执行） | 只检查 Tool trait 的 `check_permissions` |
-| `execute_tool_with_permission()` | 完整路径（带 PermissionManager + Gate） | PermissionManager → Gate 交互式 |
+| 函数                             | 用途                                    | 权限检查方式                             |
+| -------------------------------- | --------------------------------------- | ---------------------------------------- |
+| `execute_tool()`                 | 简单路径（批量执行）                    | 只检查 Tool trait 的 `check_permissions` |
+| `execute_tool_with_permission()` | 完整路径（带 PermissionManager + Gate） | PermissionManager → Gate 交互式          |
 
 ---
 
@@ -308,19 +308,19 @@ let decision = match tokio::time::timeout(Duration::from_secs(300), rx).await {
 
 ### 内置默认规则
 
-| 工具 | 模式 | 策略 |
-|------|------|------|
-| FileRead | `*` | ✅ Always Allow |
-| FileWrite | `*.env`, `.git/*`, `*/.ssh/*` | ❌ Auto Deny |
-| FileWrite | `*.md` | ✅ Allow |
-| FileWrite | `*` (其他) | ❓ Require Confirmation |
-| Bash | `rm -rf /`, `sudo `, `chmod 777`, `dd if=`, `mkfs.`, `> /dev/sd` | ❌ Auto Deny |
-| Bash | `git status`, `git diff`, `ls `, `cat `, `grep `, `find `, `pwd` | ✅ Allow |
-| Bash | `*` (其他) | ❓ Require Confirmation |
-| FileDelete / FileEdit | `*` | ❓ Require Confirmation |
-| WebFetch | `localhost:*`, `127.*`, `10.*` | ❌ Auto Deny |
-| WebFetch | `*` (外部) | ❓ Require Confirmation |
-| WebSearch | `*` | ✅ Allow |
+| 工具                  | 模式                                                             | 策略                    |
+| --------------------- | ---------------------------------------------------------------- | ----------------------- |
+| FileRead              | `*`                                                              | ✅ Always Allow         |
+| FileWrite             | `*.env`, `.git/*`, `*/.ssh/*`                                    | ❌ Auto Deny            |
+| FileWrite             | `*.md`                                                           | ✅ Allow                |
+| FileWrite             | `*` (其他)                                                       | ❓ Require Confirmation |
+| Bash                  | `rm -rf /`, `sudo `, `chmod 777`, `dd if=`, `mkfs.`, `> /dev/sd` | ❌ Auto Deny            |
+| Bash                  | `git status`, `git diff`, `ls `, `cat `, `grep `, `find `, `pwd` | ✅ Allow                |
+| Bash                  | `*` (其他)                                                       | ❓ Require Confirmation |
+| FileDelete / FileEdit | `*`                                                              | ❓ Require Confirmation |
+| WebFetch              | `localhost:*`, `127.*`, `10.*`                                   | ❌ Auto Deny            |
+| WebFetch              | `*` (外部)                                                       | ❓ Require Confirmation |
+| WebSearch             | `*`                                                              | ✅ Allow                |
 
 ### 缓存决策类型
 
@@ -441,21 +441,19 @@ Security 模块提供了三层额外的安全防护（独立于 PermissionManage
     "additional_working_directories": {},
     "always_allow_rules": {
       "builtin": [
-        {"tool_name": "Read", "rule_content": null},
-        {"tool_name": "Bash", "rule_content": "git status"},
-        {"tool_name": "Bash", "rule_content": "git diff *"}
+        { "tool_name": "Read", "rule_content": null },
+        { "tool_name": "Bash", "rule_content": "git status" },
+        { "tool_name": "Bash", "rule_content": "git diff *" }
       ]
     },
     "always_deny_rules": {
       "builtin": [
-        {"tool_name": "Bash", "rule_content": "rm -rf *"},
-        {"tool_name": "Bash", "rule_content": "sudo *"}
+        { "tool_name": "Bash", "rule_content": "rm -rf *" },
+        { "tool_name": "Bash", "rule_content": "sudo *" }
       ]
     },
     "always_ask_rules": {
-      "builtin": [
-        {"tool_name": "Bash", "rule_content": "*"}
-      ]
+      "builtin": [{ "tool_name": "Bash", "rule_content": "*" }]
     }
   }
 }

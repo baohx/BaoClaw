@@ -21,6 +21,7 @@
 ### Task 1: Add TurnStart/TurnEnd variants to EngineEvent
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs`
 
 - [ ] **Step 1: Find EngineEvent enum**
@@ -71,6 +72,7 @@ git commit -am "feat(events): add TurnStart and TurnEnd event variants"
 ### Task 2: Emit TurnStart/TurnEnd from run_query_loop
 
 **Files:**
+
 - Modify: `baoclaw-core/src/engine/query_engine.rs`
 
 - [ ] **Step 1: Locate the turn boundary in run_query_loop**
@@ -162,6 +164,7 @@ git commit -am "feat(events): emit TurnStart/TurnEnd around each agent turn"
 ### Task 3: AgentTool propagates parent turn id
 
 **Files:**
+
 - Modify: `baoclaw-core/src/tools/builtins/agent_tool.rs`
 
 - [ ] **Step 1: Find where AgentTool spawns its sub-engine**
@@ -201,6 +204,7 @@ git commit -am "feat(events): AgentTool propagates parent turn id and label"
 ### Task 4: CLI — track turn stack
 
 **Files:**
+
 - Modify: `ts-ipc/cli.ts`
 
 - [ ] **Step 1: Find the stream/event handler**
@@ -223,10 +227,12 @@ type TurnInfo = {
   start: number;
 };
 const turnStack: TurnInfo[] = [];
-function turnDepth(): number { return turnStack.length; }
+function turnDepth(): number {
+  return turnStack.length;
+}
 function turnPrefix(): string {
-  if (turnStack.length === 0) return '';
-  return turnStack.map(() => '│ ').join('');
+  if (turnStack.length === 0) return "";
+  return turnStack.map(() => "│ ").join("");
 }
 ```
 
@@ -287,6 +293,7 @@ git commit -am "feat(cli): render TurnStart/TurnEnd as nested boxes"
 ### Task 5: CLI — indent existing tool/text events by turn depth
 
 **Files:**
+
 - Modify: `ts-ipc/cli.ts`
 
 - [ ] **Step 1: Add prefix to formatToolUse output**
@@ -302,7 +309,10 @@ console.log(turnPrefix() + formatToolUse(tu.tool_name, tu.input));
 Find the `case 'tool_result':` block (around line 786). Modify the `console.log(formatToolResult(...))` line:
 
 ```ts
-console.log(turnPrefix() + formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input));
+console.log(
+  turnPrefix() +
+    formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input),
+);
 ```
 
 - [ ] **Step 3: Add prefix to assistant text flush**
@@ -311,9 +321,9 @@ Find where `process.stdout.write(`\\n${FG_ORANGE}${BOLD}BaoClaw${RESET}\\n`)` ha
 
 ```ts
 process.stdout.write(`\n${turnPrefix()}${FG_ORANGE}${BOLD}BaoClaw${RESET}\n`);
-const renderedLines = renderMarkdown(currentText).split('\n');
-process.stdout.write(renderedLines.map(l => turnPrefix() + l).join('\n'));
-process.stdout.write('\n');
+const renderedLines = renderMarkdown(currentText).split("\n");
+process.stdout.write(renderedLines.map((l) => turnPrefix() + l).join("\n"));
+process.stdout.write("\n");
 ```
 
 - [ ] **Step 4: Compile-check**
@@ -335,6 +345,7 @@ git commit -am "feat(cli): indent tool calls and text by turn depth"
 ### Task 6: Add /verbose command for log level toggling
 
 **Files:**
+
 - Modify: `ts-ipc/cli.ts`
 
 - [ ] **Step 1: Add verbose state**
@@ -342,8 +353,9 @@ git commit -am "feat(cli): indent tool calls and text by turn depth"
 At the top of `main()`, near the other state variables (after `const turnStack: TurnInfo[] = [];`), add:
 
 ```ts
-type LogLevel = 'quiet' | 'normal' | 'verbose' | 'debug';
-let logLevel: LogLevel = (process.env.BAOCLAW_LOG_LEVEL as LogLevel) || 'verbose';
+type LogLevel = "quiet" | "normal" | "verbose" | "debug";
+let logLevel: LogLevel =
+  (process.env.BAOCLAW_LOG_LEVEL as LogLevel) || "verbose";
 ```
 
 - [ ] **Step 2: Add /verbose command handler**
@@ -351,13 +363,13 @@ let logLevel: LogLevel = (process.env.BAOCLAW_LOG_LEVEL as LogLevel) || 'verbose
 Find where other slash commands are handled (search for `if (input === '/clear')`). Add a new branch:
 
 ```ts
-if (input.startsWith('/verbose')) {
-  const arg = input.slice('/verbose'.length).trim();
-  if (arg === '' || arg === 'help') {
+if (input.startsWith("/verbose")) {
+  const arg = input.slice("/verbose".length).trim();
+  if (arg === "" || arg === "help") {
     console.log(`${DIM}Current log level: ${logLevel}${RESET}`);
     console.log(`${DIM}Levels: quiet | normal | verbose | debug${RESET}`);
     console.log(`${DIM}Usage: /verbose <level>${RESET}`);
-  } else if (['quiet', 'normal', 'verbose', 'debug'].includes(arg)) {
+  } else if (["quiet", "normal", "verbose", "debug"].includes(arg)) {
     logLevel = arg as LogLevel;
     console.log(`${FG_GREEN}✓ Log level set to ${logLevel}${RESET}`);
   } else {
@@ -373,18 +385,24 @@ if (input.startsWith('/verbose')) {
 In the `tool_result` case, replace:
 
 ```ts
-console.log(turnPrefix() + formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input));
+console.log(
+  turnPrefix() +
+    formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input),
+);
 ```
 
 with:
 
 ```ts
-if (logLevel === 'quiet') {
+if (logLevel === "quiet") {
   // skip tool results in quiet mode
-} else if (logLevel === 'normal' && !tr.is_error) {
+} else if (logLevel === "normal" && !tr.is_error) {
   // normal mode shows only error results, skip success
 } else {
-  console.log(turnPrefix() + formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input));
+  console.log(
+    turnPrefix() +
+      formatToolResult(tr.output, tr.is_error, toolInfo?.name, toolInfo?.input),
+  );
 }
 ```
 
@@ -409,6 +427,7 @@ git commit -am "feat(cli): add /verbose command for log level filtering"
 ### Task 7: Status footer with token/cost meters
 
 **Files:**
+
 - Modify: `ts-ipc/cli.ts`
 
 - [ ] **Step 1: Add session-cumulative state**
@@ -435,7 +454,7 @@ In the `case 'result':` block (find it via `grep`), after the existing code, add
 
 ```ts
 const r = event as { total_cost_usd?: number };
-if (typeof r.total_cost_usd === 'number') {
+if (typeof r.total_cost_usd === "number") {
   cumulativeCostUsd = r.total_cost_usd;
 }
 ```
@@ -449,7 +468,7 @@ const usedTokens = cumulativeInputTokens + cumulativeOutputTokens;
 const pct = ((cumulativeInputTokens / CONTEXT_WINDOW) * 100).toFixed(0);
 const costStr = `$${cumulativeCostUsd.toFixed(4)}`;
 console.log(
-  `${DIM}┃ 🔤 ${formatTokens(cumulativeInputTokens)} / ${formatTokens(CONTEXT_WINDOW)} (${pct}%)   💰 ${costStr}   📊 ${formatTokens(usedTokens)} total${RESET}`
+  `${DIM}┃ 🔤 ${formatTokens(cumulativeInputTokens)} / ${formatTokens(CONTEXT_WINDOW)} (${pct}%)   💰 ${costStr}   📊 ${formatTokens(usedTokens)} total${RESET}`,
 );
 ```
 
@@ -472,6 +491,7 @@ git commit -am "feat(cli): status footer with token usage and cost"
 ### Task 8: Highlight special events (compact, fallback, retries)
 
 **Files:**
+
 - Modify: `ts-ipc/cli.ts`
 
 - [ ] **Step 1: Find model_fallback case**
@@ -501,12 +521,12 @@ case 'model_fallback': {
 In the `case 'progress':` block, after determining `info`, add a special check:
 
 ```ts
-const msg = String(pg.data?.message ?? '');
-if (msg.includes('Compact') || msg.includes('compact')) {
+const msg = String(pg.data?.message ?? "");
+if (msg.includes("Compact") || msg.includes("compact")) {
   stopSpinner();
-  console.log('');
+  console.log("");
   console.log(`${FG_CYAN}━━━━━ 📦 ${msg} ━━━━━${RESET}`);
-  console.log('');
+  console.log("");
   return;
 }
 ```
@@ -553,7 +573,7 @@ Expected output (stylised):
 │  │  📄 read  baoclaw-core/src/engine/query_engine.rs
 │  │  ✓ 2,951 lines
 │  └─ Turn 1 done  1 tools, 2.4s, 12.3K tokens
-│  
+│
 │  BaoClaw
 │  The query_engine.rs file...
 └─ Turn 1 done  1 tools, 18.2s, 15.7K tokens
@@ -580,6 +600,7 @@ git tag -a visibility-v1 -m "Turn-grouped CLI visibility shipped"
 ## Self-Review Notes
 
 **Spec coverage:**
+
 - ✅ Turn nesting → Tasks 1-3 (Rust events) + 4-5 (CLI render)
 - ✅ Information density levels → Task 6 (`/verbose`)
 - ✅ Token/cost dashboard → Task 7

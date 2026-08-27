@@ -105,11 +105,8 @@ mod tests {
     async fn test_wait_for_abort_ignores_false_dropped_sender() {
         let (tx, rx) = watch::channel(false);
         drop(tx); // dropped with value=false
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            wait_for_abort(rx),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(50), wait_for_abort(rx)).await;
         assert!(result.is_err(), "should have timed out (not aborted)");
     }
 
@@ -170,7 +167,7 @@ mod tests {
         let fixed = cleanup_orphan_tool_uses(&mut msgs);
         assert_eq!(fixed, 1);
         assert_eq!(msgs.len(), 2); // original + synthetic user
-        // Verify the synthetic message is a user message
+                                   // Verify the synthetic message is a user message
         assert!(matches!(msgs[1].content, MessageContent::User { .. }));
     }
 

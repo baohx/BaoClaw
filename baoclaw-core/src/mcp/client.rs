@@ -84,12 +84,9 @@ impl McpClient {
 
     /// Connect via stdio transport: spawn child process, handshake, refresh tools.
     pub async fn connect_stdio(&mut self) -> Result<(), McpError> {
-        let transport = StdioTransport::spawn(
-            &self.config.command,
-            &self.config.args,
-            &self.config.env,
-        )
-        .await?;
+        let transport =
+            StdioTransport::spawn(&self.config.command, &self.config.args, &self.config.env)
+                .await?;
 
         self.transport = Some(Arc::new(RwLock::new(transport)));
         *self.status.write().await = McpConnectionStatus::Connected;
@@ -104,21 +101,32 @@ impl McpClient {
         let mut t = transport.write().await;
 
         let result = t.request("tools/list", None).await?;
-        eprintln!("MCP tools/list raw result keys: {:?}", result.as_object().map(|o| o.keys().collect::<Vec<_>>()));
-        
+        eprintln!(
+            "MCP tools/list raw result keys: {:?}",
+            result.as_object().map(|o| o.keys().collect::<Vec<_>>())
+        );
+
         // Try parsing each tool individually to find which ones fail
         if let Some(tools_array) = result["tools"].as_array() {
             eprintln!("MCP tools/list has {} raw tool entries", tools_array.len());
             for (i, tool_val) in tools_array.iter().enumerate() {
                 match serde_json::from_value::<McpToolDef>(tool_val.clone()) {
                     Ok(td) => eprintln!("  tool[{}] OK: {}", i, td.name),
-                    Err(e) => eprintln!("  tool[{}] PARSE ERROR: {} — keys: {:?}", i, e, tool_val.as_object().map(|o| o.keys().collect::<Vec<_>>())),
+                    Err(e) => eprintln!(
+                        "  tool[{}] PARSE ERROR: {} — keys: {:?}",
+                        i,
+                        e,
+                        tool_val.as_object().map(|o| o.keys().collect::<Vec<_>>())
+                    ),
                 }
             }
         } else {
-            eprintln!("MCP tools/list 'tools' is not an array: {:?}", result["tools"]);
+            eprintln!(
+                "MCP tools/list 'tools' is not an array: {:?}",
+                result["tools"]
+            );
         }
-        
+
         let tool_defs: Vec<McpToolDef> =
             serde_json::from_value(result["tools"].clone()).unwrap_or_default();
         eprintln!("MCP tools/list parsed {} tool defs", tool_defs.len());

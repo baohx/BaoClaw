@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 /// Resolve and validate a file path, preventing path traversal attacks.
 /// Returns the normalized path.
 ///
-/// - Absolute paths are allowed unconditionally (the caller has full control).
-/// - Relative paths are resolved against `cwd` and must stay within the
-///   working directory boundaries (cwd + additional_dirs) to prevent `..` escapes.
+/// - Both absolute and relative paths must stay within the allowed
+///   working directory boundaries (cwd + additional_dirs) to prevent `..` escapes
+///   and unauthorized filesystem traversal.
 pub fn resolve_and_validate_path(
     path: &str,
     cwd: &Path,
@@ -17,15 +17,11 @@ pub fn resolve_and_validate_path(
 
     let raw = Path::new(path);
 
-    // Absolute paths: normalize and allow directly
-    if raw.is_absolute() {
-        let normalized = normalize_path(raw);
-        return Ok(normalized);
-    }
-
-    // Relative paths: resolve against cwd, then check boundaries
-    let absolute = cwd.join(raw);
-    let normalized = normalize_path(&absolute);
+    let normalized = if raw.is_absolute() {
+        normalize_path(raw)
+    } else {
+        normalize_path(&cwd.join(raw))
+    };
 
     if !is_within_boundaries(&normalized, cwd, additional_dirs) {
         return Err(format!(
@@ -34,7 +30,38 @@ pub fn resolve_and_validate_path(
         ));
     }
 
+    if contains_symlink_escape(&normalized, cwd, additional_dirs) {
+        return Err(format!(
+            "Path '{}' resolves through a symlink outside the allowed working directories",
+            path
+        ));
+    }
+
     Ok(normalized)
+}
+
+fn contains_symlink_escape(path: &Path, cwd: &Path, additional_dirs: &[PathBuf]) -> bool {
+    let candidate = if path.exists() {
+        path.to_path_buf()
+    } else {
+        match path.parent().and_then(|parent| parent.canonicalize().ok()) {
+            Some(parent) => parent.join(path.file_name().unwrap_or_default()),
+            None => return false,
+        }
+    };
+
+    let resolved = match candidate.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    !is_within_canonical_boundaries(&resolved, cwd, additional_dirs)
+}
+
+fn is_within_canonical_boundaries(path: &Path, cwd: &Path, additional_dirs: &[PathBuf]) -> bool {
+    let roots = std::iter::once(cwd).chain(additional_dirs.iter().map(PathBuf::as_path));
+    roots
+        .filter_map(|root| root.canonicalize().ok())
+        .any(|root| path.starts_with(root))
 }
 
 /// Normalize a path by resolving `.` and `..` components lexically.
@@ -82,14 +109,20 @@ mod tests {
     fn test_resolve_simple_relative_path() {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("src/main.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/src/main.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/src/main.rs")
+        );
     }
 
     #[test]
     fn test_resolve_absolute_path_within_cwd() {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("/home/user/project/src/main.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/src/main.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/src/main.rs")
+        );
     }
 
     #[test]
@@ -101,12 +134,13 @@ mod tests {
     }
 
     #[test]
-    fn test_allow_absolute_path_outside_cwd() {
-        // Absolute paths are now allowed unconditionally
+    fn test_reject_absolute_path_outside_cwd() {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("/etc/passwd", cwd, &[]);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), PathBuf::from("/etc/passwd"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("outside the allowed working directories"));
     }
 
     #[test]
@@ -118,13 +152,14 @@ mod tests {
     }
 
     #[test]
-    fn test_allow_absolute_path_outside_additional_dirs() {
-        // Absolute paths are now allowed regardless of additional_dirs
+    fn test_reject_absolute_path_outside_additional_dirs() {
         let cwd = Path::new("/home/user/project");
         let additional = vec![PathBuf::from("/opt/shared")];
         let result = resolve_and_validate_path("/opt/other/data.txt", cwd, &additional);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), PathBuf::from("/opt/other/data.txt"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("outside the allowed working directories"));
     }
 
     #[test]
@@ -139,7 +174,10 @@ mod tests {
     fn test_resolve_path_with_dot_components() {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("./src/../src/main.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/src/main.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/src/main.rs")
+        );
     }
 
     #[test]
@@ -155,7 +193,10 @@ mod tests {
         let cwd = Path::new("/home/user/project");
         // src/../lib is still within /home/user/project
         let result = resolve_and_validate_path("src/../lib/mod.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/lib/mod.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/lib/mod.rs")
+        );
     }
 
     #[test]
@@ -164,9 +205,6 @@ mod tests {
             normalize_path(Path::new("/a/b/../c/./d")),
             PathBuf::from("/a/c/d")
         );
-        assert_eq!(
-            normalize_path(Path::new("/a/b/c")),
-            PathBuf::from("/a/b/c")
-        );
+        assert_eq!(normalize_path(Path::new("/a/b/c")), PathBuf::from("/a/b/c"));
     }
 }
