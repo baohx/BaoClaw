@@ -30,7 +30,38 @@ pub fn resolve_and_validate_path(
         ));
     }
 
+    if contains_symlink_escape(&normalized, cwd, additional_dirs) {
+        return Err(format!(
+            "Path '{}' resolves through a symlink outside the allowed working directories",
+            path
+        ));
+    }
+
     Ok(normalized)
+}
+
+fn contains_symlink_escape(path: &Path, cwd: &Path, additional_dirs: &[PathBuf]) -> bool {
+    let candidate = if path.exists() {
+        path.to_path_buf()
+    } else {
+        match path.parent().and_then(|parent| parent.canonicalize().ok()) {
+            Some(parent) => parent.join(path.file_name().unwrap_or_default()),
+            None => return false,
+        }
+    };
+
+    let resolved = match candidate.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    !is_within_canonical_boundaries(&resolved, cwd, additional_dirs)
+}
+
+fn is_within_canonical_boundaries(path: &Path, cwd: &Path, additional_dirs: &[PathBuf]) -> bool {
+    let roots = std::iter::once(cwd).chain(additional_dirs.iter().map(PathBuf::as_path));
+    roots
+        .filter_map(|root| root.canonicalize().ok())
+        .any(|root| path.starts_with(root))
 }
 
 /// Normalize a path by resolving `.` and `..` components lexically.
@@ -78,14 +109,20 @@ mod tests {
     fn test_resolve_simple_relative_path() {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("src/main.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/src/main.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/src/main.rs")
+        );
     }
 
     #[test]
     fn test_resolve_absolute_path_within_cwd() {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("/home/user/project/src/main.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/src/main.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/src/main.rs")
+        );
     }
 
     #[test]
@@ -101,7 +138,9 @@ mod tests {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("/etc/passwd", cwd, &[]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("outside the allowed working directories"));
+        assert!(result
+            .unwrap_err()
+            .contains("outside the allowed working directories"));
     }
 
     #[test]
@@ -118,7 +157,9 @@ mod tests {
         let additional = vec![PathBuf::from("/opt/shared")];
         let result = resolve_and_validate_path("/opt/other/data.txt", cwd, &additional);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("outside the allowed working directories"));
+        assert!(result
+            .unwrap_err()
+            .contains("outside the allowed working directories"));
     }
 
     #[test]
@@ -133,7 +174,10 @@ mod tests {
     fn test_resolve_path_with_dot_components() {
         let cwd = Path::new("/home/user/project");
         let result = resolve_and_validate_path("./src/../src/main.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/src/main.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/src/main.rs")
+        );
     }
 
     #[test]
@@ -149,7 +193,10 @@ mod tests {
         let cwd = Path::new("/home/user/project");
         // src/../lib is still within /home/user/project
         let result = resolve_and_validate_path("src/../lib/mod.rs", cwd, &[]);
-        assert_eq!(result.unwrap(), PathBuf::from("/home/user/project/lib/mod.rs"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/home/user/project/lib/mod.rs")
+        );
     }
 
     #[test]
@@ -158,9 +205,6 @@ mod tests {
             normalize_path(Path::new("/a/b/../c/./d")),
             PathBuf::from("/a/c/d")
         );
-        assert_eq!(
-            normalize_path(Path::new("/a/b/c")),
-            PathBuf::from("/a/b/c")
-        );
+        assert_eq!(normalize_path(Path::new("/a/b/c")), PathBuf::from("/a/b/c"));
     }
 }

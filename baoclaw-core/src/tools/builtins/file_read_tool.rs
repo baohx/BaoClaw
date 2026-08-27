@@ -6,6 +6,8 @@ use crate::tools::trait_def::*;
 
 use super::path_utils::resolve_and_validate_path;
 
+const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
 /// FileReadTool - reads file content with optional line range
 pub struct FileReadTool {
     additional_dirs: Vec<PathBuf>,
@@ -65,11 +67,7 @@ impl Tool for FileReadTool {
         "Read the contents of a file. Supports reading specific line ranges with offset and limit parameters.".to_string()
     }
 
-    async fn validate_input(
-        &self,
-        input: &Value,
-        _context: &ToolContext,
-    ) -> ValidationResult {
+    async fn validate_input(&self, input: &Value, _context: &ToolContext) -> ValidationResult {
         match input.get("file_path").and_then(|v| v.as_str()) {
             Some(p) if !p.is_empty() => ValidationResult::Ok,
             _ => ValidationResult::Invalid {
@@ -90,8 +88,10 @@ impl Tool for FileReadTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::ExecutionFailed("Missing 'file_path' field".to_string()))?;
 
-        let resolved = resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
-            .map_err(ToolError::ExecutionFailed)?;
+        let resolved =
+            resolve_and_validate_path(file_path_str, &context.cwd, &self.additional_dirs)
+                .map_err(ToolError::ExecutionFailed)?;
+        reject_oversized_file(&resolved)?;
 
         let offset = input.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let limit = input.get("limit").and_then(|v| v.as_u64());
@@ -104,13 +104,13 @@ impl Tool for FileReadTool {
                 match status {
                     crate::infra::file_cache::CacheStatus::Hit => {
                         cache.touch(&resolved);
-                        let stub = cache.build_stub(&resolved).unwrap_or_else(|| {
-                            "[File cache hit: content unchanged.]".to_string()
-                        });
+                        let stub = cache
+                            .build_stub(&resolved)
+                            .unwrap_or_else(|| "[File cache hit: content unchanged.]".to_string());
                         // Still need line_count for the response
-                        let content = tokio::fs::read_to_string(&resolved)
-                            .await
-                            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read file: {}", e)))?;
+                        let content = tokio::fs::read_to_string(&resolved).await.map_err(|e| {
+                            ToolError::ExecutionFailed(format!("Failed to read file: {}", e))
+                        })?;
                         let line_count = content.lines().count();
                         return Ok(ToolResult {
                             data: json!({
@@ -126,9 +126,9 @@ impl Tool for FileReadTool {
                     }
                     _ => {
                         // Miss or Changed — read the file and update cache
-                        let content = tokio::fs::read_to_string(&resolved)
-                            .await
-                            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read file: {}", e)))?;
+                        let content = tokio::fs::read_to_string(&resolved).await.map_err(|e| {
+                            ToolError::ExecutionFailed(format!("Failed to read file: {}", e))
+                        })?;
                         cache.record(&resolved, &content);
 
                         let lines: Vec<&str> = content.lines().collect();
@@ -185,6 +185,19 @@ impl Tool for FileReadTool {
             is_error: false,
         })
     }
+}
+
+fn reject_oversized_file(path: &std::path::Path) -> Result<(), ToolError> {
+    let size = std::fs::metadata(path)
+        .map_err(|e| ToolError::ExecutionFailed(format!("Failed to inspect file: {}", e)))?
+        .len();
+    if size > MAX_FILE_BYTES {
+        return Err(ToolError::ExecutionFailed(format!(
+            "File exceeds the {} byte safety limit",
+            MAX_FILE_BYTES
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -269,11 +282,7 @@ mod tests {
         let progress = NoopProgress;
 
         let result = tool
-            .call(
-                json!({"file_path": "nonexistent.txt"}),
-                &ctx,
-                &progress,
-            )
+            .call(json!({"file_path": "nonexistent.txt"}), &ctx, &progress)
             .await;
 
         assert!(result.is_err());
@@ -287,11 +296,7 @@ mod tests {
         let progress = NoopProgress;
 
         let result = tool
-            .call(
-                json!({"file_path": "../../etc/passwd"}),
-                &ctx,
-                &progress,
-            )
+            .call(json!({"file_path": "../../etc/passwd"}), &ctx, &progress)
             .await;
 
         assert!(result.is_err());

@@ -6,6 +6,8 @@ use tokio::fs;
 use crate::discovery::skills::discover_skills;
 use crate::tools::trait_def::*;
 
+const MAX_SKILL_BYTES: u64 = 256 * 1024;
+
 /// SkillTool — load skill content on demand at runtime.
 ///
 /// Mirrors Claude Code's Skill tool: the agent invokes it with a skill name,
@@ -26,6 +28,9 @@ impl SkillTool {
     async fn find_skill(&self, name: &str) -> Option<(String, String)> {
         // Normalize: strip leading slash
         let name = name.trim_start_matches('/');
+        if name.is_empty() || name.contains("..") || name.contains('/') || name.contains('\\') {
+            return None;
+        }
 
         let search_dirs: Vec<(PathBuf, &str)> = {
             let mut dirs = Vec::new();
@@ -41,15 +46,21 @@ impl SkillTool {
         for (dir, source) in &search_dirs {
             // Try directory format: <name>/SKILL.md
             let skill_file = dir.join(name).join("SKILL.md");
-            if skill_file.exists() {
+            if is_safe_skill_path(&skill_file, dir, true) {
                 if let Ok(content) = fs::read_to_string(&skill_file).await {
+                    if content.len() as u64 > MAX_SKILL_BYTES {
+                        return None;
+                    }
                     return Some((content, source.to_string()));
                 }
             }
             // Try flat file format: <name>.md
             let flat_file = dir.join(format!("{}.md", name));
-            if flat_file.exists() {
+            if is_safe_skill_path(&flat_file, dir, false) {
                 if let Ok(content) = fs::read_to_string(&flat_file).await {
+                    if content.len() as u64 > MAX_SKILL_BYTES {
+                        return None;
+                    }
                     return Some((content, source.to_string()));
                 }
             }
@@ -57,6 +68,27 @@ impl SkillTool {
 
         None
     }
+}
+
+fn is_safe_skill_path(
+    path: &std::path::Path,
+    root: &std::path::Path,
+    directory_format: bool,
+) -> bool {
+    match path.symlink_metadata() {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        _ => return false,
+    }
+    let target = match path.canonicalize() {
+        Ok(target) => target,
+        Err(_) => return false,
+    };
+    let root = match root.canonicalize() {
+        Ok(root) => root,
+        Err(_) => return false,
+    };
+    target.starts_with(&root)
+        && (!directory_format || path.parent().is_some_and(|parent| parent.starts_with(root)))
 }
 
 #[async_trait]
@@ -95,11 +127,7 @@ impl Tool for SkillTool {
         "Load a skill's full instructions. Use whenever a skill might apply to your task — check for matching skills before starting work. Common skills include brainstorming, test-driven-development, systematic-debugging, writing-plans, executing-plans, subagent-driven-development, using-git-worktrees, and many more. Use '__list__' to see all available skills.".to_string()
     }
 
-    async fn validate_input(
-        &self,
-        input: &Value,
-        _context: &ToolContext,
-    ) -> ValidationResult {
+    async fn validate_input(&self, input: &Value, _context: &ToolContext) -> ValidationResult {
         match input.get("skill").and_then(|v| v.as_str()) {
             Some(s) if !s.is_empty() => ValidationResult::Ok,
             _ => ValidationResult::Invalid {
@@ -126,10 +154,7 @@ impl Tool for SkillTool {
         _context: &ToolContext,
         _progress: &dyn ProgressSender,
     ) -> Result<ToolResult, ToolError> {
-        let skill_name = input
-            .get("skill")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let skill_name = input.get("skill").and_then(|v| v.as_str()).unwrap_or("");
 
         // Special: list all available skills
         if skill_name == "__list__" {
@@ -183,10 +208,18 @@ mod tests {
     #[tokio::test]
     async fn test_skill_list() {
         let tmp = tempfile::tempdir().unwrap();
-        let skills_dir = tmp.path().join(".baoclaw").join("skills").join("test-skill");
+        let skills_dir = tmp
+            .path()
+            .join(".baoclaw")
+            .join("skills")
+            .join("test-skill");
         std::fs::create_dir_all(&skills_dir).unwrap();
         let mut f = std::fs::File::create(skills_dir.join("SKILL.md")).unwrap();
-        writeln!(f, "---\ndescription: Test skill for unit tests\n---\n\n# Test Skill\n\nDo the thing.").unwrap();
+        writeln!(
+            f,
+            "---\ndescription: Test skill for unit tests\n---\n\n# Test Skill\n\nDo the thing."
+        )
+        .unwrap();
 
         // Use the tmp dir as cwd to test project-level skill discovery
         let tool = SkillTool::new(tmp.path().to_path_buf());

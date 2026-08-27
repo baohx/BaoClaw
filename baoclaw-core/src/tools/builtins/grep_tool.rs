@@ -9,6 +9,7 @@ use crate::tools::trait_def::*;
 
 /// Maximum number of grep results before truncation
 const MAX_RESULTS: usize = 500;
+const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 /// A single grep match result
 #[derive(Clone, Debug, Serialize)]
@@ -68,7 +69,8 @@ impl Tool for GrepTool {
             })),
             required: Some(vec!["pattern".to_string()]),
             description: Some(
-                "Search file contents using regex. Returns matching lines with context.".to_string(),
+                "Search file contents using regex. Returns matching lines with context."
+                    .to_string(),
             ),
         }
     }
@@ -133,9 +135,7 @@ impl Tool for GrepTool {
             )
         })
         .await
-        .map_err(|e| {
-            ToolError::ExecutionFailed(format!("Grep task panicked: {}", e))
-        })??;
+        .map_err(|e| ToolError::ExecutionFailed(format!("Grep task panicked: {}", e)))??;
 
         let truncated = matches.len() >= MAX_RESULTS;
 
@@ -195,6 +195,14 @@ pub fn grep_search(
 
         let path = entry.path();
         if !path.is_file() {
+            continue;
+        }
+
+        if path
+            .metadata()
+            .map(|metadata| metadata.len() > MAX_FILE_BYTES)
+            .unwrap_or(true)
+        {
             continue;
         }
 
